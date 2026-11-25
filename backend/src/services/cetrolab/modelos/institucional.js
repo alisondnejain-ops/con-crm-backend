@@ -497,6 +497,7 @@ export function paginaImovel(ctx, i) {
       ${i.local.linha ? `<div class="onde">${esc(i.local.linha)}</div>` : ""}
       ${specs ? `<div class="specs">${specs}</div>` : ""}
       ${i.descricao ? `<section class="bloco"><h2>Sobre o imóvel</h2><p class="texto">${esc(i.descricao)}</p></section>` : ""}
+      ${pecas.caracteristicasHtml(i, { secao: "bloco" })}
       ${pecas.secaoUnidades(i).replace('class="secao unidades"', 'class="bloco unidades"')}
       ${i.video ? `<section class="bloco"><h2>Vídeo</h2><video src="${esc(i.video)}" controls preload="metadata" playsinline></video></section>` : ""}
     </article>

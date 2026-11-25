@@ -9,6 +9,7 @@ import { guardarFotoTratada, apagarArquivosDaMidia } from "../services/fotos-imo
 import { sugestaoDeCapa } from "../services/fotos.js";
 import { caminhoDoImovel } from "../services/site.js";
 import { unidadesDo, salvarUnidades, resumoDasUnidades, MOEDAS } from "../services/unidades.js";
+import { PAGAMENTOS, GARANTIAS, CARACTERISTICAS, DETALHES, IPTU_PERIODOS, ROTULO_PAGAMENTO_CURTO } from "../services/ficha-imovel.js";
 
 /* O TIPO DE CADASTRO (CETRO 12.2, 13/11/2026). `categoria` é o que a tela
    escolhe; `tipo` (casa/terreno, com CHECK no banco) e `formato` continuam
@@ -41,15 +42,39 @@ function derivarTipo(b, anterior) {
 const r = Router();
 r.use(authRequired);
 
-// A Conecta retém 45% da comissão e repassa 55% ao corretor.
-export const SPLIT = { imobiliaria: 45, corretor: 55 };
+/* A divisão da comissão era 45/55 fixa no código — a da Conecta. Agora vale a
+   do imóvel (`comissao_corretor_pct`) e, sem ela, o padrão da conta
+   (`orgs.comissao_corretor_pct`). Sem nenhum dos dois, não há divisão: a tela
+   mostra só o total, em vez de inventar uma regra que não é a da casa. */
+function divisaoDe(p) {
+  let corretor = p.comissao_corretor_pct;
+  if (corretor == null) corretor = db.prepare("SELECT comissao_corretor_pct c FROM orgs WHERE id=?").get(p.org_id)?.c;
+  if (corretor == null || !(corretor >= 0 && corretor <= 100)) return null;
+  return { corretor, imobiliaria: Math.round((100 - corretor) * 100) / 100 };
+}
 // Quantidade de mídia por tipo de produto, como combinado com a operação.
 const LIMITES = { casa: { foto: 10, video: 1 }, terreno: { foto: 4, video: 1 } };
 
-// As três modalidades com que a Conecta trabalha. Antes era só uma caixinha
-// "Morar Bem sim/não", que não representava a operação.
-export const MODALIDADES = ["Morar Bem PE", "Minha Casa Minha Vida", "SBPE"];
-const modalidadeValida = (m) => (m && MODALIDADES.includes(m) ? m : null);
+/* As listas da ficha (services/ficha-imovel.js). Chave fora da lista é
+   descartada: a tela e o servidor leem a MESMA lista, então o que sobra só
+   pode ser um cliente antigo ou uma requisição montada à mão. */
+const lerLista = (v) => { if (Array.isArray(v)) return v; try { const x = JSON.parse(v || "[]"); return Array.isArray(x) ? x : []; } catch { return []; } };
+const CHAVES = {
+  pagamentos: new Set(PAGAMENTOS.map(x => x.v)), garantias: new Set(GARANTIAS.map(x => x.v)),
+  caracteristicas: new Set(CARACTERISTICAS.flatMap(g => g.itens.map(x => x.v))),
+};
+const listaValida = (campo, v) => [...new Set(lerLista(v).filter(x => CHAVES[campo].has(x)))];
+const lerDetalhes = (v) => { try { const x = typeof v === "string" ? JSON.parse(v || "{}") : (v || {}); return x && typeof x === "object" && !Array.isArray(x) ? x : {}; } catch { return {}; } };
+const detalhesValidos = (v) => Object.fromEntries(Object.entries(lerDetalhes(v)).filter(([k, x]) => DETALHES[k]?.opcoes[x]));
+/* `modalidade` continua existindo como TEXTO montado (site, IA e a mensagem
+   ao cliente leem dela): as condições de crédito + o programa local. Permuta e
+   veículo não entram — são negociação, não financiamento. */
+const FINANCIA = ["financiamento", "mcmv", "fgts", "direto", "consorcio"];
+function modalidadeTexto(pagamentos, programa) {
+  const partes = pagamentos.filter(x => FINANCIA.includes(x)).map(x => ROTULO_PAGAMENTO_CURTO[x]);
+  if (programa) partes.push(programa);
+  return partes.length ? partes.join(", ").slice(0, 160) : null;
+}
 
 /* Cada mídia vai à tela com o que o tratamento automático achou dela: a
    versão pequena para a miniatura (a lista do catálogo deixava de baixar a
@@ -65,13 +90,21 @@ const midiasDe = (id) => db.prepare(`SELECT id,tipo,url,ordem,variantes,avisos,n
     tratada: !!m.tratada_em && !m.tratamento_erro };
 });
 
-function comValores(p) {
+/* Nome e telefone do proprietário são da captação: veem a gestão, quem
+   cadastrou e quem captou. O resto da equipe vê o imóvel sem eles — antes o
+   nome ia na resposta para todos e só a tela escondia. */
+const veDono = (user, p) => !user || supervisiona(user) || p.created_by === user.id || p.captador_id === user.id;
+function comValores(p, user) {
   if (!p) return p;
+  if (!veDono(user, p)) p = { ...p, proprietario: null, proprietario_tel: null };
   const total = p.valor && p.comissao_pct ? (p.valor * p.comissao_pct) / 100 : null;
   const midias = midiasDe(p.id);
   return {
     ...p,
     morar_bem: !!p.morar_bem,   // mantido para não quebrar cadastro antigo
+    pagamentos: listaValida("pagamentos", p.pagamentos), garantias: listaValida("garantias", p.garantias),
+    caracteristicas: listaValida("caracteristicas", p.caracteristicas), detalhes: detalhesValidos(p.detalhes),
+    iptu_periodo: IPTU_PERIODOS[p.iptu_periodo] ? p.iptu_periodo : "anual",
     categoria: categoriaDe(p),
     moeda: MOEDAS.includes(p.moeda) ? p.moeda : "BRL",
     unidades_resumo: COM_UNIDADES.has(categoriaDe(p)) ? resumoDasUnidades(p.id) : null,
@@ -85,10 +118,9 @@ function comValores(p) {
     portal: pendencias(p, midias.filter(m => m.tipo === "foto").map(m => m.url)),
     // Endereço da página do imóvel no site da imobiliária — null com o site desligado.
     site_path: caminhoDoImovel(p.org_id, p),
-    comissao: total == null ? null : {
-      total, imobiliaria: (total * SPLIT.imobiliaria) / 100, corretor: (total * SPLIT.corretor) / 100,
-      split: SPLIT,
-    },
+    comissao: total == null ? null : (() => { const d = divisaoDe(p); return d
+      ? { total, imobiliaria: (total * d.imobiliaria) / 100, corretor: (total * d.corretor) / 100, split: d }
+      : { total, imobiliaria: null, corretor: null, split: null }; })(),
   };
 }
 
@@ -123,6 +155,7 @@ r.get("/", (req, res) => {
   if (quartos) { where.push("p.quartos >= ?"); args.push(Number(quartos)); }
   if (valor_min) { where.push("p.valor >= ?"); args.push(Number(valor_min)); }
   if (valor_max) { where.push("p.valor <= ?"); args.push(Number(valor_max)); }
+  if (req.query.pagamento && CHAVES.pagamentos.has(req.query.pagamento)) { where.push("p.pagamentos LIKE ?"); args.push(`%"${req.query.pagamento}"%`); }
   if (modalidade) { where.push("p.modalidade = ?"); args.push(modalidade); }
   // Filtro antigo, de quando só existia Morar Bem: continua funcionando para
   // links salvos por alguém antes da mudança.
@@ -130,25 +163,37 @@ r.get("/", (req, res) => {
   if (captador) { where.push("p.captador_id = ?"); args.push(captador); }
   // Busca livre: cobre título, bairro, cidade, endereço e construtora de uma vez.
   if (q) {
-    where.push("(p.titulo LIKE ? OR p.bairro LIKE ? OR p.cidade LIKE ? OR p.endereco LIKE ? OR p.construtor LIKE ?)");
-    for (let i = 0; i < 5; i++) args.push(`%${q}%`);
+    where.push("(p.titulo LIKE ? OR p.bairro LIKE ? OR p.cidade LIKE ? OR p.endereco LIKE ? OR p.construtor LIKE ? OR p.referencia LIKE ?)");
+    for (let i = 0; i < 6; i++) args.push(`%${q}%`);
   }
 
   const rows = db.prepare(`SELECT p.* FROM produtos p WHERE ${where.join(" AND ")} ORDER BY p.created_at DESC`).all(...args);
-  res.json(rows.map(comValores));
+  res.json(rows.map(p => comValores(p, req.user)));
 });
 
 r.get("/opcoes", (req, res) => {
   const lista = (campo) => db.prepare(`SELECT DISTINCT ${campo} v FROM produtos WHERE org_id=? AND ${campo} IS NOT NULL AND ${campo} <> '' ORDER BY ${campo}`)
     .all(req.user.org_id).map(x => x.v);
-  res.json({ cidades: lista("cidade"), bairros: lista("bairro"), split: SPLIT, armazenamento: modoArmazenamento(),
+  const padrao = db.prepare("SELECT comissao_corretor_pct c FROM orgs WHERE id=?").get(req.user.org_id)?.c ?? null;
+  res.json({ cidades: lista("cidade"), bairros: lista("bairro"), comissao_corretor_padrao: padrao, armazenamento: modoArmazenamento(),
     categorias: CATEGORIAS, estagios: ESTAGIOS, moedas: MOEDAS });
+});
+
+/* A parte do corretor na comissão, padrão da conta. Só a gestão define: é
+   regra de dinheiro da casa. Vazio tira a divisão (a tela mostra só o total). */
+r.patch("/config/comissao", (req, res) => {
+  if (!supervisiona(req.user) || req.user.role === "sdr") return res.status(403).json({ error: "Só a gestão define a divisão da comissão." });
+  const v = (req.body || {}).corretor_pct;
+  const n = v == null || v === "" ? null : numero(v);
+  if (n != null && !(n >= 0 && n <= 100)) return res.status(400).json({ error: "A parte do corretor vai de 0 a 100%." });
+  db.prepare("UPDATE orgs SET comissao_corretor_pct=? WHERE id=?").run(n, req.user.org_id);
+  res.json({ ok: true, comissao_corretor_padrao: n });
 });
 
 r.get("/:id", (req, res) => {
   const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
   if (!p) return res.status(404).json({ error: "Produto não encontrado" });
-  res.json(comValores(p));
+  res.json(comValores(p, req.user));
 });
 
 const limpar = (v) => (v == null || v === "" ? null : String(v).trim());
@@ -202,6 +247,35 @@ function gravarCamposCetro(id, b) {
     limpar(b.entrega) ? String(b.entrega).trim().slice(0, 40) : null, id);
 }
 
+/* A ficha completa (25/11/2026). Uma função só, chamada no cadastro e na
+   edição, como as do portal e do CETRO. */
+const texto = (v, max) => (limpar(v) ? String(v).trim().slice(0, max) : null);
+const inteiro = (v) => { const n = numero(v); return n == null ? null : Math.round(n); };
+function gravarCamposFicha(id, b) {
+  const pagamentos = listaValida("pagamentos", b.pagamentos);
+  const programa = texto(b.programa_local, 60);
+  db.prepare(`UPDATE produtos SET pagamentos=@pagamentos, programa_local=@programa_local, garantias=@garantias,
+    caracteristicas=@caracteristicas, detalhes=@detalhes, referencia=@referencia, andar=@andar, unidade_numero=@unidade_numero,
+    lavabos=@lavabos, salas=@salas, area_total=@area_total, ano_construcao=@ano_construcao, iptu_periodo=@iptu_periodo,
+    video_url=@video_url, tour_url=@tour_url, chaves_local=@chaves_local, proprietario_tel=@proprietario_tel,
+    exclusividade_ate=@exclusividade_ate, comissao_corretor_pct=@comissao_corretor_pct, modalidade=@modalidade,
+    morar_bem=@morar_bem WHERE id=@id`).run({
+    id, pagamentos: JSON.stringify(pagamentos), programa_local: programa,
+    garantias: JSON.stringify(listaValida("garantias", b.garantias)),
+    caracteristicas: JSON.stringify(listaValida("caracteristicas", b.caracteristicas)),
+    detalhes: JSON.stringify(detalhesValidos(b.detalhes)),
+    referencia: texto(b.referencia, 30), andar: inteiro(b.andar), unidade_numero: texto(b.unidade_numero, 20),
+    lavabos: inteiro(b.lavabos), salas: inteiro(b.salas), area_total: numero(b.area_total), ano_construcao: inteiro(b.ano_construcao),
+    iptu_periodo: IPTU_PERIODOS[b.iptu_periodo] ? b.iptu_periodo : "anual",
+    video_url: texto(b.video_url, 300), tour_url: texto(b.tour_url, 300), chaves_local: texto(b.chaves_local, 120),
+    proprietario_tel: limpar(b.proprietario_tel) ? String(b.proprietario_tel).replace(/[^\d+]/g, "").slice(0, 16) || null : null,
+    exclusividade_ate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.exclusividade_ate || "")) ? b.exclusividade_ate : null,
+    comissao_corretor_pct: numero(b.comissao_corretor_pct),
+    modalidade: modalidadeTexto(pagamentos, programa),
+    morar_bem: programa && /morar\s*bem/i.test(programa) ? 1 : 0,
+  });
+}
+
 function validar(b) {
   if (!["casa", "terreno"].includes(b.tipo)) return "Escolha se é casa ou terreno.";
   if (b.finalidade && !["venda", "aluguel"].includes(b.finalidade)) return "Escolha se é venda ou aluguel.";
@@ -218,6 +292,17 @@ function validar(b) {
   if (limpar(b.uf) && !/^[A-Za-z]{2}$/.test(String(b.uf).trim())) return "Estado (UF) são duas letras, ex.: PE.";
   if (limpar(b.cep) && String(b.cep).replace(/\D/g, "").length !== 8) return "O CEP tem 8 números.";
   if (limpar(b.descricao) && String(b.descricao).trim().length > 3000) return "A descrição do anúncio passa de 3000 caracteres — os portais cortam o resto.";
+  for (const [c, nome] of [["quartos", "Quartos"], ["suites", "Suítes"], ["banheiros", "Banheiros"], ["lavabos", "Lavabos"], ["salas", "Salas"], ["vagas", "Vagas"]])
+    if (b[c] != null && b[c] !== "" && !(numero(b[c]) >= 0 && numero(b[c]) <= 200)) return `${nome}: use um número de 0 a 200.`;
+  for (const c of ["metragem", "area_util", "area_total"]) if (b[c] != null && b[c] !== "" && !(numero(b[c]) >= 0)) return "Área inválida.";
+  if (b.andar != null && b.andar !== "" && !(numero(b.andar) >= -5 && numero(b.andar) <= 300)) return "Andar inválido.";
+  const ano = numero(b.ano_construcao);
+  if (b.ano_construcao != null && b.ano_construcao !== "" && !(ano >= 1800 && ano <= new Date().getFullYear() + 10)) return "Ano de construção inválido.";
+  for (const [c, nome] of [["video_url", "vídeo"], ["tour_url", "tour virtual"]])
+    if (limpar(b[c]) && !/^https:\/\//i.test(String(b[c]).trim())) return `O link do ${nome} precisa começar com https://`;
+  const cp = numero(b.comissao_corretor_pct);
+  if (b.comissao_corretor_pct != null && b.comissao_corretor_pct !== "" && !(cp >= 0 && cp <= 100)) return "A parte do corretor vai de 0 a 100%.";
+  if (b.comissao_pct != null && b.comissao_pct !== "" && !(numero(b.comissao_pct) >= 0 && numero(b.comissao_pct) <= 100)) return "Comissão: use uma porcentagem de 0 a 100.";
   return null;
 }
 
@@ -244,16 +329,18 @@ r.post("/", (req, res) => {
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem),
     cidade: limpar(b.cidade), bairro: limpar(b.bairro), endereco: limpar(b.endereco), maps_url: limpar(b.maps_url),
-    modalidade: modalidadeValida(b.modalidade),
-    // Espelha a coluna antiga: relatórios e telas velhas continuam somando certo.
-    morar_bem: modalidadeValida(b.modalidade) === "Morar Bem PE" ? 1 : 0,
+    // Os dois são reescritos logo abaixo por gravarCamposFicha, a partir das condições de pagamento.
+    modalidade: null, morar_bem: 0,
     comissao_pct: numero(b.comissao_pct),
     captador_id: captador.id, captador_nome: captador.name, observacoes: limpar(b.observacoes),
     status: supervisiona(req.user) ? "ativo" : "aguardando_aprovacao",
     created_by: req.user.id, created_at: Date.now(),
   });
+  if (b.comissao_corretor_pct == null || b.comissao_corretor_pct === "")
+    b.comissao_corretor_pct = db.prepare("SELECT comissao_corretor_pct c FROM orgs WHERE id=?").get(req.user.org_id)?.c ?? null;
   gravarCamposPortal(id, b, req.user);
   gravarCamposCetro(id, b);
+  gravarCamposFicha(id, b);
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(id)));
 });
 
@@ -288,7 +375,7 @@ r.patch("/:id", (req, res) => {
 
   db.prepare(`UPDATE produtos SET tipo=@tipo,finalidade=@finalidade,titulo=@titulo,formato=@formato,quartos=@quartos,banheiros=@banheiros,
     construtor=@construtor,valor=@valor,metragem=@metragem,cidade=@cidade,bairro=@bairro,endereco=@endereco,
-    maps_url=@maps_url,morar_bem=@morar_bem,modalidade=@modalidade,comissao_pct=@comissao_pct,
+    maps_url=@maps_url,comissao_pct=@comissao_pct,
     captador_id=@captador_id,captador_nome=@captador_nome,observacoes=@observacoes WHERE id=@id`).run({
     captador_id: captador.id, captador_nome: captador.nome,
     id: p.id, tipo: b.tipo, finalidade: b.finalidade === "aluguel" ? "aluguel" : "venda",
@@ -296,12 +383,11 @@ r.patch("/:id", (req, res) => {
     quartos: numero(b.quartos), banheiros: numero(b.banheiros), construtor: limpar(b.construtor),
     valor: numero(b.valor), metragem: numero(b.metragem), cidade: limpar(b.cidade), bairro: limpar(b.bairro),
     endereco: limpar(b.endereco), maps_url: limpar(b.maps_url),
-    modalidade: modalidadeValida(b.modalidade),
-    morar_bem: modalidadeValida(b.modalidade) === "Morar Bem PE" ? 1 : 0,
     comissao_pct: numero(b.comissao_pct), observacoes: limpar(b.observacoes),
   });
   gravarCamposPortal(p.id, b, req.user, p.publicar_portais);
   gravarCamposCetro(p.id, b);
+  gravarCamposFicha(p.id, b);
   res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id)));
 });
 

@@ -374,8 +374,6 @@ const prioDe=(p)=>PRIO[p]||PRIO.SEM;
    mapa a conta dava NaN, o comparador devolvia NaN e a ordenação inteira
    parava de valer, sem erro nenhum na tela. */
 const ordemTemp=(p)=>{const o={QUENTE:0,MORNO:1,FRIO:2}[p];return o==null?3:o;};
-// As três modalidades de financiamento com que a Conecta trabalha.
-const MODALIDADES=["Morar Bem PE","Minha Casa Minha Vida","SBPE"];
 
 /* Ferramentas oficiais da Caixa. Abrimos o site dela, não recriamos a conta
    aqui: as regras de faixa, subsídio e juros mudam sem aviso, e simulação nossa
@@ -2194,6 +2192,7 @@ function ConCRM(){
     dominiosHub:()=>api("/orgs/dominios"),
     destinoDoDominio:(orgId,destino)=>api(`/orgs/dominios/${orgId}`,{method:"PATCH",body:{destino}}),
     salvarProduto:(dados,id)=>api(id?`/produtos/${id}`:"/produtos",{method:id?"PATCH":"POST",body:dados}),
+    padraoComissao:(corretor_pct)=>api("/produtos/config/comissao",{method:"PATCH",body:{corretor_pct}}),
     situacaoProduto:(id,status)=>api(`/produtos/${id}/status`,{method:"POST",body:{status}}),
     apagarProduto:(id)=>api(`/produtos/${id}`,{method:"DELETE"}),
     subirMidia:(id,mime,base64)=>api(`/produtos/${id}/midias`,{method:"POST",body:{mime,base64}}),
@@ -19485,7 +19484,7 @@ function UnidadesSoLeitura({produtoId,acoes}){
 function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   // Mesmo caso das conversas: filtro escolhido é trabalho da pessoa, e voltar
   // do segundo plano não pode desfazê-lo.
-  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""});
+  const [f,setF]=usarEscolha("imoveis.filtros",{q:"",tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",pagamento:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""});
   const [busca,setBusca]=usarEscolha("imoveis.busca","");
   const [lista,setLista]=useState(null);
   const [opcoes,setOpcoes]=useState({cidades:[],bairros:[]});
@@ -19497,7 +19496,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   const [portais,setPortais]=useState(false);
   const gestor=podeGerir(session);
   // A busca não conta: ela fica sempre à vista, fora do bloco recolhível.
-  const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,f.categoria,f.estagio,f.moeda,f.area_min,f.disponivel].filter(Boolean).length;
+  const filtrosAtivos=[f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.pagamento,f.status,f.categoria,f.estagio,f.moeda,f.area_min,f.disponivel].filter(Boolean).length;
 
   useEffect(()=>{const t=setTimeout(()=>setF(p=>({...p,q:busca})),350);return()=>clearTimeout(t);},[busca]);
   useEffect(()=>{acoes.produtoOpcoes().then(setOpcoes).catch(()=>{});},[recarga]);
@@ -19506,7 +19505,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
     const params={}; Object.entries(f).forEach(([k,v])=>{if(v)params[k]=v;});
     acoes.produtos(params).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message));
     return()=>{vivo=false;};
-  },[f.q,f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.status,f.categoria,f.estagio,f.moeda,f.area_min,f.disponivel,recarga]);
+  },[f.q,f.tipo,f.finalidade,f.cidade,f.bairro,f.quartos,f.valor_max,f.modalidade,f.pagamento,f.status,f.categoria,f.estagio,f.moeda,f.area_min,f.disponivel,recarga]);
 
   const atualizar=()=>setRecarga(r=>r+1);
   const decidir=async(p,status)=>{ setErro("");
@@ -19574,7 +19573,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           </button>
-          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""})}
+          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",pagamento:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""})}
             style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
           <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</span>
         </div>
@@ -19592,7 +19591,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
           {campo("Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c})))}
           {campo("Quartos",f.quartos,"quartos",[1,2,3,4].map(n=>({v:n,t:`${n}+ quartos`})))}
           {campo("Até R$",f.valor_max,"valor_max",[100000,150000,200000,300000,500000].map(v=>({v,t:"até "+fmtMoeda(v)})))}
-          {campo("Modalidade",f.modalidade,"modalidade",MODALIDADES.map(m=>({v:m,t:m})))}
+          {campo("Pagamento",f.pagamento,"pagamento",FICHA_IMOVEL.PAGAMENTOS.map(x=>({v:x.v,t:x.t})))}
           {supervisor&&campo("Situação",f.status,"status",Object.entries(SITUACAO_PRODUTO).map(([v,s])=>({v,t:s.t})))}
         </div>}
       </div>
@@ -19615,7 +19614,9 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
                   temperatura = sem pastilha": marcar o padrão gastaria a
                   linha mais visível do card para dizer o óbvio. */}
               {p.finalidade==="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenMid,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>Aluguel</span>}
-              {p.modalidade&&p.finalidade!=="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.modalidade==="Minha Casa Minha Vida"?"MCMV":p.modalidade}</span>}
+              {(()=>{/* O selo do card: MCMV primeiro (é o que mais se procura), depois o programa local, depois "Financia". */
+                const pg=p.pagamentos||[], selo=pg.includes("mcmv")?"MCMV":p.programa_local||(pg.includes("financiamento")?"Financia":null);
+                return selo&&p.finalidade!=="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999,maxWidth:"60%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selo}</span>;})()}
             </div>
             <div style={{padding:12,display:"flex",flexDirection:"column",gap:5,flex:1}}>
               <div style={{color:C.ink,fontSize:14,fontWeight:600,lineHeight:1.3}}>{p.titulo}</div>
@@ -20270,7 +20271,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
 function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
   const desc=(f.descricao||"").trim().length;
   const ligado=!!f.publicar_portais;
-  return <div style={{border:`1px solid ${ligado?C.green+"66":C.line}`,background:ligado?C.greenSoft+"66":C.surface,borderRadius:12,padding:13,display:"flex",flexDirection:"column",gap:11}}>
+  return <div style={{border:`1px solid ${ligado?C.green+"66":C.line}`,background:ligado?C.greenSoft:C.card,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:11}}>
     <div style={{display:"flex",alignItems:"center",gap:10}}>
       <div style={{flex:1,minWidth:0}}>
         <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Anúncio nos portais</div>
@@ -20283,16 +20284,7 @@ function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
         :<span style={{flexShrink:0,color:ligado?C.greenDeep:C.faint,fontSize:11.5,fontWeight:600}}>{ligado?"publicado pela gestão":"a gestão decide"}</span>}
     </div>
 
-    <div>
-      {rotulo("Descrição do anúncio (o cliente lê)")}
-      <textarea value={f.descricao||""} onChange={e=>setF({...f,descricao:e.target.value.slice(0,3000)})} rows={isMobile?5:4}
-        placeholder="Casa nova com 3 quartos, sendo 1 suíte, sala ampla, cozinha americana e quintal com espaço para área gourmet. Rua calçada, perto de escola e mercado."
-        style={{...entrada,resize:"vertical"}}/>
-      <div style={{display:"flex",justifyContent:"space-between",gap:8,color:desc<50?C.amber:C.faint,fontSize:11,marginTop:4}}>
-        <span>{desc<50?`Os portais pedem pelo menos 50 letras (faltam ${50-desc}).`:"Não use as Observações aqui — elas são internas."}</span>
-        <span style={{fontFamily:MONO,flexShrink:0}}>{desc}/3000</span>
-      </div>
-    </div>
+    {desc<50&&<div style={{color:C.amber,fontSize:11.5}}>Os portais pedem uma descrição de pelo menos 50 letras (faltam {50-desc}) — escreva na seção Descrição.</div>}
 
     <div>
       {rotulo("O que mostrar do endereço")}
@@ -20318,14 +20310,21 @@ function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
 }
 
 function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,supervisor}){
-  const [f,setF]=useState(()=>produto?{...produto,modalidade:produto.modalidade||"",finalidade:produto.finalidade||"venda",exibir_endereco:produto.exibir_endereco||"bairro",
-    categoria:produto.categoria||"casa",moeda:produto.moeda||"BRL",estagio:produto.estagio||"",proprietario:produto.proprietario||"",entrega:produto.entrega||""}:{
+  /* A ficha completa (25/11/2026): listas e detalhes vêm de FICHA_IMOVEL, a
+     mesma lista que o servidor confere. `normal` arruma o que vem do servidor
+     para o formato dos campos (lista vazia, detalhes como objeto). */
+  const normal=(p)=>({...p,finalidade:p.finalidade||"venda",exibir_endereco:p.exibir_endereco||"bairro",categoria:p.categoria||"casa",
+    moeda:p.moeda||"BRL",estagio:p.estagio||"",proprietario:p.proprietario||"",entrega:p.entrega||"",
+    pagamentos:p.pagamentos||[],garantias:p.garantias||[],caracteristicas:p.caracteristicas||[],detalhes:p.detalhes||{},
+    iptu_periodo:p.iptu_periodo||"anual",programa_local:p.programa_local||"",referencia:p.referencia||""});
+  const [f,setF]=useState(()=>produto?normal(produto):normal({
     tipo:"casa",categoria:"casa",estagio:"",moeda:"BRL",area_min:"",area_max:"",proprietario:"",entrega:"",finalidade:"venda",titulo:"",formato:"solta",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
-    cidade:"",bairro:"",endereco:"",maps_url:"",modalidade:"",comissao_pct:"",captador_id:"",observacoes:"",
-    // Portais (24/09/2026): o que os portais pedem e o catálogo interno não tinha.
+    cidade:"",bairro:"",endereco:"",maps_url:"",comissao_pct:"",captador_id:"",observacoes:"",
     publicar_portais:false,descricao:"",uf:"",cep:"",numero_end:"",complemento:"",vagas:"",suites:"",area_util:"",
     condominio:"",iptu:"",exibir_endereco:"bairro",
-  });
+    lavabos:"",salas:"",area_total:"",andar:"",unidade_numero:"",ano_construcao:"",video_url:"",tour_url:"",
+    chaves_local:"",proprietario_tel:"",exclusividade_ate:"",comissao_corretor_pct:"",
+  }));
   // O que falta para ir aos portais — vem do servidor, calculado pela MESMA
   // regra que monta o feed. Atualiza a cada salvamento.
   const [portal,setPortal]=useState(produto?produto.portal:null);
@@ -20347,9 +20346,10 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         valor:numeroBR(f.valor), quartos:numeroBR(f.quartos), banheiros:numeroBR(f.banheiros),
         metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct),
         vagas:numeroBR(f.vagas), suites:numeroBR(f.suites), area_util:numeroBR(f.area_util),
-        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu), area_min:numeroBR(f.area_min), area_max:numeroBR(f.area_max)}, id);
-      setId(salvo.id); setCategoriaSalva(salvo.categoria); setF({...salvo,modalidade:salvo.modalidade||"",exibir_endereco:salvo.exibir_endereco||"bairro",
-        estagio:salvo.estagio||"",proprietario:salvo.proprietario||"",entrega:salvo.entrega||""}); setPortal(salvo.portal||null);
+        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu), area_min:numeroBR(f.area_min), area_max:numeroBR(f.area_max),
+        lavabos:numeroBR(f.lavabos), salas:numeroBR(f.salas), area_total:numeroBR(f.area_total), andar:numeroBR(f.andar),
+        ano_construcao:numeroBR(f.ano_construcao), comissao_corretor_pct:numeroBR(f.comissao_corretor_pct)}, id);
+      setId(salvo.id); setCategoriaSalva(salvo.categoria); setF(normal(salvo)); setPortal(salvo.portal||null);
       if(!id) setErro(""); // agora dá para enviar as fotos
       return salvo.id;
     }catch(e){ setErro(e.message); return null; }
@@ -20452,144 +20452,214 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
   async function usarComoCapa(m){
     try{ const p=await acoes.capaProduto(id,m.id); setMidias(p.midias||[]); setCapaSugerida(p.capa_sugerida||null); }catch(e){ setErro(e.message); }
   }
+  /* Divisão da comissão: a do imóvel, ou o padrão da conta. Sem nenhum dos
+     dois, a tela mostra só o total — a regra 45/55 era da Conecta. */
+  const [padrao,setPadrao]=useState(null);
+  useEffect(()=>{let vivo=true;acoes.produtoOpcoes().then(o=>{if(!vivo)return;setPadrao(o.comissao_corretor_padrao??null);
+    if(!produto&&o.comissao_corretor_padrao!=null)setF(x=>x.comissao_corretor_pct===""?{...x,comissao_corretor_pct:String(o.comissao_corretor_padrao)}:x);}).catch(()=>{});
+    return()=>{vivo=false};},[]);
+  const [avisoPadrao,setAvisoPadrao]=useState("");
+  async function definirPadrao(){
+    try{const r=await acoes.padraoComissao(numeroBR(f.comissao_corretor_pct));setPadrao(r.comissao_corretor_padrao);setAvisoPadrao("Virou o padrão dos próximos cadastros.");}
+    catch(e){setAvisoPadrao(e.message);}
+  }
   const comissao=numeroBR(f.valor)&&numeroBR(f.comissao_pct)?(numeroBR(f.valor)*numeroBR(f.comissao_pct))/100:null;
+  const partCorretor=numeroBR(f.comissao_corretor_pct);
+
+  const construido=!["terreno","loteamento"].includes(f.categoria);
+  const vertical=["apartamento","comercial","empreendimento"].includes(f.categoria);
+  const aluguel=f.finalidade==="aluguel";
+  const alternar=(campo,v)=>setF(x=>({...x,[campo]:(x[campo]||[]).includes(v)?x[campo].filter(y=>y!==v):[...(x[campo]||[]),v]}));
+  const setDet=(k)=>(e)=>setF(x=>({...x,detalhes:{...(x.detalhes||{}),[k]:e.target.value||undefined}}));
+  const num=(k,ph,rot,modo="numeric")=><div>{rotulo(rot)}<input value={f[k]??""} onChange={set(k)} inputMode={modo} placeholder={ph} style={entrada}/></div>;
+  const grade=(n)=>({display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":`repeat(${n},1fr)`,gap:10});
+  const chip=(on,onClick,t,k)=><button key={k||t} type="button" onClick={onClick} aria-pressed={on}
+    style={{padding:"8px 11px",borderRadius:999,fontSize:12.5,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:5,
+      border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub}}>{on&&<Icon n="check" size={12}/>}{t}</button>;
+
+  // Seções que abrem e fecham. Nascem abertas as do dia a dia; as longas, fechadas com o resumo.
+  const [aberta,setAberta]=useState(()=>({negocio:true,valores:true,medidas:true,detalhes:false,caracteristicas:false,local:true,pagamento:false,descricao:true,captacao:!produto,midia:true,portais:false}));
+  const secao=(k,titulo,resumo,filhos,dica)=>{const on=aberta[k];
+    return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,overflow:"hidden"}}>
+      <button type="button" onClick={()=>setAberta(a=>({...a,[k]:!a[k]}))} aria-expanded={on}
+        style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"13px 16px",border:"none",background:"transparent",cursor:"pointer",textAlign:"left"}}>
+        <span style={{flex:1,minWidth:0}}>
+          <span style={{display:"block",fontFamily:DISPLAY,color:C.ink,fontSize:14.5,fontWeight:700}}>{titulo}</span>
+          {!on&&resumo&&<span style={{display:"block",color:C.faint,fontSize:11.5,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{resumo}</span>}
+        </span>
+        <span style={{color:C.faint,transform:on?"rotate(90deg)":"none",transition:"transform .15s",display:"flex"}}><Icon n="chevron" size={15}/></span>
+      </button>
+      {on&&<div style={{padding:"0 16px 16px",display:"flex",flexDirection:"column",gap:12}}>
+        {dica&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginTop:-4}}>{dica}</div>}
+        {filhos}
+      </div>}
+    </div>;};
+
+  // CEP → endereço (ViaCEP, serviço público dos Correios). Só preenche o que está vazio.
+  const [cepMsg,setCepMsg]=useState("");
+  async function buscarCep(){
+    const cep=String(f.cep||"").replace(/\D/g,"");
+    if(cep.length!==8){setCepMsg("O CEP tem 8 números.");return;}
+    setCepMsg("Buscando…");
+    try{const r=await fetch(`https://viacep.com.br/ws/${cep}/json/`);const d=await r.json();
+      if(d.erro){setCepMsg("CEP não encontrado. Preencha o endereço à mão.");return;}
+      setF(x=>({...x,cidade:x.cidade||d.localidade||"",uf:x.uf||d.uf||"",bairro:x.bairro||d.bairro||"",endereco:x.endereco||d.logradouro||""}));
+      setCepMsg("Endereço preenchido pelo CEP. Confira.");}
+    catch(e){setCepMsg("Não consegui buscar o CEP agora. Preencha à mão.");}
+  }
+
+  const nCar=(f.caracteristicas||[]).length, nDet=Object.values(f.detalhes||{}).filter(Boolean).length;
+  const gruposCar=FICHA_IMOVEL.CARACTERISTICAS.filter(g=>g.para.includes(f.categoria)||g.itens.some(x=>(f.caracteristicas||[]).includes(x.v)));
+  const resumoPag=aluguel?(f.garantias||[]).map(v=>(FICHA_IMOVEL.GARANTIAS.find(x=>x.v===v)||{}).t).filter(Boolean).join(", ")
+    :[...(f.pagamentos||[]).map(v=>(FICHA_IMOVEL.PAGAMENTOS.find(x=>x.v===v)||{}).t),f.programa_local].filter(Boolean).join(", ");
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:20}}>
-    <div style={{maxWidth:640,margin:"0 auto"}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+    <div style={{maxWidth:760,margin:"0 auto"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
         <button onClick={()=>aoFechar(!!id)} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.card,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={17}/></button>
-        <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>{id?"Editar produto":"Cadastrar produto"}</div>
+        <div style={{flex:1,minWidth:0,fontFamily:DISPLAY,color:C.ink,fontSize:17,fontWeight:700}}>{id?"Editar imóvel":"Cadastrar imóvel"}</div>
+        {!isMobile&&<button onClick={async()=>{const r=await salvar();if(r)aoFechar(true);}} disabled={salvando}
+          style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13.5,fontWeight:700,cursor:salvando?"default":"pointer"}}>
+          {salvando?"Salvando…":id?"Salvar alterações":"Cadastrar imóvel"}</button>}
       </div>
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,whiteSpace:"pre-line",lineHeight:1.5}}>{erro}</div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16,display:"flex",flexDirection:"column",gap:13}}>
-        {/* O tipo de cadastro (CETRO 12.2): cada um abre os campos certos.
-            Casa/terreno do banco são derivados disso no servidor. */}
-        <div>
-          {rotulo("Tipo do imóvel")}
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:7}}>
-            {Object.entries(CATEGORIAS_IMOVEL).map(([v,t])=>{
-              const on=f.categoria===v;
-              return <button key={v} type="button" onClick={()=>setF({...f,categoria:v,tipo:["terreno","loteamento"].includes(v)?"terreno":"casa",formato:v==="empreendimento"?"empreendimento":"solta"})}
-                style={{padding:"10px 6px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
-                  border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.surface,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {secao("negocio","Tipo e negócio",[CATEGORIAS_IMOVEL[f.categoria],aluguel?"Aluguel":"Venda",f.titulo].filter(Boolean).join(" · "),<React.Fragment>
+          <div>
+            {rotulo("Tipo do imóvel")}
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:7}}>
+              {Object.entries(CATEGORIAS_IMOVEL).map(([v,t])=>{const on=f.categoria===v;
+                return <button key={v} type="button" onClick={()=>setF({...f,categoria:v,tipo:["terreno","loteamento"].includes(v)?"terreno":"casa",formato:v==="empreendimento"?"empreendimento":"solta"})}
+                  style={{padding:"10px 6px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
+                    border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.surface,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
+            </div>
           </div>
-        </div>
-
-        <div>
-          {rotulo("Venda ou aluguel")}
           <div style={{display:"flex",gap:8}}>
             {[["venda","Venda"],["aluguel","Aluguel"]].map(([v,t])=>
-              <button key={v} onClick={()=>setF({...f,finalidade:v})} style={{flex:1,padding:"11px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",
+              <button key={v} type="button" onClick={()=>setF({...f,finalidade:v})} style={{flex:1,padding:"11px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",
                 border:`1px solid ${f.finalidade===v?C.green:C.line}`,background:f.finalidade===v?C.greenSoft:C.surface,color:f.finalidade===v?C.greenDeep:C.sub}}>{t}</button>)}
           </div>
-        </div>
-
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div>{rotulo("Estágio da obra")}
-            <select value={f.estagio||""} onChange={set("estagio")} style={entrada}>
-              <option value="">Não informado</option>
-              {Object.entries(ESTAGIOS_IMOVEL).map(([v,t])=><option key={v} value={v}>{t}</option>)}
-            </select></div>
-          <div>{rotulo("Moeda do preço")}
-            <select value={f.moeda||"BRL"} onChange={set("moeda")} style={entrada}>
-              <option value="BRL">Real (R$)</option><option value="USD">Dólar (US$)</option>
-            </select></div>
-        </div>
-        {f.moeda==="USD"&&<div style={{color:C.faint,fontSize:11.5,marginTop:-6}}>A moeda só muda como o preço é escrito — nada é convertido, e valores em dólar não somam com os em real.</div>}
-
-        <div>{rotulo("Nome do produto")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Casa 3 quartos no Jardim Amazonas" style={entrada}/></div>
-
-        <div>{rotulo(f.finalidade==="aluguel"?"Valor do aluguel (mensal)":COM_UNIDADES_IMOVEL.has(f.categoria)?"Valor a partir de":"Valor do imóvel")}<CampoMoeda moeda={f.moeda} valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={f.finalidade==="aluguel"?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
-        {COM_UNIDADES_IMOVEL.has(f.categoria)&&<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
-          <div>{rotulo("Área mínima (m²)")}<input value={f.area_min??""} onChange={set("area_min")} inputMode="decimal" placeholder="45" style={entrada}/></div>
-          <div>{rotulo("Área máxima (m²)")}<input value={f.area_max??""} onChange={set("area_max")} inputMode="decimal" placeholder="120" style={entrada}/></div>
-          <div>{rotulo("Entrega prevista")}<input value={f.entrega||""} onChange={set("entrega")} placeholder="Dez/2027" style={entrada}/></div>
-        </div>}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div>{rotulo("Condomínio (mensal)")}<CampoMoeda valor={f.condominio} onChange={v=>setF({...f,condominio:v})} placeholder="opcional" isMobile={isMobile}/></div>
-          <div>{rotulo("IPTU (anual)")}<CampoMoeda valor={f.iptu} onChange={v=>setF({...f,iptu:v})} placeholder="opcional" isMobile={isMobile}/></div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:10}}>
-          <div>{rotulo("Terreno (m²)")}<input value={f.metragem??""} onChange={set("metragem")} inputMode="decimal" placeholder="200" style={entrada}/></div>
-          {f.tipo==="casa"&&<React.Fragment>
-            <div>{rotulo("Área construída (m²)")}<input value={f.area_util??""} onChange={set("area_util")} inputMode="decimal" placeholder="90" style={entrada}/></div>
-            <div>{rotulo("Quartos")}<input value={f.quartos??""} onChange={set("quartos")} inputMode="numeric" placeholder="3" style={entrada}/></div>
-            <div>{rotulo("Suítes")}<input value={f.suites??""} onChange={set("suites")} inputMode="numeric" placeholder="1" style={entrada}/></div>
-            <div>{rotulo("Banheiros")}<input value={f.banheiros??""} onChange={set("banheiros")} inputMode="numeric" placeholder="2" style={entrada}/></div>
-            <div>{rotulo("Vagas de garagem")}<input value={f.vagas??""} onChange={set("vagas")} inputMode="numeric" placeholder="1" style={entrada}/></div>
-          </React.Fragment>}
-        </div>
-
-        {f.tipo==="casa"&&<div>{rotulo("Construtora")}<input value={f.construtor||""} onChange={set("construtor")} placeholder="Nome da construtora" style={entrada}/></div>}
-        {!COM_UNIDADES_IMOVEL.has(f.categoria)&&<div>{rotulo("Proprietário (interno)")}<input value={f.proprietario||""} onChange={set("proprietario")} placeholder="Nome do proprietário — não vai ao site nem ao cliente" style={entrada}/></div>}
-
-        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
-          <div>{rotulo("Cidade")}<input value={f.cidade||""} onChange={set("cidade")} placeholder="Petrolina" style={entrada}/></div>
-          <div>{rotulo("Estado (UF)")}<input value={f.uf||""} onChange={e=>setF({...f,uf:e.target.value.replace(/[^a-zA-Z]/g,"").slice(0,2).toUpperCase()})} placeholder="PE" style={entrada}/></div>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
-          <div>{rotulo("Bairro")}<input value={f.bairro||""} onChange={set("bairro")} placeholder="Jardim Amazonas" style={entrada}/></div>
-          <div>{rotulo("CEP")}<input value={f.cep||""} onChange={e=>setF({...f,cep:e.target.value.replace(/\D/g,"").slice(0,8)})} inputMode="numeric" placeholder="56300000" style={entrada}/></div>
-        </div>
-        <div>{rotulo("Rua")}<input value={f.endereco||""} onChange={set("endereco")} placeholder="Rua, avenida e referência" style={entrada}/></div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10}}>
-          <div>{rotulo("Número")}<input value={f.numero_end||""} onChange={set("numero_end")} placeholder="120" style={entrada}/></div>
-          <div>{rotulo("Complemento")}<input value={f.complemento||""} onChange={set("complemento")} placeholder="Quadra, lote, bloco" style={entrada}/></div>
-        </div>
-        <div>
-          {rotulo("Link de geolocalização")}
-          <input value={f.maps_url||""} onChange={set("maps_url")} placeholder="https://maps.app.goo.gl/..." style={entrada}/>
-          <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Abra o local no Maps, toque em Compartilhar e cole o link aqui. Vira um botão clicável na ficha.</div>
-        </div>
-
-        {/* Antes era uma caixinha "Morar Bem sim/não". Virou escolha entre as três
-            modalidades reais da Conecta. Clicar na opção já marcada desmarca —
-            imóvel sem programa definido continua sendo possível. */}
-        <div>
-          <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:6}}>Modalidade de financiamento</div>
-          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-            {MODALIDADES.map(m=>{
-              const ativa=f.modalidade===m;
-              return <button key={m} type="button" onClick={()=>setF({...f,modalidade:ativa?"":m})}
-                style={{flex:"1 1 150px",fontSize:13,fontWeight:600,padding:"11px 12px",borderRadius:10,cursor:"pointer",
-                  border:`1px solid ${ativa?C.green+"88":C.line}`,background:ativa?C.greenSoft:C.surface,
-                  color:ativa?C.greenDeep:C.sub,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                {ativa&&<Icon n="check" size={13}/>}{m}</button>;
-            })}
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"2fr 1fr",gap:10}}>
+            <div>{rotulo("Nome do imóvel")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Apartamento 3 quartos com varanda" style={entrada}/></div>
+            <div>{rotulo("Código de referência")}<input value={f.referencia||""} onChange={e=>setF({...f,referencia:e.target.value.slice(0,30)})} placeholder="Ex.: AP0175" style={entrada}/></div>
           </div>
-          <div style={{color:C.faint,fontSize:11,marginTop:5}}>Opcional. Aparece na ficha e na apresentação enviada ao cliente.</div>
-        </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>{rotulo("Estágio da obra")}
+              <select value={f.estagio||""} onChange={set("estagio")} style={entrada}>
+                <option value="">Não informado</option>
+                {Object.entries(ESTAGIOS_IMOVEL).map(([v,t])=><option key={v} value={v}>{t}</option>)}
+              </select></div>
+            <div>{rotulo("Moeda do preço")}
+              <select value={f.moeda||"BRL"} onChange={set("moeda")} style={entrada}>
+                <option value="BRL">Real (R$)</option><option value="USD">Dólar (US$)</option>
+              </select></div>
+          </div>
+          {f.moeda==="USD"&&<div style={{color:C.faint,fontSize:11.5,marginTop:-4}}>A moeda só muda como o preço é escrito — nada é convertido, e valores em dólar não somam com os em real.</div>}
+        </React.Fragment>)}
 
-        <div>
-          {rotulo("Quem captou")}
-          <select value={f.captador_id||""} onChange={set("captador_id")} style={entrada}>
-            <option value="">Eu mesmo</option>
-            {(equipeToda||pessoas).map(p=><option key={p.id} value={p.id}>{p.name}{p.role==="adm"?" (gestor)":p.role==="sdr"?" (atendente)":""}</option>)}
-          </select>
-          <div style={{color:C.faint,fontSize:11,marginTop:5}}>Aparece no catálogo para quem precisar falar sobre chaves e disponibilidade.</div>
-        </div>
-
-        <div>
-          {rotulo(f.finalidade==="aluguel"?"Comissão do aluguel (%)":"Comissão da venda (%)")}
-          <input value={f.comissao_pct||""} onChange={set("comissao_pct")} inputMode="decimal" placeholder="6" style={entrada}/>
-          {comissao!=null&&<div style={{background:C.surface,borderRadius:9,padding:"9px 11px",marginTop:7,fontSize:12,color:C.sub,lineHeight:1.6}}>
-            Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b>{f.finalidade==="aluguel"&&"/mês"}<br/>
-            Imobiliária (45%): {fmtMoeda(comissao*0.45)} · Corretor (55%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*0.55)}</b>
+        {secao("valores","Valores",[f.valor&&fmtValorMoeda(numeroBR(f.valor),f.moeda),f.condominio&&`cond. ${fmtMoeda(numeroBR(f.condominio))}`].filter(Boolean).join(" · "),<React.Fragment>
+          <div>{rotulo(aluguel?"Valor do aluguel (mensal)":COM_UNIDADES_IMOVEL.has(f.categoria)?"Valor a partir de":"Valor do imóvel")}<CampoMoeda moeda={f.moeda} valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={aluguel?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:10}}>
+            <div>{rotulo("Condomínio (mensal)")}<CampoMoeda valor={f.condominio} onChange={v=>setF({...f,condominio:v})} placeholder="opcional" isMobile={isMobile}/></div>
+            <div>{rotulo("IPTU")}<CampoMoeda valor={f.iptu} onChange={v=>setF({...f,iptu:v})} placeholder="opcional" isMobile={isMobile}/></div>
+            <div>{rotulo("O IPTU é")}
+              <select value={f.iptu_periodo||"anual"} onChange={set("iptu_periodo")} style={entrada}>
+                <option value="anual">Por ano</option><option value="mensal">Por mês</option>
+              </select></div>
+          </div>
+          {COM_UNIDADES_IMOVEL.has(f.categoria)&&<div style={grade(3)}>
+            {num("area_min","45","Área mínima (m²)","decimal")}
+            {num("area_max","120","Área máxima (m²)","decimal")}
+            <div>{rotulo("Entrega prevista")}<input value={f.entrega||""} onChange={set("entrega")} placeholder="Dez/2027" style={entrada}/></div>
           </div>}
-        </div>
+        </React.Fragment>)}
 
-        <div>{rotulo("Observações")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Prazo de entrega, condições, o que for útil ao cliente" style={{...entrada,resize:"vertical"}}/></div>
+        {secao("medidas",construido?"Medidas e cômodos":"Medidas",[f.area_util&&`${f.area_util} m²`,f.metragem&&`terreno ${f.metragem} m²`,f.quartos&&`${f.quartos} quartos`,f.vagas&&`${f.vagas} vagas`].filter(Boolean).join(" · "),<React.Fragment>
+          <div style={grade(3)}>
+            {construido&&num("area_util","90",vertical?"Área privativa (m²)":"Área construída (m²)","decimal")}
+            {construido&&num("area_total","120","Área total (m²)","decimal")}
+            {num("metragem","200","Terreno (m²)","decimal")}
+          </div>
+          {construido&&<div style={grade(3)}>
+            {num("quartos","3","Quartos")}
+            {num("suites","1","Suítes")}
+            {num("banheiros","2","Banheiros")}
+            {num("lavabos","1","Lavabos")}
+            {num("salas","1","Salas")}
+            {num("vagas","1","Vagas de garagem")}
+          </div>}
+          {construido&&<div style={grade(3)}>
+            {vertical&&num("andar","7","Andar")}
+            {vertical&&<div>{rotulo("Nº da unidade")}<input value={f.unidade_numero||""} onChange={e=>setF({...f,unidade_numero:e.target.value.slice(0,20)})} placeholder="701" style={entrada}/></div>}
+            {num("ano_construcao","2015","Ano de construção")}
+          </div>}
+        </React.Fragment>)}
 
-        {COM_UNIDADES_IMOVEL.has(f.categoria)&&(id&&categoriaSalva===f.categoria
-          ?<UnidadesDoImovel produtoId={id} acoes={acoes} isMobile={isMobile} moedaPadrao={f.moeda}/>
-          :<div style={{color:C.faint,fontSize:12.5,border:`1px dashed ${C.line}`,borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{flex:"1 1 200px"}}>As unidades e o fluxo de pagamento são cadastrados depois de salvar como {CATEGORIAS_IMOVEL[f.categoria]}.</span>
-            <button type="button" disabled={salvando} onClick={salvar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar e cadastrar as unidades"}</button>
-          </div>)}
+        {construido&&secao("detalhes","Detalhes",nDet?`${nDet} preenchido(s)`:"Ocupação, mobília, posição, sol e garagem",<div style={grade(3)}>
+          {Object.entries(FICHA_IMOVEL.DETALHES).filter(([,d])=>!d.interno).map(([k,d])=>
+            <div key={k}>{rotulo(d.t)}
+              <select value={(f.detalhes||{})[k]||""} onChange={setDet(k)} style={entrada}>
+                <option value="">Não informado</option>
+                {Object.entries(d.opcoes).map(([v,t])=><option key={v} value={v}>{t}</option>)}
+              </select></div>)}
+        </div>)}
 
-        <SecaoPortalDoProduto f={f} setF={setF} portal={portal} supervisor={supervisor} salvo={!!id} isMobile={isMobile}/>
+        {secao("caracteristicas","Características",nCar?(f.caracteristicas||[]).slice(0,5).map(v=>(FICHA_IMOVEL.CARACTERISTICAS.flatMap(g=>g.itens).find(x=>x.v===v)||{}).t).join(", ")+(nCar>5?` e mais ${nCar-5}`:""):"Ambientes, acabamento, lazer, segurança",
+          <React.Fragment>{gruposCar.map(g=>{const marcados=g.itens.filter(x=>(f.caracteristicas||[]).includes(x.v)).length;
+            return <div key={g.grupo}>
+              <div style={{color:C.sub,fontSize:12.5,fontWeight:700,marginBottom:7}}>{g.titulo}{marcados>0&&<span style={{color:C.greenDeep,fontWeight:600}}> · {marcados}</span>}</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{g.itens.map(x=>chip((f.caracteristicas||[]).includes(x.v),()=>alternar("caracteristicas",x.v),x.t,x.v))}</div>
+            </div>;})}</React.Fragment>,
+          "Aparecem no site, no portal e na mensagem do imóvel (até seis destaques).")}
 
+        {secao("local","Localização",[f.bairro,f.cidade&&(f.cidade+(f.uf?` - ${f.uf}`:""))].filter(Boolean).join(" · "),<React.Fragment>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto":"1fr auto 2fr",gap:10,alignItems:"end"}}>
+            <div>{rotulo("CEP")}<input value={f.cep||""} onChange={e=>{setCepMsg("");setF({...f,cep:e.target.value.replace(/\D/g,"").slice(0,8)});}} onBlur={()=>{if(String(f.cep||"").length===8&&!f.cidade)buscarCep();}} inputMode="numeric" placeholder="00000000" style={entrada}/></div>
+            <button type="button" onClick={buscarCep} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"11px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Buscar CEP</button>
+            {!isMobile&&<div style={{color:C.faint,fontSize:11.5,paddingBottom:12}}>{cepMsg||"Preenche rua, bairro e cidade sozinho."}</div>}
+          </div>
+          {isMobile&&cepMsg&&<div style={{color:C.faint,fontSize:11.5,marginTop:-6}}>{cepMsg}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
+            <div>{rotulo("Cidade")}<input value={f.cidade||""} onChange={set("cidade")} placeholder="Cidade" style={entrada}/></div>
+            <div>{rotulo("Estado (UF)")}<input value={f.uf||""} onChange={e=>setF({...f,uf:e.target.value.replace(/[^a-zA-Z]/g,"").slice(0,2).toUpperCase()})} placeholder="UF" style={entrada}/></div>
+          </div>
+          <div>{rotulo("Bairro")}<input value={f.bairro||""} onChange={set("bairro")} placeholder="Bairro" style={entrada}/></div>
+          <div>{rotulo("Rua")}<input value={f.endereco||""} onChange={set("endereco")} placeholder="Rua, avenida e referência" style={entrada}/></div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10}}>
+            <div>{rotulo("Número")}<input value={f.numero_end||""} onChange={set("numero_end")} placeholder="120" style={entrada}/></div>
+            <div>{rotulo("Complemento")}<input value={f.complemento||""} onChange={set("complemento")} placeholder="Quadra, lote, bloco" style={entrada}/></div>
+          </div>
+          <div>
+            {rotulo("Link de geolocalização")}
+            <input value={f.maps_url||""} onChange={set("maps_url")} placeholder="https://maps.app.goo.gl/..." style={entrada}/>
+            <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Abra o local no Maps, toque em Compartilhar e cole o link aqui. Vira um botão na ficha — não vai para o site.</div>
+          </div>
+        </React.Fragment>)}
+
+        {secao("pagamento",aluguel?"Garantias aceitas":"Condições de pagamento",resumoPag||"Não informado",aluguel
+          ?<div style={{display:"flex",flexWrap:"wrap",gap:6}}>{FICHA_IMOVEL.GARANTIAS.map(x=>chip((f.garantias||[]).includes(x.v),()=>alternar("garantias",x.v),x.t,x.v))}</div>
+          :<React.Fragment>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{FICHA_IMOVEL.PAGAMENTOS.map(x=>chip((f.pagamentos||[]).includes(x.v),()=>alternar("pagamentos",x.v),x.t,x.v))}</div>
+            <div>{rotulo("Programa do estado ou da cidade (opcional)")}
+              <input value={f.programa_local||""} onChange={e=>setF({...f,programa_local:e.target.value.slice(0,60)})} placeholder="Ex.: Morar Bem PE, Casa Paulista, Entrada Facilitada" style={entrada}/></div>
+          </React.Fragment>,
+          aluguel?"Aparece no site e na mensagem do imóvel.":"Aparece na ficha, no site e na mensagem do imóvel.")}
+
+        {secao("descricao","Descrição",(f.descricao||"").trim()?`${(f.descricao||"").trim().length} letras`:"Ainda sem descrição",<React.Fragment>
+          <div>
+            {rotulo("Descrição do anúncio (o cliente lê)")}
+            <textarea value={f.descricao||""} onChange={e=>setF({...f,descricao:e.target.value.slice(0,3000)})} rows={isMobile?6:5}
+              placeholder="Apartamento com 3 quartos, sendo 1 suíte, sala ampla, cozinha americana e varanda. Prédio com piscina e academia, perto de escola e mercado."
+              style={{...entrada,resize:"vertical"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,color:C.faint,fontSize:11,marginTop:4}}>
+              <span>Vai para o site, para os portais e para a mensagem do imóvel no WhatsApp.</span>
+              <span style={{fontFamily:MONO,flexShrink:0}}>{(f.descricao||"").trim().length}/3000</span>
+            </div>
+          </div>
+        </React.Fragment>)}
+
+        {secao("midia","Fotos, vídeo e tour",`${fotos.length} foto(s)${videos.length?` · ${videos.length} vídeo`:""}${f.tour_url?" · tour":""}`,<React.Fragment>
         <div>
           {rotulo(`Fotos (${fotos.length}/${limites.foto}) e vídeo (${videos.length}/${limites.video})`)}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
@@ -20628,10 +20698,67 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
           </div>
         </div>
 
-        <div style={{display:"flex",gap:8,borderTop:`1px solid ${C.line}`,paddingTop:13}}>
+          <div style={grade(2)}>
+            <div>{rotulo("Vídeo no YouTube (opcional)")}<input value={f.video_url||""} onChange={set("video_url")} placeholder="https://youtube.com/watch?v=..." style={entrada}/></div>
+            <div>{rotulo("Tour virtual 360º (opcional)")}<input value={f.tour_url||""} onChange={set("tour_url")} placeholder="https://..." style={entrada}/></div>
+          </div>
+        </React.Fragment>)}
+
+        {secao("captacao","Captação e comissão (interno)",[f.captador_id?((equipeToda||pessoas).find(p=>p.id===f.captador_id)||{}).name:"",f.comissao_pct&&`${f.comissao_pct}% de comissão`].filter(Boolean).join(" · ")||"Quem captou, proprietário, chaves e comissão",<React.Fragment>
+          <div>
+            {rotulo("Quem captou")}
+            <select value={f.captador_id||""} onChange={set("captador_id")} style={entrada}>
+              <option value="">Eu mesmo</option>
+              {(equipeToda||pessoas).map(p=><option key={p.id} value={p.id}>{p.name}{p.role==="adm"?" (gestor)":p.role==="sdr"?" (atendente)":""}</option>)}
+            </select>
+          </div>
+          {!COM_UNIDADES_IMOVEL.has(f.categoria)&&<div style={grade(2)}>
+            <div>{rotulo("Proprietário")}<input value={f.proprietario||""} onChange={set("proprietario")} placeholder="Nome" style={entrada}/></div>
+            <div>{rotulo("Telefone do proprietário")}<input value={f.proprietario_tel||""} onChange={set("proprietario_tel")} inputMode="tel" placeholder="(00) 90000-0000" style={entrada}/></div>
+          </div>}
+          <div style={grade(2)}>
+            <div>{rotulo("Onde estão as chaves")}<input value={f.chaves_local||""} onChange={set("chaves_local")} placeholder="Ex.: na imobiliária, com o porteiro" style={entrada}/></div>
+            <div>{rotulo("Exclusividade até")}<input type="date" value={f.exclusividade_ate||""} onChange={set("exclusividade_ate")} style={entrada}/></div>
+          </div>
+          <div style={grade(2)}>
+            <div>{rotulo("Documentação")}
+              <select value={(f.detalhes||{}).documentacao||""} onChange={setDet("documentacao")} style={entrada}>
+                <option value="">Não informado</option>
+                {Object.entries(FICHA_IMOVEL.DETALHES.documentacao.opcoes).map(([v,t])=><option key={v} value={v}>{t}</option>)}
+              </select></div>
+            {construido&&<div>{rotulo("Construtora")}<input value={f.construtor||""} onChange={set("construtor")} placeholder="Nome da construtora" style={entrada}/></div>}
+          </div>
+          <div style={grade(2)}>
+            {num("comissao_pct","6",aluguel?"Comissão do aluguel (%)":"Comissão da venda (%)","decimal")}
+            <div>{rotulo("Parte do corretor (%)")}<input value={f.comissao_corretor_pct??""} onChange={set("comissao_corretor_pct")} inputMode="decimal" placeholder={padrao!=null?String(padrao):"Ex.: 50"} style={entrada}/></div>
+          </div>
+          {comissao!=null&&<div style={{background:C.surface,borderRadius:9,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.6}}>
+            Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b>{aluguel&&"/mês"}
+            {partCorretor!=null&&partCorretor>=0&&partCorretor<=100&&<React.Fragment><br/>
+              Imobiliária ({Math.round((100-partCorretor)*100)/100}%): {fmtMoeda(comissao*(100-partCorretor)/100)} · Corretor ({partCorretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*partCorretor/100)}</b></React.Fragment>}
+          </div>}
+          {supervisor&&partCorretor!=null&&partCorretor!==padrao&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,color:C.sub}}>
+            <span>{padrao==null?"A conta ainda não tem uma divisão padrão.":`O padrão da conta é ${padrao}% para o corretor.`}</span>
+            <button type="button" onClick={definirPadrao} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar {partCorretor}% como padrão</button>
+          </div>}
+          {avisoPadrao&&<div style={{color:C.faint,fontSize:11.5}}>{avisoPadrao}</div>}
+          <div>{rotulo("Observações internas")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Ex.: dono aceita proposta, visita só com horário marcado" style={{...entrada,resize:"vertical"}}/>
+            <div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.45}}>Não vão para o site nem para o portal.{!(f.descricao||"").trim()&&" Enquanto o imóvel não tiver descrição, ainda vão na mensagem ao cliente — escreva a descrição."}</div></div>
+        </React.Fragment>,"Nome e telefone do proprietário só aparecem para a gestão, quem cadastrou e quem captou.")}
+
+        {COM_UNIDADES_IMOVEL.has(f.categoria)&&(id&&categoriaSalva===f.categoria
+          ?<UnidadesDoImovel produtoId={id} acoes={acoes} isMobile={isMobile} moedaPadrao={f.moeda}/>
+          :<div style={{color:C.faint,fontSize:12.5,border:`1px dashed ${C.line}`,borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",background:C.card}}>
+            <span style={{flex:"1 1 200px"}}>As unidades e o fluxo de pagamento são cadastrados depois de salvar como {CATEGORIAS_IMOVEL[f.categoria]}.</span>
+            <button type="button" disabled={salvando} onClick={salvar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar e cadastrar as unidades"}</button>
+          </div>)}
+
+        <SecaoPortalDoProduto f={f} setF={setF} portal={portal} supervisor={supervisor} salvo={!!id} isMobile={isMobile}/>
+
+        <div style={{display:"flex",gap:8,padding:isMobile?"4px 64px 4px 0":"4px 0 0"}}>
           <button onClick={async()=>{const r=await salvar();if(r)aoFechar(true);}} disabled={salvando}
             style={{flex:1,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"13px",fontSize:14.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>
-            {salvando?"Salvando…":id?"Salvar alterações":"Cadastrar produto"}
+            {salvando?"Salvando…":id?"Salvar alterações":"Cadastrar imóvel"}
           </button>
           <button onClick={()=>aoFechar(!!id)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"13px 18px",fontSize:14,cursor:"pointer"}}>Fechar</button>
         </div>
@@ -20664,22 +20791,56 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
       </div>}
       {videos.map(m=><video key={m.id} src={m.url} controls style={{width:"100%",borderRadius:12,marginBottom:12,background:"#000"}}/>)}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:"4px 14px 14px",marginBottom:12}}>
-        {linha(p.finalidade==="aluguel"?"Aluguel":p.unidades_resumo?"A partir de":"Valor",p.valor?fmtValorMoeda(p.valor,p.moeda)+(p.finalidade==="aluguel"?"/mês":""):null)}
-        {linha("Tipo",CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno"))}
-        {linha("Estágio",ESTAGIOS_IMOVEL[p.estagio]||null)}
-        {linha("Entrega prevista",p.entrega)}
-        {linha("Área",p.area_min||p.area_max?[p.area_min,p.area_max].filter(Boolean).join(" a ")+" m²":null)}
-        {(supervisor||meu||p.captador_id===session?.id)&&linha("Proprietário",p.proprietario)}
-        {linha("Quartos",p.quartos)}
-        {linha("Banheiros",p.banheiros)}
-        {linha("Terreno",p.metragem?`${p.metragem} m²`:null)}
-        {linha("Construtora",p.construtor)}
-        {linha("Modalidade",p.modalidade||null)}
-        {linha("Endereço",p.endereco)}
-        {linha("Captado por",p.captador_nome)}
-        {p.observacoes&&<div style={{paddingTop:10,color:C.sub,fontSize:13,lineHeight:1.6}}>{p.observacoes}</div>}
-      </div>
+      {(()=>{
+        /* A ficha de leitura (25/11/2026), na ordem do modelo que o Ali mandou:
+           valores, informações básicas, áreas, características, pagamento e,
+           recolhido no fim, o que é interno. Campo vazio não aparece. */
+        const aluguel=p.finalidade==="aluguel", F=FICHA_IMOVEL;
+        const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:"12px 14px",marginBottom:12};
+        const titulo=(t)=><div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6}}>{t}</div>;
+        const grade=(itens)=>{const v=itens.filter(x=>x&&x[1]!=null&&x[1]!==""&&x[1]!==0);
+          return v.length?<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:"8px 14px"}}>
+            {v.map(([k,val])=><div key={k} style={{minWidth:0}}><div style={{color:C.faint,fontSize:11}}>{k}</div><div style={{color:C.ink,fontSize:13,fontWeight:600}}>{val}</div></div>)}</div>:null;};
+        const det=p.detalhes||{}, dt=(k)=>det[k]&&F.DETALHES[k]?F.DETALHES[k].opcoes[det[k]]:null;
+        const valores=grade([[aluguel?"Aluguel":p.unidades_resumo?"A partir de":"Valor",p.valor?fmtValorMoeda(p.valor,p.moeda)+(aluguel?"/mês":""):null],
+          ["Condomínio",p.condominio?fmtMoeda(p.condominio)+"/mês":null],["IPTU",p.iptu?`${fmtMoeda(p.iptu)} ${F.IPTU_PERIODOS[p.iptu_periodo]||"por ano"}`:null]]);
+        const basicas=grade([["Tipo",CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno")],["Código",p.referencia],["Estágio",ESTAGIOS_IMOVEL[p.estagio]],
+          ["Entrega prevista",p.entrega],["Quartos",p.quartos],["Suítes",p.suites],["Banheiros",p.banheiros],["Lavabos",p.lavabos],["Salas",p.salas],
+          ["Vagas",p.vagas],["Andar",p.andar],["Unidade",p.unidade_numero],["Ano de construção",p.ano_construcao],
+          ...["ocupacao","mobilia","posicao","sol","garagem"].map(k=>[F.DETALHES[k].t,dt(k)])]);
+        const areas=grade([[["apartamento","comercial","empreendimento"].includes(p.categoria)?"Área privativa":"Área construída",p.area_util?`${p.area_util} m²`:null],
+          ["Área total",p.area_total?`${p.area_total} m²`:null],["Terreno",p.metragem?`${p.metragem} m²`:null],
+          ["Área",p.area_min||p.area_max?[p.area_min,p.area_max].filter(Boolean).join(" a ")+" m²":null]]);
+        const tem=new Set(p.caracteristicas||[]);
+        const grupos=F.CARACTERISTICAS.map(g=>({t:g.titulo,itens:g.itens.filter(x=>tem.has(x.v)).map(x=>x.t)})).filter(g=>g.itens.length);
+        const pag=aluguel?(p.garantias||[]).map(v=>(F.GARANTIAS.find(x=>x.v===v)||{}).t).filter(Boolean)
+          :[...(p.pagamentos||[]).map(v=>(F.PAGAMENTOS.find(x=>x.v===v)||{}).t).filter(Boolean),p.programa_local].filter(Boolean);
+        const veInterno=supervisor||meu||p.captador_id===session?.id;
+        const fmtData=(d)=>{const [a,m,dd]=String(d).split("-");return dd?`${dd}/${m}/${a}`:d;};
+        const internas=grade([["Captado por",p.captador_nome],veInterno&&["Proprietário",p.proprietario],
+          veInterno&&["Telefone do proprietário",p.proprietario_tel?<a href={`tel:${p.proprietario_tel}`} style={{color:C.greenMid}}>{p.proprietario_tel}</a>:null],
+          ["Chaves",p.chaves_local],["Exclusividade até",p.exclusividade_ate?fmtData(p.exclusividade_ate):null],["Documentação",dt("documentacao")],["Construtora",p.construtor]]);
+        return <React.Fragment>
+          {valores&&<div style={caixa}>{valores}</div>}
+          {basicas&&<div style={caixa}>{titulo("Informações básicas")}{basicas}</div>}
+          {areas&&<div style={caixa}>{titulo("Áreas e medidas")}{areas}</div>}
+          {p.descricao&&<div style={caixa}>{titulo("Descrição")}<div style={{color:C.sub,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{p.descricao}</div></div>}
+          {grupos.length>0&&<div style={caixa}>{titulo("Características")}
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:12}}>
+              {grupos.map(g=><div key={g.t}><div style={{color:C.faint,fontSize:11.5,fontWeight:600,marginBottom:5}}>{g.t}</div>
+                {g.itens.map(t=><div key={t} style={{display:"flex",gap:6,alignItems:"center",color:C.ink,fontSize:12.5,padding:"2px 0"}}><span style={{color:C.green,display:"flex"}}><Icon n="check" size={12}/></span>{t}</div>)}</div>)}
+            </div></div>}
+          {pag.length>0&&<div style={caixa}>{titulo(aluguel?"Garantias aceitas":"Condições de pagamento")}
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{pag.map(t=><Pill key={t} c={C.greenDeep} bg={C.greenSoft}>{t}</Pill>)}</div></div>}
+          {(p.tour_url||p.video_url)&&<div style={{...caixa,display:"flex",gap:14,flexWrap:"wrap"}}>
+            {p.tour_url&&<a href={p.tour_url} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:13,fontWeight:700}}>Abrir o tour virtual</a>}
+            {p.video_url&&<a href={p.video_url} target="_blank" rel="noreferrer" style={{color:C.greenMid,fontSize:13,fontWeight:700}}>Ver o vídeo</a>}</div>}
+          {(internas||p.observacoes)&&<details style={caixa} open={!isMobile}>
+            <summary style={{cursor:"pointer",color:C.ink,fontSize:13,fontWeight:700}}>Informações internas</summary>
+            <div style={{marginTop:10}}>{internas}</div>
+            {p.observacoes&&<div style={{marginTop:10,color:C.sub,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{p.observacoes}</div>}
+          </details>}
+        </React.Fragment>;})()}
 
       {p.maps_url&&<a href={p.maps_url} target="_blank" rel="noreferrer"
         style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,textDecoration:"none",background:C.greenSoft,border:`1px solid ${C.green}44`,color:C.greenMid,borderRadius:12,padding:"13px",fontSize:14,fontWeight:600,marginBottom:12}}>
@@ -20700,10 +20861,10 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
       {p.comissao&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:12}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:8}}>{p.finalidade==="aluguel"?"Comissão do aluguel":"Comissão da venda"}</div>
         <div style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:20,fontWeight:700}}>{fmtMoeda(p.comissao.total)}{p.finalidade==="aluguel"&&<span style={{fontSize:13}}>/mês</span>}</div>
-        <div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
+        {p.comissao.split&&<div style={{color:C.sub,fontSize:12,marginTop:6,lineHeight:1.6}}>
           Imobiliária ({p.comissao.split.imobiliaria}%): {fmtMoeda(p.comissao.imobiliaria)}<br/>
           Corretor ({p.comissao.split.corretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(p.comissao.corretor)}</b>
-        </div>
+        </div>}
       </div>}
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>

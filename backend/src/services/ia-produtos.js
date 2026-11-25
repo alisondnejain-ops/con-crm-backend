@@ -16,6 +16,7 @@
    o recite. O mesmo vale para o texto da ficha, e a tela diz isso. */
 import { randomUUID } from "crypto";
 import db from "../db.js";
+import { ROTULO_CARACTERISTICA } from "./ficha-imovel.js";
 
 export class ErroFicha extends Error { constructor(status, m) { super(m); this.status = status; } }
 const TETO_FICHAS = 40, TETO_TEXTO = 4000;
@@ -118,7 +119,11 @@ function textoDoCatalogo(orgId, produtoId) {
   if (comodos.length) l.push(comodos.join(" · "));
   if (p.area_util) l.push(`Área construída: ${p.area_util} m²`);
   if (p.metragem) l.push(`Terreno: ${p.metragem} m²`);
-  if (p.modalidade) l.push(`Financiamento: ${p.modalidade}`);
+  if (p.modalidade && p.finalidade !== "aluguel") l.push(`Aceita: ${p.modalidade}`);
+  // As características públicas da ficha (nunca documentação, proprietário ou chaves).
+  let car = []; try { car = JSON.parse(p.caracteristicas || "[]"); } catch {}
+  const rot = (Array.isArray(car) ? car : []).map(x => ROTULO_CARACTERISTICA[x]).filter(Boolean);
+  if (rot.length) l.push(`Características: ${rot.join(", ")}`);
   if (p.descricao) l.push(String(p.descricao).slice(0, 1500));
   return l.join("\n");
 }

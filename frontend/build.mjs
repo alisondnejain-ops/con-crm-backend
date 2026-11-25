@@ -46,7 +46,11 @@ if (erradas.length)
    lista só: a do seletor de país e a que o servidor usa para conferir o
    número nunca divergem. */
 const { PAISES } = await import(new URL("../backend/src/services/paises.js", import.meta.url));
-const comPaises = `const PAISES_DADOS = ${JSON.stringify(PAISES)};\n` + jsx;
+/* A ficha do imóvel (condições de pagamento, características…) também vem do
+   servidor (backend/src/services/ficha-imovel.js): a caixa que a tela mostra
+   é sempre uma chave que o servidor aceita. */
+const { FICHA_IMOVEL } = await import(new URL("../backend/src/services/ficha-imovel.js", import.meta.url));
+const comPaises = `const PAISES_DADOS = ${JSON.stringify(PAISES)};\nconst FICHA_IMOVEL = ${JSON.stringify(FICHA_IMOVEL)};\n` + jsx;
 
 const out = await esbuild.transform(comPaises, {
   loader: "jsx",

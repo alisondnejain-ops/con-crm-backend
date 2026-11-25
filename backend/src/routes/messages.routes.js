@@ -43,6 +43,7 @@ const MIME_POR_EXT = {
 };
 const mimeDaUrl = (url) => MIME_POR_EXT[String(url || "").split(".").pop().toLowerCase()] || "application/octet-stream";
 import { inferStage } from "../services/stages.js";
+import { ROTULO_CARACTERISTICA, ROTULO_PAGAMENTO, ROTULO_GARANTIA } from "../services/ficha-imovel.js";
 
 const r = Router();
 r.use(authRequired);
@@ -635,19 +636,38 @@ function gravarSaida(lead, user, firstName, m) {
    produto já cadastrado — a identidade de cada lead, de cada imobiliária,
    fica exatamente como estava. */
 export function textoDoProduto(p) {
-  const moeda = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  const moeda = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: p.moeda === "USD" ? "USD" : "BRL", maximumFractionDigits: 0 });
+  const lista = (v) => { try { const x = JSON.parse(v || "[]"); return Array.isArray(x) ? x : []; } catch { return []; } };
   const linhas = [`*${p.titulo}*`];
   const local = [p.bairro, p.cidade].filter(Boolean).join(" · ");
   if (local) linhas.push(`📍 ${local}`);
   if (p.tipo === "casa") {
-    const comodos = [p.quartos && `${p.quartos} quarto(s)`, p.banheiros && `${p.banheiros} banheiro(s)`].filter(Boolean).join(" · ");
+    const comodos = [p.quartos && `${p.quartos} quarto(s)`, p.suites && `${p.suites} suíte(s)`, p.banheiros && `${p.banheiros} banheiro(s)`,
+      p.vagas && `${p.vagas} vaga(s)`].filter(Boolean).join(" · ");
     if (comodos) linhas.push(`🛏 ${comodos}`);
+    if (p.area_util) linhas.push(`📐 ${Number(p.area_util).toLocaleString("pt-BR")} m² de área construída`);
   }
-  if (p.metragem) linhas.push(`📐 ${p.metragem} m² de terreno`);
-  if (p.modalidade) linhas.push(`🏡 Financiamento: ${p.modalidade}`);
-  else if (p.morar_bem) linhas.push("🏡 Faz parte do programa Morar Bem Pernambuco");
-  if (p.valor) linhas.push(`💰 ${moeda(p.valor)}`);
-  if (p.observacoes) linhas.push("", p.observacoes);
+  if (p.metragem) linhas.push(`📐 ${Number(p.metragem).toLocaleString("pt-BR")} m² de terreno`);
+  // Até seis destaques da ficha: o suficiente para despertar interesse sem virar lista de compras.
+  const destaques = lista(p.caracteristicas).map(x => ROTULO_CARACTERISTICA[x]).filter(Boolean).slice(0, 6);
+  if (destaques.length) linhas.push(`✨ ${destaques.join(" · ")}`);
+  if (p.finalidade !== "aluguel") {
+    if (p.modalidade) linhas.push(`🏡 Aceita: ${p.modalidade}`);
+    else if (p.morar_bem) linhas.push("🏡 Faz parte do programa Morar Bem Pernambuco");
+  }
+  const negocio = lista(p.pagamentos).filter(x => x === "permuta" || x === "veiculo").map(x => ROTULO_PAGAMENTO[x]);
+  if (negocio.length && p.finalidade !== "aluguel") linhas.push(`🤝 ${negocio.join(" · ")}`);
+  const garantias = lista(p.garantias).map(x => ROTULO_GARANTIA[x]).filter(Boolean);
+  if (garantias.length && p.finalidade === "aluguel") linhas.push(`🔑 Garantias: ${garantias.join(", ")}`);
+  if (p.valor) linhas.push(`💰 ${moeda(p.valor)}${p.finalidade === "aluguel" ? "/mês" : ""}`);
+  if (p.condominio) linhas.push(`🏢 Condomínio: ${moeda(p.condominio)}/mês`);
+  if (p.tour_url) linhas.push(`🎥 Tour virtual: ${p.tour_url}`);
+  /* A descrição do anúncio é o texto escrito para o cliente. As observações
+     são internas desde 25/11/2026 ("dono aceita 10% abaixo" não pode sair no
+     WhatsApp) — só vão quando o imóvel ainda não tem descrição, que é como
+     todo cadastro antigo foi escrito. */
+  if (p.descricao && String(p.descricao).trim()) linhas.push("", String(p.descricao).trim().slice(0, 1500));
+  else if (p.observacoes) linhas.push("", p.observacoes);
   return linhas.join("\n");
 }
 

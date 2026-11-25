@@ -25,6 +25,7 @@ import { normalizePhone } from "./stages.js";
 import { marcaDaOrg } from "./marca.js";
 import { situacao } from "./assinatura.js";
 import { railwayPronto, cadastrarDominio, estadoDoDominio } from "./railway.js";
+import { CARACTERISTICAS, DETALHES, ROTULO_GARANTIA } from "./ficha-imovel.js";
 
 const unidadesPublicas = (produtoId) => db.prepare(`SELECT identificacao, tipologia, bloco, area, moeda, preco FROM produto_unidades
   WHERE produto_id = ? AND status = 'disponivel' ORDER BY ordem, created_at LIMIT 200`).all(produtoId)
@@ -450,6 +451,36 @@ function localDe(p) {
   return { linha, curta: [p.bairro, p.cidade].filter(Boolean).join(" · ") };
 }
 
+const listaDe = (v) => { try { const x = JSON.parse(v || "[]"); return Array.isArray(x) ? x : []; } catch { return []; } };
+function gruposPublicos(v) {
+  const tem = new Set(listaDe(v));
+  return CARACTERISTICAS.map(g => ({ titulo: g.titulo, itens: g.itens.filter(x => tem.has(x.v)).map(x => x.t) })).filter(g => g.itens.length);
+}
+function detalhesPublicos(v) {
+  let d = {}; try { d = JSON.parse(v || "{}") || {}; } catch {}
+  return Object.entries(DETALHES).filter(([k, def]) => !def.interno && def.opcoes[d[k]]).map(([k, def]) => ({ t: def.t, v: def.opcoes[d[k]] }));
+}
+/* As características na página do imóvel, para TODOS os modelos do site: um
+   bloco só, com estilo próprio que herda as cores do modelo (currentColor),
+   em vez de cinco cópias que divergiriam. */
+export function caracteristicasHtml(i, { secao = "secao", titulo = "h2" } = {}) {
+  const grupos = i.caracteristicas || [], det = i.detalhes || [];
+  if (!grupos.length && !det.length && !(i.garantias || []).length && !i.tour) return "";
+  const esc2 = (t) => String(t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const lista = (itens) => `<ul class="cx-lista">${itens.map(t => `<li>${esc2(t)}</li>`).join("")}</ul>`;
+  return `<div class="${secao} cx">
+<style>.cx .cx-grupo{margin-top:14px}.cx .cx-grupo h3{font-size:.82rem;letter-spacing:.04em;text-transform:uppercase;opacity:.7;margin:0 0 8px;font-weight:700}
+.cx .cx-lista{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px 14px}
+.cx .cx-lista li{position:relative;padding-left:20px;line-height:1.45;font-size:.95rem}.cx .cx-lista li::before{content:"✓";position:absolute;left:0;opacity:.7;font-weight:700}
+.cx .cx-det{display:flex;flex-wrap:wrap;gap:8px 18px;margin:6px 0 0;font-size:.95rem}.cx .cx-det b{font-weight:600}.cx a.cx-tour{display:inline-block;margin-top:14px;font-weight:700}</style>
+<${titulo}>Características</${titulo}>
+${det.length ? `<div class="cx-det">${det.map(d => `<span>${esc2(d.t)}: <b>${esc2(d.v)}</b></span>`).join("")}</div>` : ""}
+${grupos.map(g => `<div class="cx-grupo"><h3>${esc2(g.titulo)}</h3>${lista(g.itens)}</div>`).join("")}
+${(i.garantias || []).length ? `<div class="cx-grupo"><h3>Garantias aceitas</h3>${lista(i.garantias)}</div>` : ""}
+${i.tour ? `<a class="cx-tour" href="${esc2(i.tour)}" target="_blank" rel="noopener">Fazer o tour virtual →</a>` : ""}
+</div>`;
+}
+
 export function publico(p) {
   const aluguel = p.finalidade === "aluguel";
   return {
@@ -475,6 +506,13 @@ export function publico(p) {
     descricao: (p.descricao || "").trim() || null,   // a PÚBLICA — nunca `observacoes`
     modalidade: !aluguel && p.modalidade ? p.modalidade : null,
     moeda: p.moeda === "USD" ? "USD" : "BRL",
+    area_total: p.area_total > 0 ? p.area_total : null,
+    // A ficha (25/11/2026): só o que é público. Documentação, proprietário,
+    // chaves e comissão nunca entram — nem como dado escondido.
+    caracteristicas: gruposPublicos(p.caracteristicas),
+    detalhes: detalhesPublicos(p.detalhes),
+    garantias: aluguel ? listaDe(p.garantias).map(x => ROTULO_GARANTIA[x]).filter(Boolean) : [],
+    tour: /^https:\/\//i.test(p.tour_url || "") ? p.tour_url : null,
     // Unidades disponíveis (empreendimento/loteamento), só os campos públicos — nunca o fluxo.
     unidades: unidadesPublicas(p.id),
     local: localDe(p),
@@ -1090,6 +1128,7 @@ export function paginaImovel(ctx, i) {
       <div class="preco-cel"><div class="preco">${precoDe(i)}</div>${custos ? `<div class="custos">${custos}</div>` : ""}</div>
       ${ficha ? `<div class="ficha">${ficha}</div>` : ""}
       ${i.descricao ? `<div class="secao"><h2>Sobre o imóvel</h2><p class="texto">${esc(i.descricao)}</p></div>` : ""}
+      ${caracteristicasHtml(i)}
       ${secaoUnidades(i)}
       ${i.video ? `<div class="secao"><h2>Vídeo</h2><video class="video" src="${esc(i.video)}" controls preload="metadata" playsinline></video></div>` : ""}
     </article>
@@ -1168,7 +1207,7 @@ export function paginaPausada(ctx) {
    dados para o Google, os endereços que respeitam o domínio próprio — vem
    daqui, um lugar só. Um modelo que reescrevesse o Pixel ou o caminho do
    imóvel divergiria do Clássico no primeiro conserto. */
-export const pecas = { imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
+export const pecas = { caracteristicasHtml, imgFoto, altDaFoto, tituloDoImovel, verificacaoGoogle, dadosDaImobiliaria, dadosDoImovel, resumoDoImovel, pixelDoImovel, esc, abs, inicio, caminho, hrefImovel, jsonLd, gtmHead, gtmBody, pixel, moeda, numero, precoTexto,
   telefoneLegivel, wa, caracteristicas, ICO, FAIXAS, secaoUnidades };
 
 /* ===== SITEMAP E ROBOTS (04/10/2026) =====
