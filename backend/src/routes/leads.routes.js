@@ -1936,6 +1936,19 @@ r.patch("/:id/telefone", (req, res) => {
   res.json({ ok: true, telefone: phone });
 });
 
+/* E-MAIL DO LEAD, EDITÁVEL (25/11/2026, pedido do Ali: todo campo da ficha
+   precisa ser editável). Quem pode abrir a conversa edita; vazio apaga. */
+r.patch("/:id/email", (req, res) => {
+  const email = String(req.body?.email || "").trim().slice(0, 120);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return res.status(400).json({ error: "Esse e-mail não parece válido." });
+  const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
+  if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
+  if (!podeVer(req.user, lead)) return res.status(403).json({ error: "Este lead não está com você" });
+  db.prepare("UPDATE leads SET email = ? WHERE id = ?").run(email || null, lead.id);
+  res.json({ ok: true, email: email || null });
+});
+
 r.patch("/:id/nome", (req, res) => {
   const nome = String(req.body?.nome || "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (!nome) return res.status(400).json({ error: "Escreva o nome do cliente." });

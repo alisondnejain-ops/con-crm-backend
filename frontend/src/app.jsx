@@ -1952,6 +1952,13 @@ function ConCRM(){
       }
     },
     renomearLead:acao((leadId,nome)=>api(`/leads/${leadId}/nome`,{method:"PATCH",body:{nome}})),
+    // E-mail e imóvel de interesse (25/11/2026): o erro volta ao campo aberto.
+    salvarEmail:async(leadId,email)=>{
+      const r=await api(`/leads/${leadId}/email`,{method:"PATCH",body:{email}});
+      await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
+    definirInteresse:async(leadId,produto_id)=>{
+      const r=await api(`/leads/${leadId}/interesse`,{method:"PATCH",body:{produto_id}});
+      await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
     mudarTemperatura:acao((leadId,temperatura)=>api(`/leads/${leadId}/temperatura`,{method:"PATCH",body:{temperatura}})),
     // Sem o `acao()`: o erro (número repetido, formato) volta para o campo
     // que está aberto, em vez de ir para a faixa do topo e fechar a edição.
@@ -9665,6 +9672,12 @@ function OrigemDoLead({lead,catraca}){
       {/* A catraca ao lado da origem (CETRO 08, item 2). */}
       {catraca&&<span style={{color:C.faint}}>· catraca <b style={{color:C.sub,fontWeight:600}}>{catraca}</b></span>}
     </div>
+    {/* Criado em / entrada na etapa (25/11/2026, pedido do Ali): as duas
+        datas escritas, para a gestão ver há quanto tempo o lead está ali. */}
+    <div style={{marginTop:3,paddingLeft:17,fontSize:11,lineHeight:1.5,color:C.sub}}>
+      <div><span style={{color:C.faint}}>Criado em: </span>{lead.createdAt?fmtDataHoraMkt(lead.createdAt):"—"}</div>
+      <div><span style={{color:C.faint}}>Entrada na etapa: </span>{lead.etapaDesde?`${fmtDataHoraMkt(lead.etapaDesde)} · há ${fmtCurto(Date.now()-lead.etapaDesde)}`:"—"}</div>
+    </div>
     {linhas.length>0&&<div style={{marginTop:3,paddingLeft:17,display:"flex",flexDirection:"column",gap:1}}>
       {linhas.map(([r,v])=><div key={r} style={{fontSize:11,lineHeight:1.4,color:C.sub,overflowWrap:"anywhere"}}>
         <span style={{color:C.faint}}>{r}: </span><span style={{fontWeight:r==="Campanha"?600:400,color:C.ink}}>{v}</span></div>)}
@@ -11265,6 +11278,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {/* Mesma ordem da ficha da supervisão (CETRO 08). */}
         <NomeDoLead lead={sel} acoes={acoes}/>
         <TelefoneDoLead lead={sel} acoes={acoes}/>
+        <EmailDoLead lead={sel} acoes={acoes}/>
         <ResponsavelDoLead lead={sel} session={session}/>
         <OrigemDoLead lead={sel}/>
         <TemperaturaDoLead lead={sel} acoes={acoes}/>
@@ -11994,7 +12008,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
           <NomeDoLead lead={l} acoes={acoes}/>
           {ocultar?<div style={{color:C.faint,fontSize:12,marginBottom:10}}>Telefone e e-mail escondidos (o olho do Funil está fechado).</div>
             :<React.Fragment><TelefoneDoLead lead={l} acoes={acoes}/>
-              {l.email&&<div style={{color:C.sub,fontSize:12,margin:"-4px 0 10px",overflowWrap:"anywhere"}}>{l.email}</div>}</React.Fragment>}
+              <EmailDoLead lead={l} acoes={acoes}/></React.Fragment>}
           {!contaInterna()&&<FichaDoCliente lead={l} acoes={acoes} secoes={["Dados pessoais"]} titulo="Dados pessoais" todasAbertas/>}
           <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
             <CamposPersonalizadosDoLead lead={l} acoes={acoes} session={session}/>
@@ -12004,11 +12018,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
           ?<Simulacao lead={l} acoes={acoes} isMobile={isMobile} aoFechar={()=>setSimulando(false)}/>
           :<React.Fragment>
             <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12}}>
-              <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginBottom:5}}>Imóvel de interesse</div>
-              {l.produto
-                ?<div style={{color:C.ink,fontSize:13,fontWeight:600}}>{l.produto.titulo}
-                  {l.produto.valor?<span style={{color:C.sub,fontWeight:500}}> · {fmtMoeda(l.produto.valor)}{l.produto.finalidade==="aluguel"?"/mês":""}</span>:null}</div>
-                :<div style={{color:C.faint,fontSize:12}}>Nenhum ainda. O primeiro imóvel enviado pela conversa fica marcado aqui.</div>}
+              <ImovelDeInteresse lead={l} acoes={acoes}/>
               {/* Os imóveis enviados ao cliente, pelo registro da conversa. */}
               {(()=>{const env=(l.msgs||[]).filter(m=>/^\[Imóvel enviado\]/.test(m.text||""));
                 return env.length?<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
@@ -12318,7 +12328,8 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
 
       {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
           usar a data de entrada do lead, que quase nunca é a mesma coisa. */}
-      {linha("target", l.etapaDesde?`nesta etapa há ${fmtCurto(Date.now()-l.etapaDesde)}`:"nesta etapa há —")}
+      {linha("calendar", `criado em ${l.createdAt?fmtData(l.createdAt):"—"}`)}
+      {linha("target", l.etapaDesde?`na etapa há ${fmtCurto(Date.now()-l.etapaDesde)} · desde ${fmtDataHoraMkt(l.etapaDesde).replace(",","")}`:"na etapa desde —")}
 
       {/* "Falou" é a ÚLTIMA INTERAÇÃO de verdade (CETRO 09.1): mensagem de
           gente ou ligação — disparo e automação não contam. */}
@@ -15161,8 +15172,8 @@ function NomeDoLead({lead,acoes}){
       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{lead.nome}</span>
     <button onClick={()=>{setNome(lead.nome||"");setEditando(true);}} title="Corrigir o nome do cliente"
       aria-label="Corrigir o nome do cliente"
-      style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}>
-      <Icon n="edit" size={13}/></button>
+      style={{border:"none",background:"transparent",color:C.greenMid,cursor:"pointer",padding:2,display:"flex",alignItems:"center",gap:3,fontSize:10.5,fontWeight:600,flexShrink:0}}>
+      <Icon n="edit" size={12} color={C.greenMid}/>Editar</button>
   </div>;
 
   return <div style={{marginBottom:12}}>
@@ -15213,8 +15224,8 @@ function TelefoneDoLead({lead,acoes}){
       {/* Abre já com o país do número gravado e só a parte nacional no campo. */}
       <button onClick={()=>{const x=separarTel(lead.tel);setPais(x.pais);setTel(x.nacional);setEditando(true);}} title="Corrigir o telefone"
         aria-label="Corrigir o telefone"
-        style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,display:"flex",flexShrink:0}}>
-        <Icon n="edit" size={12}/></button>
+        style={{border:"none",background:"transparent",color:C.greenMid,cursor:"pointer",padding:2,display:"flex",alignItems:"center",gap:3,fontSize:10.5,fontWeight:600,flexShrink:0}}>
+        <Icon n="edit" size={11} color={C.greenMid}/>Editar</button>
     </span>
     <SeloDoPais tel={lead.tel}/>
   </div>;
@@ -15241,6 +15252,80 @@ function TelefoneDoLead({lead,acoes}){
         cancelar</button>
     </div>
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>{erro}</div>}
+  </div>;
+}
+
+/* O E-MAIL DO CLIENTE, EDITÁVEL (25/11/2026). Vazio apaga. */
+function EmailDoLead({lead,acoes}){
+  const [editando,setEditando]=useState(false);
+  const [email,setEmail]=useState(lead.email||"");
+  const [salvando,setSalvando]=useState(false);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ setEditando(false); setErro(""); setEmail(lead.email||""); },[lead.id]);
+  async function salvar(){
+    const novo=email.trim();
+    if(novo===(lead.email||"")) return setEditando(false);
+    setSalvando(true); setErro("");
+    try{ await acoes.salvarEmail(lead.id,novo); setEditando(false); }
+    catch(e){ setErro(e.message); }
+    finally{ setSalvando(false); }
+  }
+  if(!editando) return <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:-6,marginBottom:12}}>
+    <Icon n="mail" size={12} color={C.faint}/>
+    <span style={{color:lead.email?C.sub:C.faint,fontSize:12,overflowWrap:"anywhere",minWidth:0}}>{lead.email||"Sem e-mail"}</span>
+    <LinkEditar aoClicar={()=>{setEmail(lead.email||"");setEditando(true);}} titulo="Editar o e-mail"/>
+  </div>;
+  return <div style={{marginTop:-6,marginBottom:12}}>
+    <input autoFocus value={email} onChange={e=>setEmail(e.target.value)} inputMode="email" maxLength={120}
+      onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
+      placeholder="E-mail do cliente"
+      style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.green}66`,background:C.surface,
+        borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+    <div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}>
+      <button onClick={salvar} disabled={salvando}
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
+          fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
+        {salvando?"…":"Salvar"}</button>
+      <button onClick={()=>setEditando(false)} disabled={salvando}
+        style={{background:"transparent",border:"none",color:C.faint,fontSize:12.5,cursor:"pointer",padding:4,flexShrink:0}}>
+        cancelar</button>
+    </div>
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>{erro}</div>}
+  </div>;
+}
+
+/* O IMÓVEL DE INTERESSE, EDITÁVEL (25/11/2026): escolhe-se um imóvel do
+   catálogo, ou nenhum. O primeiro imóvel enviado pela conversa continua
+   marcando sozinho quando o campo está vazio. */
+function ImovelDeInteresse({lead,acoes}){
+  const [editando,setEditando]=useState(false);
+  const [produtos,setProdutos]=useState(null);
+  const [erro,setErro]=useState("");
+  useEffect(()=>{ setEditando(false); setErro(""); },[lead.id]);
+  useEffect(()=>{ if(!editando||produtos) return;
+    acoes.produtos({}).then(r=>setProdutos((Array.isArray(r)?r:(r&&r.produtos)||[]).filter(p=>p.status!=="recusado"))).catch(e=>setErro(e.message)); },[editando]);
+  const escolher=async(id)=>{ setErro("");
+    try{ await acoes.definirInteresse(lead.id,id||null); setEditando(false); }catch(e){ setErro(e.message); } };
+  const p=lead.produto;
+  return <div>
+    <div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+      <Icon n="pin" size={11}/><span style={{flex:1,minWidth:0}}>Imóvel de interesse</span>
+      {!editando&&<LinkEditar aoClicar={()=>setEditando(true)}/>}</div>
+    {editando
+      ?<div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <select autoFocus value={(p&&p.id)||""} onChange={e=>escolher(e.target.value)} disabled={!produtos}
+          style={{flex:1,minWidth:0,fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,borderRadius:7,padding:"6px 7px",color:C.ink,outline:"none"}}>
+          <option value="">{produtos?"Nenhum":"Carregando…"}</option>
+          {p&&p.id&&produtos&&!produtos.some(x=>x.id===p.id)&&<option value={p.id}>{p.titulo}</option>}
+          {(produtos||[]).map(x=><option key={x.id} value={x.id}>{x.titulo}</option>)}
+        </select>
+        <button onClick={()=>setEditando(false)} style={{background:"transparent",border:"none",color:C.faint,fontSize:12,cursor:"pointer",padding:4,flexShrink:0}}>cancelar</button>
+      </div>
+      :(p
+        ?<div style={{color:C.ink,fontSize:12.5,fontWeight:500,overflowWrap:"anywhere"}}>{p.titulo}
+          {p.valor?<span style={{color:C.sub}}> · {fmtMoeda(p.valor)}{p.finalidade==="aluguel"?"/mês":""}</span>:null}</div>
+        :<div style={{color:C.faint,fontSize:12.5}}>—</div>)}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:4}}>{erro}</div>}
   </div>;
 }
 
@@ -15707,6 +15792,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,aoFechar,l
           conversa pessoal; dados do titular. */}
       <NomeDoLead lead={lead} acoes={acoes}/>
       <TelefoneDoLead lead={lead} acoes={acoes}/>
+      <EmailDoLead lead={lead} acoes={acoes}/>
       <ResponsavelDoLead lead={lead} session={session}/>
       <OrigemDoLead lead={lead} catraca={catrNome}/>
       <TemperaturaDoLead lead={lead} acoes={acoes}/>
@@ -15815,6 +15901,7 @@ function QualificacaoDoLead({lead,acoes,session}){
     {!contaInterna()&&<FichaDoCliente lead={lead} acoes={acoes}/>}
     {/* O valor do negócio que está sendo conversado (30/10/2026). Soma no
         cabeçalho das colunas do Funil; venda continua sendo "Registrar venda". */}
+    {!contaInterna()&&!contaEmpreendimento()&&<div style={{marginTop:10}}><ImovelDeInteresse lead={lead} acoes={acoes}/></div>}
     {!lead.venda&&<div style={{marginTop:10}}>
       <CampoQual rotulo="Valor em negociação" valor={lead.negociacao?fmtMoeda(lead.negociacao):"—"} icone="trend"
         onSalvar={(novo)=>acoes.salvarNegociacao(lead.id,novo)}/></div>}
@@ -17197,6 +17284,15 @@ function fmtResposta(v){
   t=t.replace(/\br\$\s*/gi,"R$ ");
   return t.charAt(0).toUpperCase()+t.slice(1);
 }
+/* "EDITAR" À VISTA (25/11/2026, pedido do Ali: "nenhum campo é possível
+   editar"). Todos já eram editáveis tocando no valor, mas nada na tela dizia
+   isso. Agora cada campo editável traz o lápis com a palavra. */
+function LinkEditar({aoClicar,titulo="Editar"}){
+  return <button onClick={aoClicar} title={titulo} aria-label={titulo}
+    style={{border:"none",background:"transparent",color:C.greenMid,cursor:"pointer",padding:"1px 2px",
+      display:"inline-flex",alignItems:"center",gap:3,fontSize:10.5,fontWeight:600,flexShrink:0}}>
+    <Icon n="edit" size={10} color={C.greenMid}/>Editar</button>;
+}
 function CampoQual({rotulo,valor,icone,onSalvar}){
   const [editando,setEditando]=useState(false);
   const [texto,setTexto]=useState(valor==="—"?"":valor);
@@ -17205,7 +17301,8 @@ function CampoQual({rotulo,valor,icone,onSalvar}){
 
   return <div>
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
-      <Icon n={icone} size={11}/>{rotulo}</div>
+      <Icon n={icone} size={11}/><span style={{flex:1,minWidth:0}}>{rotulo}</span>
+      {!editando&&<LinkEditar aoClicar={()=>setEditando(true)}/>}</div>
     {editando
       ?<input autoFocus value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
         onKeyDown={e=>{if(e.key==="Enter")confirmar();if(e.key==="Escape")setEditando(false);}}
@@ -17323,7 +17420,9 @@ function CampoPersonalizado({def,valor,onSalvar}){
 
   // text, number, currency, date, phone, email: mesmo clique-para-editar do CampoQual.
   const confirmar=()=>{ setEditando(false); if(texto!==bruto) onSalvar(texto); };
-  return <div>{rotulo}
+  return <div><div style={{color:C.faint,fontSize:10.5,fontWeight:600,display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+      <Icon n="lista" size={11}/><span style={{flex:1,minWidth:0}}>{def.name}</span>
+      {!editando&&<LinkEditar aoClicar={()=>setEditando(true)}/>}</div>
     {editando
       ?<input autoFocus type={def.type==="date"?"date":def.type==="number"?"number":"text"}
         value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
