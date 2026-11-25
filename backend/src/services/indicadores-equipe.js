@@ -30,7 +30,7 @@ export const INDICADORES = [
   ["visitas_realizadas", "Visitas", "leads", true], ["propostas", "Propostas", "leads", true], ["vendas", "Vendas", "vendas", true],
   ["na_mao", "Na mão", "recebidos no período que continuam com a pessoa, em aberto", true], ["tarefas_criadas", "Tarefas criadas", "tarefas", true], ["tarefas_feitas", "Tarefas feitas", "tarefas", true],
   ["atrasados", "Leads atrasados", "leads agora", true], ["perdidos", "Perdidos", "leads", true],
-  ["perdidos_consequencia", "Perdidos por consequência", "recebidos no período sem nenhuma mensagem da pessoa (recebidos − atendidos)", true],
+  ["perdidos_consequencia", "Perdidos por consequência", "recebidos no período sem nenhuma mensagem da pessoa (recebidos − contatados)", true],
 ];
 const PONTUAVEIS = new Set(INDICADORES.filter(i => i[3]).map(i => i[0]));
 

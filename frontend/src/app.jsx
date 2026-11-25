@@ -23325,7 +23325,7 @@ function FunilDeConversao({dados,pipelineId,filtros,acoes,isMobile,abrirConversa
           "− ainda não entraram + recebidos antes" confundia mais do que
           explicava e saiu. */}
       {c.topo&&<div style={{marginTop:6,display:"flex",flexWrap:"wrap",alignItems:"center",gap:"4px 12px",background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 11px",color:C.sub}}>
-        <span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.chegaram} conjunto="recebidos" tit="Leads recebidos no período"/></b> leads recebidos no período <span style={{color:C.faint}}>(o mesmo da Visão geral)</span></span>
+        <span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.chegaram} conjunto="recebidos" tit="Leads recebidos no período"/></b> leads recebidos neste funil no período</span>
         <span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.base} conjunto="base" tit={`Recebidos que chegaram a ${c.entrada.name}`}/></b> chegaram a <b>{c.entrada.name}</b></span>
         {c.topo.ainda_nao>0&&<span><b style={{color:C.ink,fontSize:14}}><NumeroConferivel pedir={pedir} impressao={impressao} v={c.topo.ainda_nao} conjunto="ainda_nao" tit={`Recebidos que não chegaram a ${c.entrada.name}`}/></b> não chegaram <span style={{color:C.faint}}>(continuam antes de {c.entrada.name} ou foram perdidos antes dela)</span></span>}
       </div>}
@@ -23612,20 +23612,29 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           const comPessoa=donosDoValor(f.responsavel).some(x=>x!=="fila");
           const cards={
             recebidos:<Metric key="recebidos" rot="Leads recebidos" v={a.recebidos} sub={`${a.na_fila} na fila`}/>,
-            atendidos:<Metric key="atendidos" rot="Leads atendidos" v={a.atendidos??"—"} sub={a.atendidos==null?null:`${num(a.taxa_atendimento,"%")} dos recebidos · ${comPessoa?"mensagem de quem recebeu":"alguém da equipe escreveu"}`}/>,
+            /* Nomes sem sobreposição (25/11/2026, pedido do Ali): "Chegaram a
+               <etapa>" é o primeiro degrau do funil de conversão logo abaixo
+               (a mesma conta, o mesmo número); "Contatados" é quem recebeu
+               mensagem — a mesma palavra dos Indicadores do SDR. A palavra
+               "atendidos" saiu dos relatórios: valia três coisas diferentes. */
+            etapa_inicial:a.etapa_inicial?<Metric key="etapa_inicial" rot={`Chegaram a ${a.etapa_inicial.etapa}`} v={a.etapa_inicial.chegaram}
+              sub={f.pipeline_id
+                ?`${num(a.etapa_inicial.recebidos?Math.round(a.etapa_inicial.chegaram/a.etapa_inicial.recebidos*1000)/10:null,"%")} dos recebidos · o mesmo do funil abaixo`
+                :`dos ${a.etapa_inicial.recebidos} recebidos no funil ${a.etapa_inicial.funil}`}/>:null,
+            atendidos:<Metric key="atendidos" rot="Contatados" v={a.atendidos??"—"} sub={a.atendidos==null?null:`${num(a.taxa_atendimento,"%")} dos recebidos · ${comPessoa?"receberam mensagem de quem recebeu o lead":"receberam mensagem da equipe ou da IA"}`}/>,
             resposta:<Metric key="resposta" rot="Tempo da 1ª resposta" v={tempo(a.primeira_resposta_mediana_min)} sub="mediana"/>,
-            responderam:<Metric key="responderam" rot="Responderam à 1ª mensagem" v={num(a.taxa_resposta_cliente,"%")}
-              sub={a.clientes_contatados?`${a.clientes_responderam} de ${a.clientes_contatados} clientes`:"nenhuma mensagem enviada"}/>,
+            responderam:<Metric key="responderam" rot="Responderam" v={num(a.taxa_resposta_cliente,"%")}
+              sub={a.clientes_contatados?`${a.clientes_responderam} dos ${a.clientes_contatados} contatados escreveram de volta`:"ninguém contatado ainda"}/>,
             qualificados:<Metric key="qualificados" rot="Qualificados" v={a.qualificados??"—"}
               sub={comPessoa?(donosDoValor(f.responsavel).length>1?"com estas pessoas, no período":"com esta pessoa, no período"):"no comercial, no período — o mesmo do Painel"}/>,
           };
-          const nomes={recebidos:"Leads recebidos",atendidos:"Leads atendidos",resposta:"Tempo da 1ª resposta",responderam:"Responderam à 1ª mensagem",qualificados:"Qualificados"};
+          const nomes={recebidos:"Leads recebidos",etapa_inicial:"Chegaram à 1ª etapa do funil",atendidos:"Contatados",resposta:"Tempo da 1ª resposta",responderam:"Responderam",qualificados:"Qualificados"};
           const ordem=(cartoes&&cartoes.visao&&cartoes.visao.ordem)||Object.keys(cards);
           return <div>
             {podeGerir(session)&&!ordenando&&<div className="nao-imprimir" style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
               <button onClick={()=>setOrdenando(true)} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>Ordem dos cartões</button></div>}
             {ordenando&&<OrdenarCartoes grupo="visao" config={cartoes} nomes={nomes} salvar={salvarCartoes} fechar={()=>setOrdenando(false)}/>}
-            <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>{ordem.filter(k=>cards[k]).map(k=>cards[k])}</div>
+            <div style={{display:"grid",gap:9,gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(auto-fit,minmax(150px,1fr))"}}>{ordem.filter(k=>cards[k]).map(k=>cards[k])}</div>
           </div>;})()}
 
         {/* ===== QUEM ESTÁ ESPERANDO ===== */}
@@ -25819,7 +25828,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
       {titulo("Números do período")}
       <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
         {numero("Leads recebidos",linha.recebidos,"entraram no período")}
-        {numero("Atendidos",linha.atendidos,linha.taxa_atendimento+"% de resposta")}
+        {numero("Contatados",linha.atendidos,linha.taxa_atendimento+"% dos recebidos")}
         {numero("Perdidos por consequência",linha.perdidos_consequencia??0,"recebidos sem atendimento")}
         {numero("1ª resposta",fmtMin(linha.primeira_resposta_mediana_min),"mediana")}
         {numero("Qualificados",linha.qualificados??0,"no período")}
@@ -25916,11 +25925,11 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
         <div><b>Leads recebidos</b> — entraram no período e estão com esta pessoa.</div>
         <div><b>Vendas</b> — fechadas <b>dentro do período</b>, venha o lead de quando vier. Uma venda registrada hoje de um lead de junho conta neste mês.</div>
         <div><b>Conversão</b> — vendas fechadas no período ÷ leads recebidos no período (as duas colunas da mesma linha).</div>
-        <div><b>Funil de conversão</b> — cada etapa conta os leads que <b>chegaram a ela no período</b>, venham de quando vierem; o primeiro degrau conta quem entrou no comercial no período, e a venda conta pela data em que foi registrada. <b>Desde a entrada</b> = chegaram à etapa ÷ primeiro degrau; <b>da etapa anterior</b> = chegaram à etapa ÷ chegaram à de cima, no mesmo período.</div>
+        <div><b>Funil de conversão</b> — cada etapa conta os leads que <b>chegaram a ela no período</b>, venham de quando vierem; o primeiro degrau conta os leads recebidos no período que chegaram à primeira etapa comercial, e a venda conta pela data em que foi registrada. <b>Desde a entrada</b> = chegaram à etapa ÷ primeiro degrau; <b>da etapa anterior</b> = chegaram à etapa ÷ chegaram à de cima, no mesmo período.</div>
         <div><b>1ª resposta</b> — mediana do tempo entre o lead entrar e a primeira resposta. Mediana, não média: um lead esquecido no fim de semana não define o mês inteiro.</div>
-        <div><b>Agendados / visitas</b> — onde os leads do período estão <b>hoje</b> no funil. O número menor é quantos foram colocados ali por uma <b>pessoa</b> (mudança na mão ou sugestão da IA confirmada); o resto veio da regra automática de palavra-chave. <b>Só os confirmados entram na nota</b> — enquanto a equipe não usa as palavras, a etapa descreve o palpite do sistema, não o atendimento.</div>
-        <div><b>Perdidos por consequência</b> — dos leads recebidos no período, os que esta pessoa não atendeu depois de receber — nem mensagem, nem ligação em que falou com o cliente (Recebidos − Atendidos). É atendimento que não aconteceu; <b>Perdidos</b> continua sendo o lead movido para a etapa de perda.</div>
-        <div><b>Atendidos</b> — mensagem desta pessoa ou ligação em que ela falou com o cliente (tentativa sem resposta não conta). <b>1ª resposta e Atendidos</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
+        <div><b>Qualificados, agendamentos, visitas e propostas</b> — leads que chegaram a essas etapas no período, com quem estava com o lead naquele momento — a mesma conta do funil de conversão.</div>
+        <div><b>Perdidos por consequência</b> — dos leads recebidos no período, os que esta pessoa não atendeu depois de receber — nem mensagem, nem ligação em que falou com o cliente (Recebidos − Contatados). É atendimento que não aconteceu; <b>Perdidos</b> continua sendo o lead movido para a etapa de perda.</div>
+        <div><b>Contatados</b> — dos recebidos, os que ganharam mensagem desta pessoa ou ligação em que ela falou com o cliente (tentativa sem resposta não conta). <b>1ª resposta e Contatados</b> — contam a partir da hora em que o lead ficou com esta pessoa, e só as mensagens que ela mesma escreveu. O primeiro contato da atendente, antes do repasse, não entra na conta do corretor.</div>
         {(score&&score.componentes||[]).some(c=>c.comparativo)&&
           <div style={{marginTop:6}}><b>Vendas e ligações na nota</b> — são comparativas: valem 100 para quem mais fez na equipe no período. Mudam quando a equipe muda.</div>}
       </div>
@@ -26036,16 +26045,16 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      O pré-atendimento, antes do corretor: quem chegou, quem foi atendido e quem foi pré-qualificado (passou ao comercial). "Qualificados", no resto do sistema, é a etapa de qualificação do comercial.</div>
+      O pré-atendimento, antes do corretor: quem chegou, quem foi contatado e quem foi pré-qualificado (passou ao comercial). "Qualificados", no resto do sistema, é a etapa de qualificação do comercial.</div>
     {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
       Não há como medir a qualificação do SDR: crie um funil de SDR, ou uma etapa com "qualific" no nome (ex.: "Lead qualificado"), em Configurações → Funis e etapas.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7,display:"flex",alignItems:"center",gap:6}}>{a.ia&&<Icon n="sparkles" size={14} color={C.greenMid}/>}{a.nome}</div>
       {a.ia?<div style={grade}>
         {caixa("chegaram ao pré-atendimento",a.recebidos,"Leads que entraram no funil de SDR no período (sem funil de SDR, os que nasceram sem dono) e não foram para uma atendente, mais os que a IA atendeu")}
-        {caixa("atendidos",a.contatados,"Leads em que a IA mandou a primeira mensagem dela no período")}
+        {caixa("contatados",a.contatados,"Leads em que a IA mandou a primeira mensagem dela no período")}
         {caixa("1ª resposta (mediana)",tempo(a.primeira_resposta_mediana_min),"Da mensagem do cliente até a primeira resposta da IA")}
-        {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos atendidos, quantos clientes escreveram depois da primeira mensagem da IA")}
+        {caixa("responderam",`${a.responderam} · ${pctBR(a.taxa_resposta)}`,"Dos contatados, quantos clientes escreveram depois da primeira mensagem da IA")}
         {caixa("pré-qualificados",`${a.qualificados} · ${pctBR(a.taxa_qualificacao)}`,"Destes leads, os que passaram do funil de SDR para o comercial ou ganharam a etiqueta de qualificado no período, sobre os que chegaram")}
         {caixa("perdidos",a.perdidos,"Movidos pelo sistema para uma etapa de perda depois da IA")}
       </div>:<div style={grade}>
@@ -26102,7 +26111,7 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      Os leads que entraram no funil de SDR no período, atendidos por gente, robô ou IA, contados até {fmtData(c.corte)}. Toque num número para ver os leads.</div>
+      Os leads que entraram no funil de SDR no período, contatados por gente ou pela IA, contados até {fmtData(c.corte)}. Toque num número para ver os leads.</div>
     {!c.tem_funil_sdr&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
       Esta conta não tem funil de SDR, então não há como medir o pré-atendimento por ele. Crie um em Configurações → Funis e etapas.</div>}
     <div style={grade}>
@@ -26308,11 +26317,11 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
              cada aparelho (CETRO 17.4). */
           const todos=[
             ["recebidos",<Metric key="recebidos" n="users" label="Recebidos" value={linha.recebidos} accent={C.cool} sub="chegaram na mão no período"/>],
-            ["atendidos",<Metric key="atendidos" n="msg" label="Atendidos" value={linha.atendidos} sub={linha.taxa_atendimento+"% de resposta"} accent={C.green}/>],
+            ["atendidos",<Metric key="atendidos" n="msg" label="Contatados" value={linha.atendidos} sub={linha.taxa_atendimento+"% dos recebidos · mensagem ou ligação dela"} accent={C.green}/>],
             /* Recebidos − Atendidos: o lead que chegou e ninguém escreveu. Não
                substitui "Perdidos" (o negócio que foi para a etapa de perda). */
             ["perdidos_consequencia",<Metric key="perdidos_consequencia" n="clock" label="Perdidos por consequência" value={linha.perdidos_consequencia??0}
-              sub={linha.perdidos_consequencia?`sem atendimento · ${linha.perdidos_consequencia_saiu||0} já saíram da mão`:"todos receberam atendimento"} accent={C.amber}/>],
+              sub={linha.perdidos_consequencia?`recebidos sem contato · ${linha.perdidos_consequencia_saiu||0} já saíram da mão`:"todos foram contatados"} accent={C.amber}/>],
             ["qualificados",<Metric key="qualificados" n="target" label="Qualificados" value={linha.qualificados??0} sub="no período" accent="#7B5BD6"/>],
             ["agendados",<Metric key="agendados" n="calendar" label="Agendamentos" value={linha.agendados??0} sub="chegaram ao agendamento" accent="#3B7BC4"/>],
             ["visitas",<Metric key="visitas" n="pin" label="Visitas" value={linha.visitas??0} sub="compareceram" accent="#2F8F9D"/>],
@@ -26320,7 +26329,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
             ["perdidos",<Metric key="perdidos" n="x" label="Perdidos" value={linha.perdidos??0} sub="moveu para perda no período" accent={C.hot}/>],
             ["perdidos_outro",<Metric key="perdidos_outro" n="transfer" label="Perdidos p/ outro corretor" value={linha.leads_perdidos_para_outro} sub="repasse manual no período" accent={C.hot}/>],
           ];
-          const nomes={recebidos:"Recebidos",atendidos:"Atendidos",perdidos_consequencia:"Perdidos por consequência",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro corretor"};
+          const nomes={recebidos:"Recebidos",atendidos:"Contatados",perdidos_consequencia:"Perdidos por consequência",qualificados:"Qualificados",agendados:"Agendamentos",visitas:"Visitas",vendas:"Vendas",perdidos:"Perdidos",perdidos_outro:"Perdidos p/ outro corretor"};
           const mapa=new Map(todos);
           const ordem=(cartoes&&cartoes.pessoa&&cartoes.pessoa.ordem)||todos.map(t=>t[0]);
           return <React.Fragment>
