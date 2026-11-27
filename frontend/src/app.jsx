@@ -2776,7 +2776,10 @@ function RelatorioPlantao({acoes,isMobile,de,ate}){
 function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   const hoje=new Date(); hoje.setHours(0,0,0,0);
   const [mes,setMes]=useState(()=>({ano:hoje.getFullYear(),mes:hoje.getMonth()}));
-  const [aba,setAba]=useState("hoje");
+  /* O calendário do mês é a tela do protótipo (27/11/2026); no celular, onde
+     sete colunas não cabem, continua abrindo em "Hoje". */
+  const [aba,setAba]=useState(()=>isMobile?"hoje":"mes");
+  const [diaAberto,setDiaAberto]=useState(null);   // dia do calendário aberto na janela
   const [d,setD]=useState(null);
   const [erro,setErro]=useState("");
   const [editando,setEditando]=useState(null);   // {dia, turno}
@@ -3040,10 +3043,62 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     </div>;
   };
 
+  /* O CALENDÁRIO DO MÊS (27/11/2026, protótipo CETRO): uma grade de sete
+     colunas, cada dia com quem está em cada turno; tocar no dia (ou em
+     "+ Plantão") abre a janela do dia, onde se escala e se confere presença. */
+  const calendario=()=>{
+    const n=new Date(mes.ano,mes.mes+1,0).getDate();
+    const vazios=new Date(mes.ano,mes.mes,1).getDay();
+    const celulas=[...Array(vazios).fill(null),...Array.from({length:n},(_,i)=>new Date(mes.ano,mes.mes,i+1).getTime())];
+    return <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,padding:18,boxShadow:SOMBRA}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:16,fontWeight:700,flex:1}}>{nomeMesCap}</span>
+        <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})} aria-label="Mês anterior"
+          style={{background:C.card,border:"1px solid #dce4db",borderRadius:10,width:34,height:34,cursor:"pointer",color:C.sub,display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
+        <button onClick={()=>setMes({ano:hoje.getFullYear(),mes:hoje.getMonth()})}
+          style={{...BOTAO_SECUNDARIO,height:34,padding:"0 12px"}}>Hoje</button>
+        <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})} aria-label="Próximo mês"
+          style={{background:C.card,border:"1px solid #dce4db",borderRadius:10,width:34,height:34,cursor:"pointer",color:C.sub,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="chevron" size={14}/></button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:8}}>
+        {DIA_SEMANA.map(w=><div key={w} style={{color:"#85937b",fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,padding:"0 4px"}}>{w.slice(0,3)}</div>)}
+        {celulas.map((ms,i)=>{
+          if(ms===null) return <div key={"v"+i}/>;
+          const dia=doDia(ms);
+          const turnos=["manha","tarde","noite"].map(t=>[t,noTime(dia[t]||[])]).filter(([,l])=>l.length);
+          const ehHoje=ms===hoje.getTime();
+          const souEu=[...(dia.manha||[]),...(dia.tarde||[]),...(dia.noite||[])].some(x=>x.id===session.id);
+          const faltas=turnos.reduce((a,[,l])=>a+l.filter(x=>x.presente===false).length,0);
+          return <div key={ms} onClick={()=>setDiaAberto(ms)} role="button" tabIndex={0}
+            onKeyDown={e=>{if(e.key==="Enter")setDiaAberto(ms);}}
+            style={{minHeight:96,border:`1px solid ${ehHoje?C.green:souEu?C.green+"66":"#e0e7db"}`,background:souEu?"#f3f8f1":"#fff",
+              borderRadius:10,padding:"8px 9px",cursor:"pointer",display:"flex",flexDirection:"column",gap:4,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{color:ehHoje?C.green:C.ink,fontSize:11.5,fontWeight:800}}>{new Date(ms).getDate()}/{new Date(ms).getMonth()+1}</span>
+              <span style={{flex:1}}/>
+              {podeEditar&&<span style={{color:C.greenMid,fontSize:10.5,fontWeight:700}}>+ Plantão</span>}
+            </div>
+            {turnos.map(([t,l])=><div key={t} title={`${TURNOS_ROT[t]}: ${l.map(x=>first(x.nome||"—")).join(", ")}`}
+              style={{fontSize:10.5,color:C.sub,lineHeight:1.35,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              <b style={{color:C.ink,fontWeight:700}}>{TURNOS_ROT[t]}</b> · {l.map(x=>first(x.nome||"—")).join(", ")}</div>)}
+            {faltas>0&&<span style={{color:C.hot,fontSize:10,fontWeight:700}}>{faltas} falta(s)</span>}
+          </div>;
+        })}
+      </div>
+      <div style={{color:"#85937b",fontSize:11,marginTop:12}}>Quem está escalado recebe um aviso no celular às 08:00 lembrando do plantão.</div>
+    </div>;
+  };
+
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
     <div style={{maxWidth:1200,margin:"0 auto"}}>
-      <CabecalhoTela isMobile={isMobile} titulo="Plantões conectados à distribuição." sub="Equipes, turnos e conferência de presença no mesmo planejamento."/>
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+      <CabecalhoTela isMobile={isMobile} acoes={podeEditar?<React.Fragment>
+        <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={lerPlanilha} style={{display:"none"}}/>
+        <button onClick={()=>{setConfirmando(true);setRecado("");}} disabled={apagando} style={{...BOTAO_SECUNDARIO,color:C.hot}}>
+          <Icon n="trash" size={14}/>Apagar escala</button>
+        <button onClick={()=>arquivo.current.click()} disabled={importando} style={BOTAO_PRIMARIO}>
+          <Icon n={importando?"loader":"userplus"} size={14} spin={importando}/>{importando?"Lendo…":"Importar escala"}</button>
+      </React.Fragment>:null}/>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,clear:"both"}}>{erro}</div>}
 
       {/* O próprio plantão da pessoa, em primeiro lugar. É a informação que ela
           abriu a tela para ver. */}
@@ -3056,27 +3111,16 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
             lista ordenada por falta. Mesma régua do ranking do score — número
             que vira cobrança em reunião não circula pela equipe. O corretor vê
             os números DELE no relatório individual dele. */}
-        {[["hoje","Hoje"],["semana","Semana"],["mes","Mês"],...(podeEditar?[["relatorio","Relatório"]]:[])].map(([k,t])=>
+        {[["mes","Mês"],["semana","Semana"],["hoje","Hoje"],...(podeEditar?[["relatorio","Relatório"]]:[])].map(([k,t])=>
           <button key={k} onClick={()=>setAba(k)}
             style={{fontSize:12,fontWeight:aba===k?700:500,padding:"10px 14px",border:"none",borderBottom:`2px solid ${aba===k?C.green:"transparent"}`,cursor:"pointer",
               background:"transparent",color:aba===k?C.greenMid:"#7c8b7d"}}>{t}</button>)}
         <span style={{flex:1}}/>
-        {aba!=="relatorio"&&est&&est.niveis&&est.niveis.length>0&&<select value={time} onChange={e=>setTime(e.target.value)} aria-label="Time do plantão"
-          style={{fontSize:isMobile?16:12.5,border:`1px solid ${time?C.green:C.line}`,borderRadius:10,padding:"7px 10px",background:C.card,color:C.ink,maxWidth:200}}>
-          <option value="">Todos os times</option>
+        {aba!=="relatorio"&&est&&est.niveis&&est.niveis.length>0&&<select value={time} onChange={e=>setTime(e.target.value)} aria-label="Equipes do plantão"
+          style={{fontSize:isMobile?16:12,height:36,border:`1px solid ${time?C.green:"#dce4db"}`,borderRadius:10,padding:"0 10px",background:"#fff",color:C.ink,maxWidth:220}}>
+          <option value="">Equipes do plantão · Todos</option>
           {est.niveis.map(n=><option key={n.id} value={n.id}>{n.nome}</option>)}
         </select>}
-        {podeEditar&&<React.Fragment>
-          <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={lerPlanilha} style={{display:"none"}}/>
-          <button onClick={()=>arquivo.current.click()} disabled={importando}
-            style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,
-              borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            <Icon n={importando?"loader":"userplus"} size={14} spin={importando}/>{importando?"Lendo…":"Escolher planilha"}</button>
-          <button onClick={()=>{setConfirmando(true);setRecado("");}} disabled={apagando}
-            style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,
-              borderRadius:10,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            <Icon n="trash" size={14}/>Apagar escala</button>
-        </React.Fragment>}
       </div>
 
       {/* Apagar é a única ação da tela que não dá para desfazer clicando de
@@ -3217,16 +3261,35 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       </React.Fragment>}
 
       {aba==="mes"&&<React.Fragment>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        {isMobile&&<div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
           <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})}
             style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
           <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center"}}>{nomeMesCap}</span>
           <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})}
             style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
-        </div>
-        {Array.from({length:new Date(mes.ano,mes.mes+1,0).getDate()},(_,i)=>new Date(mes.ano,mes.mes,i+1).getTime())
-          .map(ms=>linhaDoDia(ms,false))}
+        </div>}
+        {isMobile
+          ?Array.from({length:new Date(mes.ano,mes.mes+1,0).getDate()},(_,i)=>new Date(mes.ano,mes.mes,i+1).getTime())
+            .map(ms=>linhaDoDia(ms,false))
+          :calendario()}
       </React.Fragment>}
+
+      {/* O DIA ABERTO NA JANELA: é a mesma linha do dia de sempre (escalar,
+          conferir presença, turno da noite) — o calendário só a abre. */}
+      {diaAberto!==null&&<div onClick={()=>{setDiaAberto(null);setEditando(null);}}
+        style={{position:"fixed",inset:0,background:"rgba(10,45,36,.45)",zIndex:60,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,width:"100%",maxWidth:760,maxHeight:"88vh",overflowY:"auto",
+          boxShadow:"0 24px 60px rgba(10,45,36,.25)"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"16px 18px",borderBottom:`1px solid ${C.line}`}}>
+            <span style={{flex:1,color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700}}>
+              Plantão · {dd(diaAberto)}/{String(new Date(diaAberto).getMonth()+1).padStart(2,"0")} · {DIA_SEMANA[new Date(diaAberto).getDay()]}</span>
+            <button onClick={()=>{setDiaAberto(null);setEditando(null);}} aria-label="Fechar"
+              style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:10,width:32,height:32,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub}}>
+              <Icon n="x" size={15}/></button>
+          </div>
+          <div style={{padding:16}}>{linhaDoDia(diaAberto,true)}</div>
+        </div>
+      </div>}
     </div>
   </div>;
 }
