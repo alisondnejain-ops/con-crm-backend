@@ -14286,25 +14286,30 @@ function Formularios({acoes,isMobile,irPara,semCatraca}){
   const ativos=(d?.formularios||[]).filter(f=>!f.status||f.status==="ACTIVE");
   const arquivados=(d?.formularios||[]).filter(f=>f.status&&f.status!=="ACTIVE");
   const semPagina=d&&!d.paginas.length;
+  const [sincronizando,setSincronizando]=useState(false);
+  const sincronizar=async()=>{ setSincronizando(true); try{ await carregar(); } finally{ setSincronizando(false); } };
+  // Os cartões em duas colunas no computador, como no protótipo.
+  const grade={display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(440px,1fr))",gap:16,alignItems:"stretch",marginBottom:16,clear:"both"};
   return <div style={molduraMkt(isMobile)}>
-    <CabecalhoTela isMobile={isMobile} titulo="Da campanha ao atendimento certo." sub={semCatraca?"Escolha em que funil nasce o lead de cada formulário. Sem escolha, vale a regra de sempre.":"Defina o funil, a etapa, as catracas e a ficha de produto para cada formulário."}/>
+    <CabecalhoTela isMobile={isMobile} acoes={<button onClick={sincronizar} disabled={sincronizando} style={BOTAO_SECUNDARIO}>
+      <Icon n={sincronizando?"loader":"undo"} size={14} spin={sincronizando}/>{sincronizando?"Sincronizando…":"Sincronizar formulários"}</button>}/>
     {erro&&<div style={{...CARTAO_MKT,color:C.hot,fontSize:13}}>{erro}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Buscando os formulários…</div>}
     {d&&(d.erros||[]).map((e,i)=><div key={i} style={{background:"#FFF8E6",border:"1px solid #E8D9A8",color:"#8a6d1f",
       borderRadius:12,padding:"10px 13px",fontSize:12.5,lineHeight:1.5,marginBottom:12}}>
       A Meta não deixou ler os formulários da <b>{e.pagina}</b>: {e.erro}. A lista abaixo mostra os que já trouxeram lead.</div>)}
-    {semPagina&&<div style={{...CARTAO_MKT,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-      <div style={{flex:"1 1 240px",color:C.sub,fontSize:13,lineHeight:1.5}}>
-        Nenhuma página do Facebook conectada nesta conta. Conecte em <b>Configurações → Anúncios do Meta</b> para os formulários aparecerem aqui.</div>
-      <button onClick={()=>irPara("config")} style={botaoMkt()}>Ir para Configurações</button>
+    {semPagina&&<div style={{background:"#f5f8ef",border:"1px solid #e1e9d7",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",clear:"both"}}>
+      <div style={{flex:"1 1 240px",color:"#4a6250",fontSize:12.5,lineHeight:1.5}}>
+        Nenhuma página do Facebook conectada. Conecte em <b>Configurações → Anúncios do Meta</b> para todos os formulários aparecerem aqui.</div>
+      <button onClick={()=>irPara("config")} style={BOTAO_SECUNDARIO}>Conectar a página</button>
     </div>}
     {d&&!d.formularios.length&&!semPagina&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum formulário encontrado na página.</div>}
-    {ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {ativos.length>0&&<div style={grade}>{ativos.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}</div>}
     {arquivados.length>0&&<button onClick={()=>setVerArquivados(v=>!v)}
       style={{background:"transparent",border:"none",color:C.sub,fontSize:12.5,fontWeight:600,cursor:"pointer",padding:"6px 2px",display:"flex",alignItems:"center",gap:6}}>
       <span style={{display:"flex",transform:verArquivados?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
       Arquivados ({arquivados.length})</button>}
-    {verArquivados&&arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}
+    {verArquivados&&<div style={{...grade,marginTop:8}}>{arquivados.map(f=><LinhaFormulario key={f.id} f={f} pipelines={pipelines} catracas={catracas} semCatraca={semCatraca} irPara={irPara} acoes={acoes} isMobile={isMobile} aoSalvar={carregar}/>)}</div>}
   </div>;
 }
 
@@ -14865,70 +14870,83 @@ function LinhaFormulario({f,pipelines,catracas,semCatraca,irPara,acoes,isMobile,
       setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500);
     }catch(e){ setEstado("erro:"+e.message); setPipe(f.pipeline_id||""); setEtapa(f.stage_id||""); }
   }
-  const caixa={...campoMkt(isMobile),cursor:"pointer",padding:"9px 10px"};
-  const rotuloForm={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"12px 0 5px"};
+  /* O CARTÃO DO PROTÓTIPO (27/11/2026, Ali: "ta muito mal organizado"): nome
+     e "Meta Ads · N leads no CRM" no alto, o selo à direita, e os quatro
+     campos numa grade 2×2 — Funil de entrada, Etapa de entrada, Catraca de
+     destino e Ficha de produto IA. Cada escolha salva na hora, como antes. */
+  const seta=`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23718068' stroke-width='2.4'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 11px center`;
+  const caixa={width:"100%",boxSizing:"border-box",border:"1px solid #dce5d4",background:`#f8faf5 ${seta}`,borderRadius:10,padding:"10px 30px 10px 11px",
+    fontSize:isMobile?16:12,color:C.ink,cursor:"pointer",outline:"none",appearance:"none",WebkitAppearance:"none",fontFamily:FONT,minHeight:40,textAlign:"left"};
+  const campo=(rotulo,conteudo)=><div style={{minWidth:0}}>
+    <div style={{color:"#718068",fontSize:10.5,fontWeight:500,marginBottom:6}}>{rotulo}</div>{conteudo}</div>;
+  const [catAberta,setCatAberta]=useState(false);
+  const refCat=useRef(null);
+  // Clique fora fecha a lista de catracas.
+  useEffect(()=>{ if(!catAberta) return; const fora=(e)=>{ if(refCat.current&&!refCat.current.contains(e.target)) setCatAberta(false); };
+    document.addEventListener("pointerdown",fora); return ()=>document.removeEventListener("pointerdown",fora); },[catAberta]);
+  const marcadasAtivas=catracasAtivas.filter(c=>marcadas.includes(c.id));
+  const textoCatracas=!catracas?"Carregando…":catracas.erro?"Não consegui ler":marcadasAtivas.length?marcadasAtivas.map(c=>c.nome).join(", "):"Catraca principal";
   const quando=f.ultimo_lead_em?`último lead ${fmtQuando(f.ultimo_lead_em)}`:null;
-  return <div style={{...CARTAO_MKT,padding:14,marginBottom:10}}>
-    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-      <div style={{width:34,height:34,borderRadius:10,background:"#EAF1FE",color:"#0B57D0",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-        <Icon n="form" size={17}/></div>
+  const arquivado=f.status&&f.status!=="ACTIVE";
+  return <div style={{...CARTAO_MKT,padding:isMobile?16:20,marginBottom:0,display:"flex",flexDirection:"column",minWidth:0}}>
+    <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:16}}>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-          <span style={{color:C.ink,fontSize:14,fontWeight:700,overflowWrap:"anywhere"}}>{f.nome}</span>
-          {f.status&&f.status!=="ACTIVE"&&<Pill c={C.sub} bg={C.surface}>Arquivado</Pill>}
-        </div>
-        <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
-          {[f.pagina,`${f.leads_crm} ${f.leads_crm===1?"lead":"leads"} no CRM`,quando].filter(Boolean).join(" · ")}</div>
+        <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,overflowWrap:"anywhere",lineHeight:1.3}}>{f.nome}</div>
+        <div style={{color:"#81927a",fontSize:11.5,marginTop:4}}>
+          {["Meta Ads",f.pagina,`${f.leads_crm} ${f.leads_crm===1?"lead":"leads"} no CRM`,quando].filter(Boolean).join(" · ")}</div>
       </div>
+      {/* "Conectado" só quando o formulário veio da página conectada; os que
+          aparecem só pelos leads (página desconectada) não fingem estar ligados. */}
+      <span style={{flexShrink:0,background:arquivado||!f.pagina?"#f1f3ee":"#e6f1e9",color:arquivado||!f.pagina?C.faint:"#47805b",fontSize:10.5,fontWeight:600,padding:"4px 8px",borderRadius:6}}>
+        {arquivado?"Arquivado":f.pagina?"Conectado":"Página desconectada"}</span>
     </div>
-    <div style={rotuloForm}>Funil</div>
-    <div style={{display:"grid",gridTemplateColumns:isMobile||!escolhido?"1fr":"1fr 1fr",gap:8}}>
-      <select aria-label="Funil do formulário" value={pipe} disabled={estado==="salvando"}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:14}}>
+      {campo("Funil de entrada",<select aria-label="Funil do formulário" value={pipe} disabled={estado==="salvando"}
         onChange={e=>{const v=e.target.value;setPipe(v);setEtapa("");salvar(v,"");}} style={caixa}>
         <option value="">Funil de quem recebe (padrão)</option>
         {ativos.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-      {escolhido&&<select aria-label="Etapa de entrada" value={etapa} disabled={estado==="salvando"}
-        onChange={e=>{const v=e.target.value;setEtapa(v);salvar(pipe,v);}} style={caixa}>
-        <option value="">Primeira etapa{etapas[0]?` (${etapas[0].name})`:""}</option>
-        {etapas.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
-      </select>}
+      </select>)}
+      {campo("Etapa de entrada",escolhido
+        ?<select aria-label="Etapa de entrada" value={etapa} disabled={estado==="salvando"}
+          onChange={e=>{const v=e.target.value;setEtapa(v);salvar(pipe,v);}} style={caixa}>
+          <option value="">{etapas[0]?etapas[0].name:"Primeira etapa"}</option>
+          {etapas.slice(1).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        :<select disabled aria-label="Etapa de entrada" style={{...caixa,cursor:"default",color:C.faint}}><option>Primeira etapa do funil</option></select>)}
+      {!semCatraca&&campo("Catraca de destino",<div ref={refCat} style={{position:"relative"}}>
+        {/* Um formulário pode ir para várias catracas (03/10/2026): a caixa abre a lista para marcar. */}
+        <button type="button" onClick={()=>setCatAberta(a=>!a)} disabled={estado==="salvando"||!catracas||!!catracas.erro} aria-expanded={catAberta}
+          style={{...caixa,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:marcadasAtivas.length?C.ink:C.sub}}>{textoCatracas}</button>
+        {catAberta&&catracas&&!catracas.erro&&<div style={{position:"absolute",left:0,right:0,top:"calc(100% + 4px)",zIndex:20,background:"#fff",border:"1px solid #dce5d4",
+          borderRadius:12,boxShadow:"0 10px 24px rgba(20,50,30,.12)",padding:6}}>
+          {catracasAtivas.map(c=>{const on=marcadas.includes(c.id);
+            return <button key={c.id} type="button" onClick={()=>alternarCatraca(c.id)} aria-pressed={on}
+              title={c.etapa&&c.etapa.ok?`Aciona em ${c.etapa.funil} › ${c.etapa.nome}`:"Sem etapa: entrega pelo repasse"}
+              style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",border:"none",background:on?"#eff6e9":"transparent",
+                borderRadius:8,padding:"8px 9px",cursor:"pointer",fontSize:12,color:C.ink,fontFamily:FONT}}>
+              <span style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${on?C.green:"#c5d2bf"}`,background:on?C.green:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                {on&&<Icon n="check" size={11} color="#fff"/>}</span>
+              <span style={{flex:1,minWidth:0}}>{c.nome}<span style={{color:C.faint,fontSize:10.5}}> · {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></span>
+            </button>;})}
+          {!catracasAtivas.length&&<div style={{color:C.faint,fontSize:11.5,padding:"8px 9px"}}>Nenhuma catraca de produto criada.</div>}
+          {irPara&&<button type="button" onClick={()=>irPara("catraca")} style={{display:"block",width:"100%",textAlign:"left",border:"none",borderTop:"1px solid #edf0e8",
+            background:"transparent",color:C.greenDeep,fontSize:12,fontWeight:600,padding:"9px 9px 5px",cursor:"pointer",fontFamily:FONT,marginTop:4}}>+ Criar uma catraca nova</button>}
+        </div>}
+      </div>)}
+      {campo("Ficha de produto IA",fichas&&fichas.length>0
+        ?<SeletorDeFicha valor={ficha} fichas={fichas} caixa={caixa} disabled={estado==="salvando"} aoMudar={async(v)=>{
+          setFicha(v); setEstado("salvando");
+          try{ await acoes.fichaDoFormulario(f.id,v,f.nome); esquecerFichas(); setEstado("salvo"); aoSalvar&&aoSalvar(); setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500); }
+          catch(e){ setEstado("erro:"+e.message); setFicha(f.ia_produto_id||null); }}}/>
+        :<select disabled aria-label="Ficha de produto da IA" style={{...caixa,cursor:"default",color:C.faint}}><option>Nenhuma ficha criada</option></select>)}
     </div>
-    {/* Sempre à vista (pedido do Ali, 03/10/2026): escondida enquanto não
-        existia catraca nenhuma, a escolha parecia não existir. Sem catraca
-        criada, a última opção leva à tela onde ela se cria. */}
-    {!semCatraca&&<div style={rotuloForm}>Catracas</div>}
-    {!semCatraca&&<div>
-      {!catracas&&<div style={{color:C.faint,fontSize:11}}>Carregando as catracas…</div>}
-      {catracas&&catracas.erro&&<div style={{color:C.hot,fontSize:11}}>Não consegui ler as catracas: {catracas.erro}</div>}
-      {catracas&&!catracas.erro&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-        {catracasAtivas.map(c=>{const on=marcadas.includes(c.id);
-          return <button key={c.id} onClick={()=>alternarCatraca(c.id)} disabled={estado==="salvando"} aria-pressed={on}
-            title={c.etapa&&c.etapa.ok?`Aciona em ${c.etapa.funil} › ${c.etapa.nome}`:"Sem etapa: entrega pelo repasse"}
-            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
-              borderRadius:999,padding:isMobile?"7px 12px":"5px 11px",cursor:"pointer",fontSize:12,color:C.ink,fontWeight:on?600:500,fontFamily:FONT}}>
-            {on&&<Icon n="check" size={13} color={C.green}/>}{c.nome}
-            <span style={{color:C.faint,fontSize:10.5,fontWeight:500}}>· {c.entrega==="corretor"?"direto ao corretor":"pela atendente"}</span></button>;})}
-        {irPara&&<button onClick={()=>irPara("catraca")} style={{border:`1px dashed ${C.line}`,background:"transparent",color:C.sub,borderRadius:999,
-          padding:isMobile?"7px 12px":"5px 11px",cursor:"pointer",fontSize:12,fontFamily:FONT}}>+ Criar uma catraca nova</button>}
-      </div>}
-      {catracas&&!catracas.erro&&<div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.4}}>
-        {!catracasAtivas.length?"Nenhuma catraca de produto criada ainda — os leads deste formulário usam a catraca principal."
-          :!marcadas.some(x=>catracasAtivas.some(c=>c.id===x))?"Nenhuma marcada: os leads deste formulário usam a catraca principal."
-          :"Com mais de uma marcada, elas se revezam. O funil e a etapa que acionam cada uma se escolhem na tela Catraca."}</div>}
-    </div>}
-    {fichas&&fichas.length>0&&<React.Fragment>
-      <div style={rotuloForm}>Ficha de produto da IA</div>
-      <SeletorDeFicha valor={ficha} fichas={fichas} caixa={caixa} disabled={estado==="salvando"} aoMudar={async(v)=>{
-        setFicha(v); setEstado("salvando");
-        try{ await acoes.fichaDoFormulario(f.id,v,f.nome); esquecerFichas(); setEstado("salvo"); aoSalvar&&aoSalvar(); setTimeout(()=>setEstado(e=>e==="salvo"?"":e),2500); }
-        catch(e){ setEstado("erro:"+e.message); setFicha(f.ia_produto_id||null); }}}/>
-      <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.4}}>É o produto que o Autoatendimento conhece nos atendimentos que chegam por este formulário.</div>
-    </React.Fragment>}
-    {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>
+    {f.funil_invalido&&<div style={{color:C.hot,fontSize:12,marginTop:12}}>
       O funil escolhido foi desativado — os leads deste formulário estão indo para o funil de quem recebe.</div>}
-    {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:12,marginTop:7,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</div>}
-    {estado.startsWith("erro:")&&<div style={{color:C.hot,fontSize:12,marginTop:7}}>{estado.slice(5)}</div>}
+    <div style={{marginTop:"auto",paddingTop:14,minHeight:16,fontSize:11.5}}>
+      {estado==="salvando"&&<span style={{color:C.faint}}>Salvando…</span>}
+      {estado==="salvo"&&<span style={{color:C.greenDeep,fontWeight:600}}>Salvo. Vale para os próximos leads deste formulário.</span>}
+      {estado.startsWith("erro:")&&<span style={{color:C.hot}}>{estado.slice(5)}</span>}
+    </div>
   </div>;
 }
 
