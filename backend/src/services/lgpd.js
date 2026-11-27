@@ -73,6 +73,8 @@ export function exportar(orgId, leadId) {
       .map(o => ({ texto: o.texto, por: nome(o.autor_id), em: new Date(o.created_at).toISOString() })),
     tarefas: db.prepare("SELECT titulo, quando, feito_em FROM tarefas WHERE lead_id = ? ORDER BY quando").all(leadId),
     simulacoes: db.prepare("SELECT * FROM simulacoes WHERE lead_id = ? ORDER BY created_at").all(leadId),
+    imoveis_vinculados: db.prepare("SELECT produto_id, vinculo, unidade, obs, created_at FROM lead_imoveis WHERE lead_id = ?").all(leadId),
+    propostas: db.prepare("SELECT produto_id, valor, quando, status, detalhes, created_at FROM lead_propostas WHERE lead_id = ?").all(leadId),
     historico_de_etapas: db.prepare(`SELECT de, para, motivo, created_at FROM lead_etapas
       WHERE lead_id = ? ORDER BY created_at`).all(leadId)
       .map(e => ({ de: e.de, para: e.para, motivo: e.motivo, em: new Date(e.created_at).toISOString() })),
@@ -119,6 +121,8 @@ export function anonimizar(orgId, leadId, { por = null } = {}) {
     // Estes existem só para guardar coisas sobre a pessoa: somem inteiros.
     db.prepare("DELETE FROM observacoes WHERE lead_id = ?").run(leadId);
     db.prepare("DELETE FROM simulacoes WHERE lead_id = ?").run(leadId);
+    db.prepare("UPDATE lead_imoveis SET obs = NULL, unidade = NULL WHERE lead_id = ?").run(leadId);
+    db.prepare("UPDATE lead_propostas SET detalhes = NULL WHERE lead_id = ?").run(leadId);
     db.prepare("DELETE FROM mensagens_agendadas WHERE lead_id = ?").run(leadId);
     db.prepare("UPDATE ligacoes SET obs = NULL WHERE lead_id = ?").run(leadId);
     db.prepare("UPDATE tarefas SET titulo = '[removido a pedido do titular]' WHERE lead_id = ?").run(leadId);

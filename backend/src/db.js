@@ -2759,6 +2759,24 @@ db.exec(`CREATE TABLE IF NOT EXISTS entrada_site (
   atualizado_em INTEGER
 )`);
 
+
+/* Vários imóveis por lead e propostas (27/11/2026, protótipo CETRO;
+   rotas em routes/lead-imoveis.routes.js). */
+db.exec(`
+CREATE TABLE IF NOT EXISTS lead_imoveis (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, lead_id TEXT NOT NULL, produto_id TEXT NOT NULL,
+  vinculo TEXT NOT NULL, unidade TEXT, obs TEXT, user_id TEXT, created_at INTEGER NOT NULL,
+  UNIQUE(lead_id, produto_id)
+);
+CREATE TABLE IF NOT EXISTS lead_propostas (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, lead_id TEXT NOT NULL, produto_id TEXT,
+  valor REAL NOT NULL, quando INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'analise',
+  detalhes TEXT, user_id TEXT, created_at INTEGER NOT NULL, atualizado_em INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_lead_imoveis_lead ON lead_imoveis(lead_id);
+CREATE INDEX IF NOT EXISTS idx_lead_propostas_lead ON lead_propostas(lead_id);
+`);
+
 export default db;
 
 /* MODO EMPREENDIMENTO E ESPELHO DE LOTES (11/11/2026, pedido do Ali para a

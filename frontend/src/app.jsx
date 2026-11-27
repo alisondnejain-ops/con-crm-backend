@@ -1956,6 +1956,12 @@ function ConCRM(){
     salvarEmail:async(leadId,email)=>{
       const r=await api(`/leads/${leadId}/email`,{method:"PATCH",body:{email}});
       await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
+    imoveisDoLead:(id)=>api(`/leads/${id}/imoveis-vinculados`),
+    vincularImovel:(id,dados)=>api(`/leads/${id}/imoveis-vinculados`,{method:"POST",body:dados}),
+    desvincularImovel:(id,vid)=>api(`/leads/${id}/imoveis-vinculados/${vid}`,{method:"DELETE"}),
+    criarProposta:(id,dados)=>api(`/leads/${id}/propostas`,{method:"POST",body:dados}),
+    situacaoProposta:(id,pid,status)=>api(`/leads/${id}/propostas/${pid}`,{method:"PATCH",body:{status}}),
+    apagarProposta:(id,pid)=>api(`/leads/${id}/propostas/${pid}`,{method:"DELETE"}),
     definirInteresse:async(leadId,produto_id)=>{
       const r=await api(`/leads/${leadId}/interesse`,{method:"PATCH",body:{produto_id}});
       await recarregar(); if(selRef.current) await abrir(selRef.current,true); return r; },
@@ -12083,6 +12089,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
               {env.slice(-8).reverse().map(m=><div key={m.id} style={{color:C.sub,fontSize:11.5}}>{String(m.text).replace(/^\[Imóvel enviado\]\s*/,"")}<span style={{color:C.faint}}> · {fmtTarefa(m.at)}</span></div>)}
             </div>:null;})()}
         </div>
+        <ImoveisEPropostas lead={l} acoes={acoes} isMobile={isMobile}/>
         <SimulacaoEVenda lead={l} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
       </React.Fragment>)}
     {aba==="historico"&&<LinhaDoTempo lead={l} acoes={acoes} isMobile={isMobile} abertaDeInicio/>}
@@ -12297,7 +12304,7 @@ function TarefasDoLead({lead,acoes,isMobile}){
         <input type="datetime-local" value={quando} onChange={e=>setQuando(e.target.value)} style={{...campo,flex:"1 1 160px"}}/>
         <select value={produtoId} onChange={e=>setProdutoId(e.target.value)} style={{...campo,flex:"1 1 160px"}}>
           <option value="">{imoveis===null?"Carregando imóveis…":"Imóvel (opcional)"}</option>
-          {(imoveis||[]).map(p=><option key={p.id} value={p.id}>{p.titulo}{p.codigo?` · ${p.codigo}`:""}</option>)}
+          {(imoveis||[]).map(p=><option key={p.id} value={p.id}>{p.titulo}{(p.referencia||p.codigo)?` · ${p.referencia||p.codigo}`:""}</option>)}
         </select>
         {pessoas&&pessoas.length>1&&<select value={dono} onChange={e=>setDono(e.target.value)} style={{...campo,flex:"1 1 140px"}}>
           <option value="">{lead.assignedName?`Com ${first(lead.assignedName)} (quem está com o lead)`:"Quem está com o lead"}</option>
@@ -15409,6 +15416,90 @@ function EmailDoLead({lead,acoes}){
 /* O IMÓVEL DE INTERESSE, EDITÁVEL (25/11/2026): escolhe-se um imóvel do
    catálogo, ou nenhum. O primeiro imóvel enviado pela conversa continua
    marcando sozinho quando o campo está vazio. */
+/* VÁRIOS IMÓVEIS POR LEAD E PROPOSTAS (27/11/2026, protótipo CETRO). A lista
+   guarda cada imóvel com o vínculo dele ao lead; a proposta é o registro do
+   que o cliente ofereceu. Nenhum dos dois mexe em etapa ou relatório. */
+const VINCULOS=[{v:"origem",t:"Imóvel de origem"},{v:"interesse",t:"Interesse principal"},{v:"alternativa",t:"Alternativa apresentada"},{v:"visitado",t:"Visitado"},{v:"proposta",t:"Proposta"}];
+const SITUACOES_PROPOSTA={analise:{t:"Em análise",c:"#8a6d1f",b:C.amberSoft},aceita:{t:"Aceita",c:C.greenDeep,b:C.greenSoft},recusada:{t:"Recusada",c:C.hot,b:C.hotSoft}};
+function ImoveisEPropostas({lead,acoes,isMobile}){
+  const [d,setD]=useState(null),[catalogo,setCatalogo]=useState(null),[erro,setErro]=useState(""),[ocupado,setOcupado]=useState(false);
+  const [abre,setAbre]=useState(""); // "", "imovel", "proposta"
+  const [f,setF]=useState({});
+  useEffect(()=>{ setD(null); setAbre(""); acoes.imoveisDoLead(lead.id).then(setD).catch(e=>setErro(e.message)); },[lead.id]);
+  useEffect(()=>{ if(!abre||catalogo) return;
+    acoes.produtos({}).then(r=>setCatalogo((Array.isArray(r)?r:(r&&r.produtos)||[]).filter(p=>p.status!=="recusado"))).catch(()=>setCatalogo([])); },[abre]);
+  const roda=async(fn)=>{ setOcupado(true); setErro("");
+    try{ const r=await fn(); if(r&&r.imoveis) setD(r); return true; }catch(e){ setErro(e.message); return false; }finally{ setOcupado(false); } };
+  const campo={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none",minWidth:0};
+  const link={border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:2};
+  const selImovel=<select value={f.produto_id||""} onChange={e=>setF({...f,produto_id:e.target.value})} style={{...campo,flex:"1 1 200px"}}>
+    <option value="">{catalogo===null?"Carregando imóveis…":"Escolha o imóvel"}</option>
+    {(catalogo||[]).map(p=><option key={p.id} value={p.id}>{p.titulo}{(p.referencia||p.codigo)?` · ${p.referencia||p.codigo}`:""}</option>)}
+  </select>;
+  const botoes=(salvar)=><div style={{display:"flex",gap:6,alignItems:"center"}}>
+    <button onClick={salvar} disabled={ocupado} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{ocupado?"…":"Salvar"}</button>
+    <button onClick={()=>{setAbre("");setErro("");}} style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer",padding:4}}>cancelar</button></div>;
+  if(!d) return <div style={{color:erro?C.hot:C.faint,fontSize:11.5,padding:"8px 0"}}>{erro||"Carregando…"}</div>;
+  const moeda=(v,m)=>m==="USD"?"US$ "+Number(v).toLocaleString("pt-BR",{maximumFractionDigits:0}):fmtMoeda(v);
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12,display:"flex",flexDirection:"column",gap:12}}>
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+        <Icon n="pin" size={14} color={C.greenMid}/><span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Imóveis do lead</span>
+        {abre!=="imovel"&&<button onClick={()=>{setF({vinculo:"interesse"});setAbre("imovel");}} style={link}>+ vincular</button>}
+      </div>
+      {d.imoveis.length===0&&abre!=="imovel"&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum imóvel vinculado.</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {d.imoveis.map(i=><div key={i.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"7px 9px"}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{color:C.ink,fontSize:12,overflowWrap:"anywhere"}}>{i.titulo}{i.codigo?<span style={{color:C.faint}}> · {i.codigo}</span>:null}</div>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:1}}>{(VINCULOS.find(x=>x.v===i.vinculo)||{}).t||i.vinculo}{i.unidade?` · ${i.unidade}`:""}{i.valor?` · ${moeda(i.valor,i.moeda)}${i.finalidade==="aluguel"?"/mês":""}`:""}</div>
+            {i.obs&&<div style={{color:C.sub,fontSize:10.5,marginTop:2}}>{i.obs}</div>}
+          </div>
+          <button onClick={()=>roda(()=>acoes.desvincularImovel(lead.id,i.id))} aria-label="Tirar da lista" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:14,padding:2}}>×</button>
+        </div>)}
+      </div>
+      {abre==="imovel"&&<div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{selImovel}
+          <select value={f.vinculo||"interesse"} onChange={e=>setF({...f,vinculo:e.target.value})} style={{...campo,flex:"1 1 160px"}}>
+            {VINCULOS.map(x=><option key={x.v} value={x.v}>{x.t}</option>)}</select></div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <input value={f.unidade||""} onChange={e=>setF({...f,unidade:e.target.value})} maxLength={60} placeholder="Unidade / torre / lote" style={{...campo,flex:"1 1 140px"}}/>
+          <input value={f.obs||""} onChange={e=>setF({...f,obs:e.target.value})} maxLength={300} placeholder="Observação" style={{...campo,flex:"2 1 200px"}}/></div>
+        {botoes(async()=>{ if(!f.produto_id) return setErro("Escolha o imóvel."); if(await roda(()=>acoes.vincularImovel(lead.id,f))) setAbre(""); })}
+      </div>}
+    </div>
+    <div style={{borderTop:`1px solid ${C.line}`,paddingTop:10}}>
+      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+        <Icon n="form" size={14} color={C.greenMid}/><span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Propostas</span>
+        {abre!=="proposta"&&<button onClick={()=>{setF({quando:new Date().toISOString().slice(0,10)});setAbre("proposta");}} style={link}>+ proposta</button>}
+      </div>
+      {d.propostas.length===0&&abre!=="proposta"&&<div style={{color:C.faint,fontSize:11.5}}>Nenhuma proposta.</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {d.propostas.map(p=>{const st=SITUACOES_PROPOSTA[p.status]||SITUACOES_PROPOSTA.analise;
+          return <div key={p.id} style={{background:C.surface,borderRadius:10,padding:"8px 9px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}>
+              <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{moeda(p.valor,p.moeda)}{p.titulo?<span style={{color:C.sub,fontWeight:400}}> · {p.titulo}</span>:null}</span>
+              <select value={p.status} onChange={e=>roda(()=>acoes.situacaoProposta(lead.id,p.id,e.target.value))} disabled={ocupado}
+                style={{fontSize:11,fontWeight:700,color:st.c,background:st.b,border:"none",borderRadius:999,padding:"3px 9px",outline:"none",cursor:"pointer",appearance:"none",WebkitAppearance:"none",flexShrink:0}}>
+                {Object.entries(SITUACOES_PROPOSTA).map(([v,x])=><option key={v} value={v}>{x.t}</option>)}</select>
+              <button onClick={()=>{ if(confirm("Apagar esta proposta?")) roda(()=>acoes.apagarProposta(lead.id,p.id)); }} aria-label="Apagar" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:14,padding:2}}>×</button>
+            </div>
+            <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>{new Date(p.quando).toLocaleDateString("pt-BR")}{p.de_quem?` · ${first(p.de_quem)}`:""}</div>
+            {p.detalhes&&<div style={{color:C.sub,fontSize:11,marginTop:3,whiteSpace:"pre-wrap"}}>{p.detalhes}</div>}
+          </div>;})}
+      </div>
+      {abre==="proposta"&&<div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{selImovel}
+          <input value={f.valor||""} onChange={e=>setF({...f,valor:e.target.value})} inputMode="decimal" placeholder="Valor (R$)" style={{...campo,flex:"1 1 120px"}}/>
+          <input type="date" value={f.quando||""} onChange={e=>setF({...f,quando:e.target.value})} style={{...campo,flex:"1 1 130px"}}/></div>
+        <textarea value={f.detalhes||""} onChange={e=>setF({...f,detalhes:e.target.value})} maxLength={500} rows={2} placeholder="Forma de pagamento, condições…" style={{...campo,resize:"vertical",fontFamily:"inherit"}}/>
+        {botoes(async()=>{ if(!f.valor) return setErro("Informe o valor."); if(await roda(()=>acoes.criarProposta(lead.id,{...f,produto_id:f.produto_id||null,quando:f.quando?f.quando+"T12:00:00":null}))) setAbre(""); })}
+      </div>}
+    </div>
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px"}}>{erro}</div>}
+  </div>;
+}
+
 function ImovelDeInteresse({lead,acoes}){
   const [editando,setEditando]=useState(false);
   const [produtos,setProdutos]=useState(null);
