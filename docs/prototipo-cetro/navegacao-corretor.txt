@@ -1,0 +1,3062 @@
+##### MODO Corretor · telas: Painel | Atender | Funil | Imóveis | Plantão | Disponibilidade | Produção | Minha conta | Guia do projeto
+
+
+================ TELA: Painel ================
+MEU WORKSPACE
+Seu próximo resultado começa aqui.
+
+Blanca, acompanhe seu trabalho e as próximas oportunidades.
+
+Relatório
+Novo lead
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Mais filtros
+Limpar
+4 clientes aguardam sua resposta · Dê continuidade aos atendimentos de hoje
+Ver agora
+Indicadores do painel
+Escolher indicadores
+VGV
+R$ 625.000
+no período selecionado
+VGC
+R$ 31.250
+Valor Geral de Comissão
+Ticket médio
+R$ 625.000
+no período selecionado
+Vendas
+1
+no período selecionado
+Conversão leads → vendas
+1.7%
+no período selecionado
+Leads recebidos
+60
+no período selecionado
+Qualificados
+18
+no período selecionado
+Visitas
+6
+no período selecionado
+Metas do período
+
+O caminho entre o trabalho de hoje e o resultado do mês
+
+Definidas pela gestão
+Leads trabalhados
+50%
+120
+Feito 60 · Falta 60
+Ligações
+46%
+240
+Feito 110 · Falta 130
+Pessoas faladas
+71%
+48
+Feito 34 · Falta 14
+Qualificados
+75%
+24
+Feito 18 · Falta 6
+Agendamentos
+71%
+14
+Feito 10 · Falta 4
+Visitas
+75%
+8
+Feito 6 · Falta 2
+Propostas
+50%
+6
+Feito 3 · Falta 3
+Vendas
+33%
+3
+Feito 1 · Falta 2
+VGV
+63%
+R$ 1.000.000
+Feito R$ 625.000 · Falta R$ 375.000
+Próximos passos
+
+O que precisa de atenção primeiro
+
+i
+MA
+Atividade vencidaMarina Andrade
+
+Enviar simulação · venceu ontem
+
+RM
+Atividade vencidaRafael Martins
+
+Retornar ao cliente · há 2h
+
+Cada próximo passo tem um responsável e uma data. Nenhum lead fica para trás.
+Ver atendimentos
+Funil de atividades
+
+Produção no período · pessoas e ações registradas
+
+Atividade
+Leads trabalhados
+60
+base
+Ligações
+110
+183%
+Pessoas faladas
+34
+57%
+Qualificados
+18
+30%
+Agendamentos
+10
+17%
+Visitas
+6
+10%
+Propostas
+3
+5%
+Vendas
+1
+2%
+
+As barras registram volume de trabalho. A conversão comercial está no funil em cone.
+
+Ritmo da operação
+
+Atividades registradas nos últimos 14 dias
+
+14 dias
+28
+29
+30
+31
+01
+02
+03
+04
+05
+06
+07
+08
+09
+10
+Leads trabalhados
+Ligações
+Pessoas faladas
+Qualificados
+Agendamentos
+Visitas
+
+--- elementos (11): Relatório · Novo lead · Este mês · novembro/2026 Hoje Ontem Últimos 7 dias Últimos 30 dias Per · Mais filtros · Limpar · Ver agora · Escolher indicadores · i · Marina Andrade · Rafael Martins · Ver atendimentos
+--- listas de opções:
+  Este mês · novembro/2026 / Hoje / Ontem / Últimos 7 dias / Últimos 30 dias / Personalizado
+
+>>> [Painel] clique em "Relatório"
+(sem mudança visível)
+
+>>> [Painel] clique em "Novo lead"
+[POPUP]
+Novo lead
+Nome completo
+Telefone
+E-mail
+Origem
+Manual
+WhatsApp
+Meta Ads
+Site
+Portal
+Indicação
+Funil
+Braço Externo
+SDR / Pré-atendimento
+INBOX
+Etapa
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Corretor
+Blanca
+Cancelar
+Criar lead
+
+>>> [Painel] clique em "Mais filtros"
+[POPUP]
+Filtros avançados
+Etapas · Sem seleção
+Temperatura · Sem seleção
+Tags · Sem seleção
+Origem · Sem seleção
+Situação · Sem seleção
+Números · Sem seleção
+Entraram de
+Até
+Cancelar
+Aplicar filtros
+
+>>> [Painel] clique em "Limpar"
+(sem mudança visível)
+
+>>> [Painel] clique em "Ver agora"
+[MUDOU NA TELA]
+Atendimento com contexto.
+Conversa, acompanhamento e informações do lead no mesmo lugar.
+Tudo
+Aguardando
+Formulário
+Finalizados
+Filtros
+Marina Andrade
++55 (82) 90000-4800
+Busca um imóvel de frente para o mar para …
+Lead Blanca
+● Follow-up automático ativo
+Rafael Martins
++55 (82) 90000-4803
+Visitou o empreendimento. Aguardando simul…
+Visita Blanca
+Sofia Mendes
++55 (82) 90000-4806
+Aguardando captura no funil principal.…
+NOVO Blanca
+Marina Andrade
++55 (82) 90000-4800 · com Blanca · Nº de Blanca
+Ficha
+Finalizar
+Desativar IA
+Conversa pessoal
+Em atendimento por Blanca
+Olá, gostaria de conhecer Antunes Beach Resort.
+09h42 · cliente
+Olá! Você procura um imóvel para usar ou investir?
+09h43 · Blanca
+Quero usar com a família e gerar renda.
+09h45 · cliente
+Sai pelo WhatsApp de Blanca (final 2066)
+Trazer para o número da imobiliária
+Enviar imóvel
+Lead:
+Apresentação
+Pergunta objetiva
+Retomada sem cobrar
+● Fluxo SDR | Antunes | 5 follow-ups rodando · para se o cliente responder. Se você escrever, ele para.
+Parar
+■
+◷
+Enviar
+Marina Andrade
++55 (82) 90000-4800 · Blanca
+Origem: Meta Ads · Catraca: Antunes Beach Resort
+Campanha: TD | Forms | Antunes Beach Resort
+Conjunto: Argentina | Investimento
+Anúncio: Frente-mar | Vídeo 01
+Formulário: RT | Antunes Beach Resort
+Quente
+Morno
+Frio
+Resumo da conversa · IA
+Resumir a conversa
+ETAPA DO FUNIL
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Etapa lida pela IA
+Sugestão para conferência, sem mudança automática.
+Ler etapa na conversa
+Direcionar para um corretor
+Catraca: Antunes Beach Resort
+Transferência conforme permissão da gestão.
+Tarefas e workflow
+Nenhuma tarefa de cadência neste lead.
++ Marcar tarefa
+Observações e respostas do formulário
+Objetivo: uso da família e renda
+Prazo: até 3 meses
+Investimento: R$ 650.000
+Idioma: Espanhol
+Busca um imóvel de frente para o mar para uso da família e renda.
+Adicionar observação
+Tags
+Antunes Beach Resort
+Espanhol
++ Tag
+Ficha do cliente
+Campos personalizados
+Campos de Configurações, preenchidos pela IA ou corretor; diferentes da ficha completa.
+Motivo de compra
+Produto
+Ticket
+Decisores
+Timing de compra
+Melhor período para ligação
+Por quê?
+Critérios do imóvel
+Follow-up
+Sem fluxo
+SDR | Antunes | 5 follow-ups
+SDR | Croas | 5 follow-ups
+Retomada | Atendimento Frio
+Novo lead | WhatsApp
+Reativação semanal
+O preenchimento pode iniciar a automação configurada.
+Idioma
+Retomada
+Temperatura
+Simulação
+Registrar venda
+Atendimento da IA neste lead
+Ativo até você assumir
+Desativar IA
+Linha do tempo
+Isto é conversa pessoal, não lead
+Dados pessoais do cliente
+
+>>> [Painel] clique em "Escolher indicadores"
+[POPUP]
+Indicadores do painel
+Escolha o que deseja acompanhar
+VGV
+VGC
+Ticket médio
+Vendas
+Conversão leads → vendas
+Leads recebidos
+Qualificados
+Visitas
+Agendamentos
+Ligações
+Pessoas faladas
+Propostas
+Adicionar outro indicador (nome)
+
+Novo indicador requer origem e fórmula na implementação real. VGC = Valor Geral de Comissão.
+
+Cancelar
+Salvar indicadores
+
+>>> [Painel] clique em "i"
+[POPUP]
+Como são ordenadas as prioridades
+1. Atividades vencidas
+
+Leads com tarefas atrasadas, ordenados pelo vencimento.
+
+2. Prazo da etapa vencido
+
+Depois, leads que ultrapassaram o prazo de continuidade do pipeline.
+
+Respeitar filtros, responsável e permissões. Não confundir com fila de primeiro atendimento.
+
+>>> [Painel] clique em "Marina Andrade"
+[POPUP]
+Ficha do lead
+MA
+Marina Andrade
+
+Contato · •••• 4821
+
+Morno
+RESPONSÁVEL
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+FUNIL
+Braço Externo
+SDR / Pré-atendimento
+ETAPA
+NOVO
+Lead
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Atendimento Frio
+Perdido
+
+Em negociação
+
+R$ 650.000
+Vendi
+Não vendi
+Lead
+Dados
+Imóveis
+Perfil de busca
+Histórico
+WhatsApp
+Etiquetas
+Temperatura
+Frio
+Morno
+Quente
+Anotações gerais
+Tarefas workflow
+
+2 pendentes · 1 vencida · 8 concluídas
+
+Ver tarefas
+Tarefas agendadas
+
+Acompanhar a simulação amanhã às 10h
+
++ Nova tarefa
+Visitas e videochamadas
+
+Próximos encontros com data, imóvel e responsável
+
++ Nova visita
+Adicionar anexo Salvar anotação
+  [→ Vendi]
+Registrar venda
+Cliente
+Imóvel do catálogo
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Unidade / lote
+Valor do imóvel vendido
+Data da venda
+Valor da comissão
+Corretor responsável
+Blanca
+O preço compõe o VGV; a comissão compõe o VGC. Imóvel vinculado e evento registrado na linha do tempo.
+Cancelar
+Salvar venda
+
+>>> [Painel] clique em "Rafael Martins"
+[POPUP]
+Ficha do lead
+RM
+Rafael Martins
+
+Contato · •••• 4821
+
+Quente
+RESPONSÁVEL
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+FUNIL
+Braço Externo
+SDR / Pré-atendimento
+ETAPA
+NOVO
+Lead
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Atendimento Frio
+Perdido
+
+Em negociação
+
+R$ 490.000
+Vendi
+Não vendi
+Lead
+Dados
+Imóveis
+Perfil de busca
+Histórico
+WhatsApp
+Etiquetas
+Temperatura
+Frio
+Morno
+Quente
+Anotações gerais
+Tarefas workflow
+
+2 pendentes · 1 vencida · 8 concluídas
+
+Ver tarefas
+Tarefas agendadas
+
+Acompanhar a simulação amanhã às 10h
+
++ Nova tarefa
+Visitas e videochamadas
+
+Próximos encontros com data, imóvel e responsável
+
++ Nova visita
+Adicionar anexo Salvar anotação
+  [→ Vendi]
+Registrar venda
+Cliente
+Imóvel do catálogo
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Unidade / lote
+Valor do imóvel vendido
+Data da venda
+Valor da comissão
+Corretor responsável
+Blanca
+O preço compõe o VGV; a comissão compõe o VGC. Imóvel vinculado e evento registrado na linha do tempo.
+Cancelar
+Salvar venda
+
+>>> [Painel] clique em "Ver atendimentos"
+[MUDOU NA TELA]
+Atendimento com contexto.
+Conversa, acompanhamento e informações do lead no mesmo lugar.
+Tudo
+Aguardando
+Formulário
+Finalizados
+Filtros
+Marina Andrade
++55 (82) 90000-4800
+Busca um imóvel de frente para o mar para …
+Venda Blanca
+● Follow-up automático ativo
+Rafael Martins
++55 (82) 90000-4803
+Visitou o empreendimento. Aguardando simul…
+Venda Blanca
+Sofia Mendes
++55 (82) 90000-4806
+Aguardando captura no funil principal.…
+NOVO Blanca
+Marina Andrade
++55 (82) 90000-4800 · com Blanca · Nº de Blanca
+Ficha
+Finalizar
+Desativar IA
+Conversa pessoal
+Em atendimento por Blanca
+Olá, gostaria de conhecer Antunes Beach Resort.
+09h42 · cliente
+Olá! Você procura um imóvel para usar ou investir?
+09h43 · Blanca
+Quero usar com a família e gerar renda.
+09h45 · cliente
+Sai pelo WhatsApp de Blanca (final 2066)
+Trazer para o número da imobiliária
+Enviar imóvel
+Venda:
+Apresentação
+Próximo passo
+● Fluxo SDR | Antunes | 5 follow-ups rodando · para se o cliente responder. Se você escrever, ele para.
+Parar
+■
+◷
+Enviar
+Marina Andrade
++55 (82) 90000-4800 · Blanca
+Origem: Meta Ads · Catraca: Antunes Beach Resort
+Campanha: TD | Forms | Antunes Beach Resort
+Conjunto: Argentina | Investimento
+Anúncio: Frente-mar | Vídeo 01
+Formulário: RT | Antunes Beach Resort
+Quente
+Morno
+Frio
+Resumo da conversa · IA
+Resumir a conversa
+ETAPA DO FUNIL
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Etapa lida pela IA
+Sugestão para conferência, sem mudança automática.
+Ler etapa na conversa
+Direcionar para um corretor
+Catraca: Antunes Beach Resort
+Transferência conforme permissão da gestão.
+Tarefas e workflow
+Nenhuma tarefa de cadência neste lead.
++ Marcar tarefa
+Observações e respostas do formulário
+Objetivo: uso da família e renda
+Prazo: até 3 meses
+Investimento: R$ 650.000
+Idioma: Espanhol
+Busca um imóvel de frente para o mar para uso da família e renda.
+Adicionar observação
+Tags
+Antunes Beach Resort
+Espanhol
++ Tag
+Ficha do cliente
+Campos personalizados
+Campos de Configurações, preenchidos pela IA ou corretor; diferentes da ficha completa.
+Motivo de compra
+Produto
+Ticket
+Decisores
+Timing de compra
+Melhor período para ligação
+Por quê?
+Critérios do imóvel
+Follow-up
+Sem fluxo
+SDR | Antunes | 5 follow-ups
+SDR | Croas | 5 follow-ups
+Retomada | Atendimento Frio
+Novo lead | WhatsApp
+Reativação semanal
+O preenchimento pode iniciar a automação configurada.
+Idioma
+Retomada
+Temperatura
+Simulação
+Registrar venda
+Atendimento da IA neste lead
+Ativo até você assumir
+Desativar IA
+Linha do tempo
+Isto é conversa pessoal, não lead
+Dados pessoais do cliente
+
+
+================ TELA: Atender ================
+MEU WORKSPACE
+Atendimento com contexto.
+
+Conversa, acompanhamento e informações do lead no mesmo lugar.
+
+Tudo
+Aguardando
+Formulário
+Finalizados
+Filtros
+Marina Andrade
+
++55 (82) 90000-4800
+
+Busca um imóvel de frente para o mar para …
+
+Venda Blanca
+
+● Follow-up automático ativo
+
+Rafael Martins
+
++55 (82) 90000-4803
+
+Visitou o empreendimento. Aguardando simul…
+
+Venda Blanca
+Sofia Mendes
+
++55 (82) 90000-4806
+
+Aguardando captura no funil principal.…
+
+NOVO Blanca
+MA
+Marina Andrade
+
++55 (82) 90000-4800 · com Blanca · Nº de Blanca
+
+Ficha
+Finalizar
+Desativar IA
+Conversa pessoal
+Em atendimento por Blanca
+Olá, gostaria de conhecer Antunes Beach Resort.
+09h42 · cliente
+Olá! Você procura um imóvel para usar ou investir?
+09h43 · Blanca
+Quero usar com a família e gerar renda.
+09h45 · cliente
+Sai pelo WhatsApp de Blanca (final 2066)
+Trazer para o número da imobiliária
+Enviar imóvel
+Venda:
+Apresentação
+Próximo passo
+● Fluxo SDR | Antunes | 5 follow-ups rodando · para se o cliente responder. Se você escrever, ele para.
+Parar
+■
+◷
+Enviar
+Marina Andrade
+
++55 (82) 90000-4800 · Blanca
+
+Origem: Meta Ads · Catraca: Antunes Beach Resort
+
+Campanha: TD | Forms | Antunes Beach Resort
+
+Conjunto: Argentina | Investimento
+
+Anúncio: Frente-mar | Vídeo 01
+
+Formulário: RT | Antunes Beach Resort
+
+Quente
+Morno
+Frio
+Resumo da conversa · IA
+Resumir a conversa
+ETAPA DO FUNIL
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Etapa lida pela IA
+
+Sugestão para conferência, sem mudança automática.
+
+Ler etapa na conversa
+Direcionar para um corretor
+
+Catraca: Antunes Beach Resort
+
+Transferência conforme permissão da gestão.
+
+Tarefas e workflow
+
+Nenhuma tarefa de cadência neste lead.
+
++ Marcar tarefa
+Observações e respostas do formulário
+
+Objetivo: uso da família e renda
+
+Prazo: até 3 meses
+
+Investimento: R$ 650.000
+
+Idioma: Espanhol
+
+Busca um imóvel de frente para o mar para uso da família e renda.
+
+Adicionar observação
+Tags
+Antunes Beach Resort
+Espanhol
++ Tag
+Ficha do cliente
+Campos personalizados
+
+Campos de Configurações, preenchidos pela IA ou corretor; diferentes da ficha completa.
+
+Motivo de compra
+Produto
+Ticket
+Decisores
+Timing de compra
+Melhor período para ligação
+Por quê?
+Critérios do imóvel
+Follow-up
+Sem fluxo
+SDR | Antunes | 5 follow-ups
+SDR | Croas | 5 follow-ups
+Retomada | Atendimento Frio
+Novo lead | WhatsApp
+Reativação semanal
+
+O preenchimento pode iniciar a automação configurada.
+
+Idioma
+Retomada
+Temperatura
+Simulação
+Registrar venda
+Atendimento da IA neste lead
+
+Ativo até você assumir
+
+Desativar IA
+Linha do tempo
+Isto é conversa pessoal, não lead
+Dados pessoais do cliente
+
+--- elementos (41): Tudo · Aguardando · Formulário · Finalizados · Filtros · Ficha · Finalizar · Desativar IA · Conversa pessoal · Trazer para o número da imobiliária · Enviar imóvel · Apresentação · Próximo passo · Parar · Mais opções de envio · Gravar áudio · ■ · ◷ · Enviar · Quente · Morno · Frio · Resumir a conversa · NOVO Lead Atendimento Frio Atendimento qualificado Agendamento Visita  · Ler etapa na conversa · + Marcar tarefa · Observações e respostas do formulário · Adicionar observação · Tags · + Tag · Ficha do cliente · BUTTON · Campos personalizados · Sem fluxo SDR | Antunes | 5 follow-ups SDR | Croas | 5 follow-ups Reto · Simulação · Registrar venda · Atendimento da IA neste lead · Desativar IA · Linha do tempo · Isto é conversa pessoal, não lead · Dados pessoais do cliente
+--- listas de opções:
+  NOVO / Lead / Atendimento Frio / Atendimento qualificado / Agendamento / Visita / Proposta / Venda / Repique 30D / Compra Futura / Perdido / Inbox
+  Sem fluxo / SDR | Antunes | 5 follow-ups / SDR | Croas | 5 follow-ups / Retomada | Atendimento Frio / Novo lead | WhatsApp / Reativação semanal
+
+>>> [Atender] clique em "Tudo"
+(sem mudança visível)
+
+>>> [Atender] clique em "Aguardando"
+[MUDOU NA TELA]
+
+
+>>> [Atender] clique em "Formulário"
+[MUDOU NA TELA]
+
+
+>>> [Atender] clique em "Finalizados"
+[MUDOU NA TELA]
+Nenhum lead neste recorte.
+
+>>> [Atender] clique em "Filtros"
+[MUDOU NA TELA]
+Etapas · Todos
+Temperatura · Todos
+Tags · Todos
+Situação · Todos
+Números · Todos
+Entraram deAtéLimpar
+
+>>> [Atender] clique em "Ficha"
+[POPUP]
+Ficha do lead
+MA
+Marina Andrade
+
+Contato · •••• 4821
+
+Morno
+RESPONSÁVEL
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+FUNIL
+Braço Externo
+SDR / Pré-atendimento
+ETAPA
+NOVO
+Lead
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Atendimento Frio
+Perdido
+
+Em negociação
+
+R$ 650.000
+Vendi
+Não vendi
+Lead
+Dados
+Imóveis
+Perfil de busca
+Histórico
+WhatsApp
+Etiquetas
+Temperatura
+Frio
+Morno
+Quente
+Anotações gerais
+Tarefas workflow
+
+2 pendentes · 1 vencida · 8 concluídas
+
+Ver tarefas
+Tarefas agendadas
+
+Acompanhar a simulação amanhã às 10h
+
++ Nova tarefa
+Visitas e videochamadas
+
+Próximos encontros com data, imóvel e responsável
+
++ Nova visita
+Adicionar anexo Salvar anotação
+  [→ Vendi]
+Registrar venda
+Cliente
+Imóvel do catálogo
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Unidade / lote
+Valor do imóvel vendido
+Data da venda
+Valor da comissão
+Corretor responsável
+Blanca
+O preço compõe o VGV; a comissão compõe o VGC. Imóvel vinculado e evento registrado na linha do tempo.
+Cancelar
+Salvar venda
+
+>>> [Atender] clique em "Finalizar"
+[MUDOU NA TELA]
+
+
+>>> [Atender] clique em "Desativar IA"
+[MUDOU NA TELA]
+Ativar IA
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Conversa pessoal"
+[POPUP]
+Marcar como conversa pessoal
+
+Retirar Marina Andrade do funil e dos indicadores?
+
+O contato é identificado como pessoal para não retornar automaticamente como lead.
+
+Cancelar
+Marcar como pessoal
+
+>>> [Atender] clique em "Trazer para o número da imobiliária"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Enviar imóvel"
+[POPUP]
+Enviar imóvel na conversa
+Imóvel do catálogo
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Incluir
+Resumo + link + foto
+Somente link
+Resumo e fluxo da unidade
+Cancelar
+Inserir na mensagem
+
+>>> [Atender] clique em "Apresentação"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Próximo passo"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Parar"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Mais opções de envio"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Gravar áudio"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "■"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Agendar envio
+Texto do campo + mídia ou áudio. Demonstração sem envio real.
+Anexar mídia
+Gravar áudio
+Parar áudio
+Em 1 hora
+Amanhã 9h
+Amanhã 14h
+Depois de amanhã 9h
+Agendar mensagem
+Sai pelo número atual. Se o responsável mudar antes do envio, a mensagem é cancelada.
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "◷"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Enviar"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Quente"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Morno"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Frio"
+[POPUP]
+Resumo da conversa
+Cliente: Marina Andrade
+Imóvel: Antunes Beach Resort
+Motivação: uso da família e renda.
+Próximo passo: confirmar investimento e apresentar simulação.
+
+Resumo ilustrativo para demonstrar a área de IA.
+Abrir ficha
+  [→ Abrir ficha]
+Ficha do lead
+MA
+Marina Andrade
+
+Contato · •••• 4821
+
+Frio
+RESPONSÁVEL
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+FUNIL
+Braço Externo
+SDR / Pré-atendimento
+ETAPA
+NOVO
+Lead
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Atendimento Frio
+Perdido
+
+Em negociação
+
+R$ 650.000
+Vendi
+Não vendi
+Lead
+Dados
+Imóveis
+Perfil de busca
+Histórico
+WhatsApp
+Etiquetas
+Temperatura
+Frio
+Morno
+Quente
+Anotações gerais
+Tarefas workflow
+
+2 pendentes · 1 vencida · 8 concluídas
+
+Ver tarefas
+Tarefas agendadas
+
+Acompanhar a simulação amanhã às 10h
+
++ Nova tarefa
+Visitas e videochamadas
+
+Próximos encontros com data, imóvel e responsável
+
++ Nova visita
+Adicionar anexo Salvar anotação
+
+>>> [Atender] clique em "Resumir a conversa"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Ler etapa na conversa"
+[POPUP]
+Nova tarefa
+Cliente
+Responsável
+Blanca
+Data
+Horário
+Imóvel vinculado
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Descrição
+Cancelar
+Salvar
+
+>>> [Atender] clique em "+ Marcar tarefa"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Observações e respostas do formulário"
+[POPUP]
+Observação do lead
+Observação
+Cancelar
+Salvar
+
+>>> [Atender] clique em "Adicionar observação"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Tags"
+[POPUP]
+Tags do lead
+Tags
+Croas de São Bento
+Barra de Maragogi
+Espanhol
+Qualificado SDR
+Follow-up 1
+RETORNO
+Cancelar
+Salvar
+
+>>> [Atender] clique em "+ Tag"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Dados pessoais, interesse, motivação, imóvel desejado e capacidade de investimento.
+Abrir ficha completa
+Desligado
+Ativar IA
+
+>>> [Atender] "Ficha do cliente": não clicável
+
+>>> [Atender] clique em "BUTTON"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Campos personalizados"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Desligado
+Ativar IA
+
+>>> [Atender] clique em "Simulação"
+[POPUP]
+Registrar venda
+Cliente
+Imóvel do catálogo
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Unidade / lote
+Valor do imóvel vendido
+Data da venda
+Valor da comissão
+Corretor responsável
+Blanca
+O preço compõe o VGV; a comissão compõe o VGC. Imóvel vinculado e evento registrado na linha do tempo.
+Cancelar
+Salvar venda
+
+>>> [Atender] clique em "Registrar venda"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ativar IA
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+
+>>> [Atender] clique em "Atendimento da IA neste lead"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+
+>>> [Atender] clique em "Linha do tempo"
+[POPUP]
+Marcar como conversa pessoal
+
+Retirar Marina Andrade do funil e dos indicadores?
+
+O contato é identificado como pessoal para não retornar automaticamente como lead.
+
+Cancelar
+Marcar como pessoal
+
+>>> [Atender] clique em "Isto é conversa pessoal, não lead"
+[MUDOU NA TELA]
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Controle de dados e solicitações conforme permissões.
+
+>>> [Atender] "Dados pessoais do cliente": não clicável
+
+
+================ TELA: Funil ================
+MEU WORKSPACE
+Cada oportunidade, no seu próximo passo.
+
+Cards com contexto e ficha completa do lead.
+
++ Novo lead
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Braço Externo
+SDR / Pré-atendimento
+INBOX
+Mais filtros
+Limpar
+NOVO
+1
+Sofia Mendes
+
++55 (82) 90000-4806
+
+cliente6@exemplo.com
+
+Nesta etapa há 8 horas
+
+Última interação: há 2h
+
+Mirante de MaragogiEspanholQualificado SDR
+Blanca
++ Adicionar lead
+Lead
+0
++ Adicionar lead
+Atendimento Frio
+0
++ Adicionar lead
+Atendimento qualificado
+0
++ Adicionar lead
+Agendamento
+0
++ Adicionar lead
+Visita
+0
++ Adicionar lead
+Proposta
+0
++ Adicionar lead
+Venda
+1
+Rafael Martins
+
++55 (82) 90000-4803
+
+cliente3@exemplo.com
+
+Nesta etapa há 2 dias
+
+Última interação: ontem
+
+Horizon Smart FlatsEspanhol
+Blanca
++ Adicionar lead
+Repique 30D
+0
++ Adicionar lead
+Compra Futura
+0
++ Adicionar lead
+Perdido
+0
++ Adicionar lead
+Inbox
+0
++ Adicionar lead
+
+--- elementos (17): + Novo lead · Este mês · novembro/2026 Hoje Ontem Últimos 7 dias Últimos 30 dias Per · Braço Externo SDR / Pré-atendimento INBOX · Mais filtros · Limpar · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead · + Adicionar lead
+--- listas de opções:
+  Este mês · novembro/2026 / Hoje / Ontem / Últimos 7 dias / Últimos 30 dias / Personalizado
+  Braço Externo / SDR / Pré-atendimento / INBOX
+
+>>> [Funil] clique em "+ Novo lead"
+[POPUP]
+Novo lead
+Nome completo
+Telefone
+E-mail
+Origem
+Manual
+WhatsApp
+Meta Ads
+Site
+Portal
+Indicação
+Funil
+Braço Externo
+SDR / Pré-atendimento
+INBOX
+Etapa
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Corretor
+Blanca
+Cancelar
+Criar lead
+
+>>> [Funil] clique em "Mais filtros"
+[POPUP]
+Filtros avançados
+Etapas · Sem seleção
+Temperatura · Sem seleção
+Tags · Sem seleção
+Origem · Sem seleção
+Situação · Sem seleção
+Números · Sem seleção
+Entraram de
+Até
+Cancelar
+Aplicar filtros
+
+>>> [Funil] clique em "Limpar"
+(sem mudança visível)
+
+>>> [Funil] clique em "+ Adicionar lead"
+[POPUP]
+Novo lead
+Nome completo
+Telefone
+E-mail
+Origem
+Manual
+WhatsApp
+Meta Ads
+Site
+Portal
+Indicação
+Funil
+Braço Externo
+SDR / Pré-atendimento
+INBOX
+Etapa
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Corretor
+Blanca
+Cancelar
+Criar lead
+
+
+================ TELA: Imóveis ================
+MEU WORKSPACE
+O imóvel certo, com a informação certa.
+
+Catálogo, unidades e condições de pagamento conectados ao site.
+
+Simulação
+Todos os tipos
+Casa
+Empreendimento
+Imóvel pronto
+Loteamento
+Terreno
+Apartamento
+Filtros de imóveis
+Limpar filtros de imóveis
+Empreendimento
+Antunes Beach Resort
+
+Praia de Antunes · Maragogi, AL
+
+34 a 65 m² · Studio
+
+R$ 625.000
+Disponível
+Abrir imóvel
+Ver no site
+Empreendimento
+Villa Camboa Resort Clube
+
+Praia de Bitingui · Japaratinga, AL
+
+42 a 65 m² · Studio
+
+R$ 540.000
+Disponível
+Abrir imóvel
+Ver no site
+Loteamento
+Mirante de Maragogi
+
+Ponta de Mangue · Maragogi, AL
+
+200 m² · Lote
+
+R$ 180.000
+Disponível
+Abrir imóvel
+Ver no site
+Terreno
+Croas de São Bento
+
+São Bento · Maragogi, AL
+
+150 m² · Lote
+
+R$ 160.000
+Disponível
+Abrir imóvel
+Ver no site
+Imóvel pronto
+Maré Alta Residence
+
+Porto de Galinhas · Ipojuca, PE
+
+38 m² · Studio
+
+R$ 450.000
+Disponível
+Abrir imóvel
+Ver no site
+Casa
+Casa Jardim das Palmeiras
+
+Centro · Maragogi, AL
+
+180 m² · Studio
+
+R$ 920.000
+Disponível
+Abrir imóvel
+Ver no site
+
+--- elementos (16): Simulação · Todos os tipos Casa Empreendimento Imóvel pronto Loteamento Terreno Ap · Filtros de imóveis · Limpar filtros de imóveis · Abrir imóvel · Ver no site · Abrir imóvel · Ver no site · Abrir imóvel · Ver no site · Abrir imóvel · Ver no site · Abrir imóvel · Ver no site · Abrir imóvel · Ver no site
+--- listas de opções:
+  Todos os tipos / Casa / Empreendimento / Imóvel pronto / Loteamento / Terreno / Apartamento
+
+>>> [Imóveis] clique em "Simulação"
+[POPUP]
+Simulação de imóvel
+Imóvel pronto
+Lançamento / loteamento
+Imóvel do catálogo
+Antunes Beach Resort
+Villa Camboa Resort Clube
+Mirante de Maragogi
+Croas de São Bento
+Maré Alta Residence
+Casa Jardim das Palmeiras
+Moeda
+BRL
+USD
+Valor do imóvel
+Entrada
+Subsídio
+Prazo em meses
+Juros anuais (%)
+Renda mensal
+Sistema de amortização
+SAC
+Price
+R$ 500.000
+Valor financiado
+R$ 5.376
+Parcela inicial · SAC
+35.8%
+Parcela / renda informada
+
+Simulação matemática ilustrativa, sem aprovação de crédito. Não inclui seguros, tarifas ou correção monetária.
+
+Salvar simulação no lead
+  [→ Lançamento / loteamento]
+almeiras
+Moeda
+BRL
+USD
+Valor do imóvel
+Distribuição do preço
+
+Durante + após a obra devem somar 100%. Ajuste percentuais ou valores.
+
+Durante a obra (%)
+Após a obra (%)
+Sinal (%)
+Valor de sinal
+Quantidade de sinal
+Entrada adicional (%)
+Valor de entrada adicional
+Quantidade de entrada adicional
+Mensais (%)
+Valor de mensais
+Quantidade de mensais
+Reforços (%)
+Valor de reforços
+Quantidade de reforços
+Chaves (%)
+Valor de chaves
+Quantidade de chaves
+R$ 10.417
+3 × Sinal · 5%
+R$ 31.250
+1 × Entrada adicional · 5%
+R$ 4.167
+30 × Mensais · 20%
+R$ 20.833
+3 × Reforços · 10%
+R$ 0
+1 × Chaves · 0%
+R$ 375.000
+Saldo para financiamento · 60%
+
+Simulação matemática ilustrativa, sem aprovação de crédito. Não inclui seguros, tarifas ou correção monetária.
+
+Salvar simulação no lead
+
+>>> [Imóveis] clique em "Filtros de imóveis"
+[POPUP]
+Filtros do catálogo de imóveis
+Tipos de imóvel · Sem seleção
+Plantas / tipologias · Sem seleção
+Estados · Sem seleção
+Cidade
+Bairro
+Área mínima (m²)
+Área máxima (m²)
+Quartos mínimos
+Preço mínimo
+Preço máximo
+Moeda
+Qualquer
+BRL
+USD
+Estágio
+Todos
+Lançamento
+Em construção
+Pronto
+Cancelar
+Aplicar filtros
+
+>>> [Imóveis] clique em "Limpar filtros de imóveis"
+(sem mudança visível)
+
+>>> [Imóveis] clique em "Abrir imóvel"
+[POPUP]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+Tipo de cadastro
+Casa
+Empreendimento
+Imóvel pronto
+Loteamento
+Terreno
+Apartamento
+Comercial
+Rural
+Finalidade
+Venda
+Locação
+Venda e locação
+Nome / título
+Código de referência
+Situação
+Disponível
+Reservado
+Vendido
+Locado
+Inativo
+Comissão (%)
+Captador
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+Proprietário
+Descrição pública
+Ver como fica no site
+Salvar cadastro
+  [→ Características]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+Área privativa mínima (m²)
+Área privativa máxima (m²)
+Tipologia
+Studio
+1 quarto
+2 quartos
+3 quartos
+4 quartos
+Garden
+Cobertura
+Quartos
+Suítes
+Banheiros
+Vagas
+Área construída (m²)
+Área do terreno (m²)
+Diferenciais e lazer
+Construtora
+Estágio da obra
+Lançamento
+Em construção
+Pronto
+Entrega prevista
+Ver como fica no site
+Salvar cadastro
+  [→ Unidades e Comercial]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+Unidades e condições comerciais
+
+Preço, disponibilidade e fluxo próprios por unidade ou lote.
+
++ Adicionar unidade / lote
+Adicione várias unidades. Os fluxos aparecem na prévia pública.
+Ver como fica no site
+Salvar cadastro
+  [→ Mídia]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+Fotos do imóvel
+Plantas
+Enviar vídeo
+Link de vídeo ou tour virtual
+Ordem das fotos / capa
+Legenda das mídias
+
+Legendas descrevem a foto, planta ou vídeo. Ex.: “Piscina do rooftop”.
+
+Ver como fica no site
+Salvar cadastro
+  [→ Localização]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+País
+Brasil
+Argentina
+Estado
+Cidade
+Bairro
+CEP
+Rua
+Número
+Complemento
+Link de geolocalização
+Endereço público
+Somente bairro
+Rua sem número
+Endereço completo
+Ver como fica no site
+Salvar cadastro
+  [→ Portais]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+Publicar no site
+Sim
+Não
+Publicar em portais
+Sim
+Não
+Portais selecionados
+ID do anúncio no portal
+Título do anúncio
+Descrição para portais
+Ver como fica no site
+Salvar cadastro
+  [→ Documentos]
+Antunes Beach Resort
+Geral
+Características
+Unidades e Comercial
+Mídia
+Localização
+Portais
+Documentos
+Documentação / matrícula
+Registro / incorporação
+Situação documental
+A confirmar
+Regular
+Em análise
+Anexar documentos
+Autorizações e observações
+Ver como fica no site
+Salvar cadastro
+  [→ Ver como fica no site]
+Prévia pública · Antunes Beach Resort
+VJ IMÓVEIS
+Prévia do catálogo
+Empreendimento
+Antunes Beach Resort
+
+Praia de Antunes · Maragogi, AL
+
+R$ 625.000
+
+34 a 65 m² · Studio
+
+Quero saber mais
+Conheça o imóvel
+
+Descrição, diferenciais e informações confirmadas do imóvel.
+
+Localização
+
+Praia de Antunes · Maragogi, AL
+
+Apresentação ilustrativa. Disponibilidade e condições sujeitas à confirmação.
+
+>>> [Imóveis] clique em "Ver no site"
+[POPUP]
+Prévia pública · Antunes Beach Resort
+VJ IMÓVEIS
+Prévia do catálogo
+Empreendimento
+Antunes Beach Resort
+
+Praia de Antunes · Maragogi, AL
+
+R$ 625.000
+
+34 a 65 m² · Studio
+
+Quero saber mais
+Conheça o imóvel
+
+Descrição, diferenciais e informações confirmadas do imóvel.
+
+Localização
+
+Praia de Antunes · Maragogi, AL
+
+Apresentação ilustrativa. Disponibilidade e condições sujeitas à confirmação.
+
+
+================ TELA: Plantão ================
+MEU WORKSPACE
+Sua escala de plantão.
+
+Equipes, turnos e catracas no mesmo planejamento.
+
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Equipes do plantão · Todos
+Mais filtros
+Limpar
+Novembro de 2026
+Vários plantões por dia
+1/11
+2/11
+3/11
+4/11
+5/11
+6/11
+7/11
+8/11
+9/11
+10/11
+11/11
+12/11
+13/11
+14/11
+15/11
+16/11
+17/11
+18/11
+19/11
+20/11
+21/11
+
+--- elementos (6): Este mês · novembro/2026 Hoje Ontem Últimos 7 dias Últimos 30 dias Per · Equipes do plantão · Todos · BUTTON · BUTTON · Mais filtros · Limpar
+--- listas de opções:
+  Este mês · novembro/2026 / Hoje / Ontem / Últimos 7 dias / Últimos 30 dias / Personalizado
+
+>>> [Plantão] clique em "Equipes do plantão · Todos"
+[MUDOU NA TELA]
+Selecionar todosLimpar
+Crie os níveis em Equipe → Estrutura.
+
+>>> [Plantão] "BUTTON": não clicável
+
+>>> [Plantão] clique em "Mais filtros"
+[POPUP]
+Filtros avançados
+Etapas · Sem seleção
+Temperatura · Sem seleção
+Tags · Sem seleção
+Origem · Sem seleção
+Situação · Sem seleção
+Números · Sem seleção
+Entraram de
+Até
+Cancelar
+Aplicar filtros
+
+>>> [Plantão] clique em "Limpar"
+(sem mudança visível)
+
+
+================ TELA: Disponibilidade ================
+MEU WORKSPACE
+Sua disponibilidade, de forma simples.
+
+Só participa da distribuição quem está disponível no dia.
+
+Você está disponível hoje
+
+Sua disponibilidade está ativa para participar das catracas vinculadas.
+
+Ficar indisponível
+A disponibilidade define quem pode receber o próximo lead. Ela não altera a propriedade dos leads já capturados.
+Seus últimos 7 dias
+10/11 · 08h03
+Disponível
+09/11 · 18h00
+Indisponível
+09/11 · 08h12
+Disponível
+06/11 · 18h00
+Indisponível
+
+--- elementos (1): Ficar indisponível
+
+>>> [Disponibilidade] clique em "Ficar indisponível"
+[MUDOU NA TELA]
+Você está indisponível hoje
+Você está fora do rodízio de distribuição até ficar disponível novamente.
+Ficar disponível
+
+
+================ TELA: Produção ================
+MEU WORKSPACE
+Minha produção
+
+Seu resultado com os novos indicadores e funil.
+
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Mais filtros
+Limpar
+Leads recebidos por dia
+
+Distribuição por captura no período selecionado
+
+Terça-feira, 10 de novembro · Blanca
+5 recebidos
+BL
+Blanca · relatório individual
+
+Indicadores do corretor no período selecionado
+
+Relatório para reunião
+Recebidos
+60
+no período selecionado
+Qualificados
+18
+no período selecionado
+Agendamentos
+10
+no período selecionado
+Visitas
+6
+no período selecionado
+Propostas
+3
+no período selecionado
+Vendas
+1
+no período selecionado
+Funil de conversão individual
+
+Blanca · passagens no período
+
+Metas da gestão
+CHEGARAM À ETAPA
+DA ETAPA ANTERIOR
+DESDE A ENTRADA
+Lead
+60
+—
+início comercial · sem meta
+100,0%
+60 de 60 · meta 100%
+Atendimento qualificado
+18
+30,0%
+18 de 60 · meta 40%
+30,0%
+18 de 60 · meta 40%
+Agendamento
+10
+55,6%
+10 de 18 · meta 50%
+16,7%
+10 de 60 · meta 20%
+Visita
+6
+60,0%
+6 de 10 · meta 60%
+10,0%
+6 de 60 · meta 12%
+Proposta
+3
+50,0%
+3 de 6 · meta 40%
+5,0%
+3 de 60 · meta 4.8%
+Venda
+1
+33,3%
+1 de 3 · meta 50%
+1,7%
+1 de 60 · meta 2.4%
+
+Metas percentuais independentes das metas de atividade. Verde: dentro; vermelho: abaixo; sem meta/base: neutro.
+
+Onde estão os leads de Blanca agora
+
+Carteira atual · clique para ver os leads do recorte
+
+Carteira
+428
+contatos agora
+Atendimento Frio
+279
+65,2%
+Compra Futura
+53
+12,4%
+Lead
+42
+9,8%
+Atendimento qualificado
+34
+7,9%
+Inbox
+7
+1,6%
+Venda
+5
+1,2%
+Outras etapas
+8
+1,9%
+
+--- elementos (11): Este mês · novembro/2026 Hoje Ontem Últimos 7 dias Últimos 30 dias Per · Mais filtros · Limpar · Relatório para reunião · Atendimento Frio 279 65,2% · Compra Futura 53 12,4% · Lead 42 9,8% · Atendimento qualificado 34 7,9% · Inbox 7 1,6% · Venda 5 1,2% · Outras etapas 8 1,9%
+--- listas de opções:
+  Este mês · novembro/2026 / Hoje / Ontem / Últimos 7 dias / Últimos 30 dias / Personalizado
+
+>>> [Produção] clique em "Mais filtros"
+[POPUP]
+Filtros avançados
+Etapas · Sem seleção
+Temperatura · Sem seleção
+Tags · Sem seleção
+Origem · Sem seleção
+Situação · Sem seleção
+Números · Sem seleção
+Entraram de
+Até
+Cancelar
+Aplicar filtros
+
+>>> [Produção] clique em "Limpar"
+(sem mudança visível)
+
+>>> [Produção] clique em "Relatório para reunião"
+(sem mudança visível)
+
+>>> [Produção] clique em "Atendimento Frio 279 65,2%"
+[POPUP]
+Leads em Atendimento Frio
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+>>> [Produção] clique em "Compra Futura 53 12,4%"
+[POPUP]
+Leads em Compra Futura
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+>>> [Produção] clique em "Lead 42 9,8%"
+[POPUP]
+Leads em Lead
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+>>> [Produção] clique em "Atendimento qualificado 34 7,9%"
+[POPUP]
+Leads em Atendimento qualificado
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+>>> [Produção] clique em "Inbox 7 1,6%"
+[POPUP]
+Leads em Inbox
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+>>> [Produção] clique em "Venda 5 1,2%"
+[POPUP]
+Leads em Venda
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+Rafael Martins
+
+Blanca · Antunes Beach Resort
+
+Abrir ficha
+  [→ Abrir ficha]
+Ficha do lead
+RM
+Rafael Martins
+
+Contato · •••• 4821
+
+Quente
+RESPONSÁVEL
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+FUNIL
+Braço Externo
+SDR / Pré-atendimento
+ETAPA
+NOVO
+Lead
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Atendimento Frio
+Perdido
+
+Em negociação
+
+R$ 490.000
+Vendi
+Não vendi
+Lead
+Dados
+Imóveis
+Perfil de busca
+Histórico
+WhatsApp
+Etiquetas
+Temperatura
+Frio
+Morno
+Quente
+Anotações gerais
+Tarefas workflow
+
+2 pendentes · 1 vencida · 8 concluídas
+
+Ver tarefas
+Tarefas agendadas
+
+Acompanhar a simulação amanhã às 10h
+
++ Nova tarefa
+Visitas e videochamadas
+
+Próximos encontros com data, imóvel e responsável
+
++ Nova visita
+Adicionar anexo Salvar anotação
+
+>>> [Produção] clique em "Outras etapas 8 1,9%"
+[POPUP]
+Leads em Outras etapas
+
+O gráfico usa totais ilustrativos. Estes são os leads de exemplo disponíveis no recorte.
+
+Sofia Mendes
+
+Blanca · Mirante de Maragogi
+
+Abrir ficha
+  [→ Abrir ficha]
+Ficha do lead
+SM
+Sofia Mendes
+
+Contato · •••• 4821
+
+Frio
+RESPONSÁVEL
+Blanca
+Ezequiel
+Fernando
+Gigi
+Jeferson
+Nádia
+Natalia
+Sil
+Veronica
+FUNIL
+Braço Externo
+SDR / Pré-atendimento
+ETAPA
+NOVO
+Lead
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Atendimento Frio
+Perdido
+
+Em negociação
+
+R$ 210.000
+Vendi
+Não vendi
+Lead
+Dados
+Imóveis
+Perfil de busca
+Histórico
+WhatsApp
+Etiquetas
+Temperatura
+Frio
+Morno
+Quente
+Anotações gerais
+Tarefas workflow
+
+2 pendentes · 1 vencida · 8 concluídas
+
+Ver tarefas
+Tarefas agendadas
+
+Acompanhar a simulação amanhã às 10h
+
++ Nova tarefa
+Visitas e videochamadas
+
+Próximos encontros com data, imóvel e responsável
+
++ Nova visita
+Adicionar anexo Salvar anotação
+
+
+================ TELA: Minha conta ================
+MEU WORKSPACE
+Minha conta
+
+Perfil, segurança e suas conexões pessoais.
+
+BE
+Blanca Elizabeth Rech
+
+Corretora · acesso básico
+
+Trocar foto
+Nome
+E-mail
+WhatsApp
+Salvar dados
+Trocar senha
+Senha atual
+Nova senha
+Confirmar nova senha
+Alterar senha
+Meu WhatsApp
+
+Atenda pelo seu número mantendo o histórico no CRM.
+
+Conectar
+Conectar meu telefone por QR Code
+IA no primeiro contato
+
+A IA apoia até você assumir a conversa.
+
+Confirmar novos números
+
+Escolha se o contato é lead ou pessoal antes de entrar.
+
+Mostrar grupos do meu WhatsApp
+Ver contatos pessoais
+Notificações no celular
+Receber aviso de novo lead e resposta
+Enviar teste
+
+--- elementos (10): Trocar foto · Salvar dados · Alterar senha · Conectar meu telefone por QR Code · IA no primeiro contato · Confirmar novos números · Mostrar meus grupos · Ver contatos pessoais · Notificações · Enviar teste
+
+>>> [Minha conta] clique em "Trocar foto"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Salvar dados"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Alterar senha"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Conectar meu telefone por QR Code"
+[POPUP]
+Conectar seu WhatsApp
+Abra o WhatsApp Business → Aparelhos conectados → Conectar aparelho. O quadro abaixo é uma representação de layout, sem código de conexão válido.
+
+QR ilustrativo · nenhum número será conectado
+
+Simular número conectado
+
+>>> [Minha conta] clique em "IA no primeiro contato"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Confirmar novos números"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Mostrar meus grupos"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Ver contatos pessoais"
+[POPUP]
+Contatos pessoais
+Contatos marcados como pessoais ficam fora do funil comercial e dos indicadores.
+Contato pessoal · exemplo
+Fora do CRM
+
+>>> [Minha conta] clique em "Notificações"
+(sem mudança visível)
+
+>>> [Minha conta] clique em "Enviar teste"
+(sem mudança visível)
+
+
+================ TELA: Guia do projeto ================
+MEU WORKSPACE
+Uma operação. Todas as partes conectadas.
+
+Guia navegável de layout e comportamento para orientar a implementação no Claude.
+
+Baixar fonte HTML / JS
+CETRO · DIREÇÃO DE PRODUTO
+Clareza para atender. Comando para crescer.
+
+Verde profundo, acentos em esmeralda e dourado. Botões com contraste e relevo, informação com hierarquia e navegação familiar.
+
+PDF completo
+Explore por área
+01   Painel
+02   Funil
+03   Atender
+04   Imóveis
+05   Plantão
+06   Minha conta
+07   Disponibilidade
+08   Produção
+Direção visual
+Verde governante profundo e esmeralda nos pontos de ação.
+Dourado discreto para hierarquia e conquistas.
+Fundo claro, superfícies brancas e tipografia sóbria.
+Cor de alerta preservada: vermelho abaixo da meta, verde dentro.
+Marca CETRO fixa no CRM. Site da imobiliária mantém identidade própria.
+Como apresentar ao Claude
+Abra cada módulo e a orientação “O que muda nesta tela”.
+Teste a ficha do lead, cadastro de imóvel, equipe e roletas.
+Alterne Gestão / Corretor para comparar os menus.
+Envie o PDF e o arquivo de fonte para a implementação.
+Copiar briefing completo
+Regras de dados · Etapa 01
+
+--- elementos (10): Baixar fonte HTML / JS · 01 Painel · 02 Funil · 03 Atender · 04 Imóveis · 05 Plantão · 06 Minha conta · 07 Disponibilidade · 08 Produção · Copiar briefing completo
+
+>>> [Guia do projeto] clique em "01 Painel"
+[MUDOU NA TELA]
+Seu próximo resultado começa aqui.
+Blanca, acompanhe seu trabalho e as próximas oportunidades.
+Relatório
+Novo lead
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Mais filtros
+Limpar
+4 clientes aguardam sua resposta · Dê continuidade aos atendimentos de hoje
+Ver agora
+Indicadores do painel
+Escolher indicadores
+VGV
+R$ 2.415.000
+no período selecionado
+VGC
+R$ 120.750
+Valor Geral de Comissão
+Ticket médio
+R$ 603.750
+no período selecionado
+Vendas
+4
+no período selecionado
+Conversão leads → vendas
+6.7%
+no período selecionado
+Leads recebidos
+60
+no período selecionado
+Qualificados
+18
+no período selecionado
+Visitas
+6
+no período selecionado
+Metas do período
+O caminho entre o trabalho de hoje e o resultado do mês
+Definidas pela gestão
+Leads trabalhados
+50%
+120
+Feito 60 · Falta 60
+Ligações
+46%
+240
+Feito 110 · Falta 130
+Pessoas faladas
+71%
+48
+Feito 34 · Falta 14
+Qualificados
+75%
+24
+Feito 18 · Falta 6
+Agendamentos
+71%
+14
+Feito 10 · Falta 4
+Visitas
+75%
+8
+Feito 6 · Falta 2
+Propostas
+50%
+6
+Feito 3 · Falta 3
+Vendas
+33%
+3
+Feito 1 · Falta 2
+VGV
+63%
+R$ 1.000.000
+Feito R$ 625.000 · Falta R$ 375.000
+Próximos passos
+O que precisa de atenção primeiro
+i
+MA
+Atividade vencidaMarina Andrade
+Enviar simulação · venceu ontem
+RM
+Atividade vencidaRafael Martins
+Retornar ao cliente · há 2h
+Cada próximo passo tem um responsável e uma data. Nenhum lead fica para trás.
+Ver atendimentos
+Funil de atividades
+Produção no período · pessoas e ações registradas
+Atividade
+Leads trabalhados
+60
+base
+Ligações
+110
+183%
+Pessoas faladas
+34
+57%
+Qualificados
+18
+30%
+Agendamentos
+10
+17%
+Visitas
+6
+10%
+Propostas
+3
+5%
+Vendas
+1
+2%
+As barras registram volume de trabalho. A conversão comercial está no funil em cone.
+Ritmo da operação
+Atividades registradas nos últimos 14 dias
+14 dias
+28
+29
+30
+31
+01
+02
+03
+04
+05
+06
+07
+08
+09
+10
+Leads trabalhados
+Ligações
+Pessoas faladas
+Qualificados
+Agendamentos
+Visitas
+
+>>> [Guia do projeto] clique em "02 Funil"
+[MUDOU NA TELA]
+Cada oportunidade, no seu próximo passo.
+Cards com contexto e ficha completa do lead.
++ Novo lead
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Braço Externo
+SDR / Pré-atendimento
+INBOX
+Mais filtros
+Limpar
+NOVO
+1
+Sofia Mendes
++55 (82) 90000-4806
+cliente6@exemplo.com
+Nesta etapa há 8 horas
+Última interação: há 2h
+Mirante de MaragogiEspanholQualificado SDR
+Blanca
++ Adicionar lead
+Lead
+0
++ Adicionar lead
+Atendimento Frio
+0
++ Adicionar lead
+Atendimento qualificado
+0
++ Adicionar lead
+Agendamento
+0
++ Adicionar lead
+Visita
+0
++ Adicionar lead
+Proposta
+0
++ Adicionar lead
+Venda
+1
+Rafael Martins
++55 (82) 90000-4803
+cliente3@exemplo.com
+Nesta etapa há 2 dias
+Última interação: ontem
+Horizon Smart FlatsEspanhol
+Blanca
++ Adicionar lead
+Repique 30D
+0
++ Adicionar lead
+Compra Futura
+0
++ Adicionar lead
+Perdido
+0
++ Adicionar lead
+Inbox
+0
++ Adicionar lead
+
+>>> [Guia do projeto] clique em "03 Atender"
+[MUDOU NA TELA]
+Atendimento com contexto.
+Conversa, acompanhamento e informações do lead no mesmo lugar.
+Tudo
+Aguardando
+Formulário
+Finalizados
+Filtros
+Rafael Martins
++55 (82) 90000-4803
+Visitou o empreendimento. Aguardando simul…
+Venda Blanca
+Sofia Mendes
++55 (82) 90000-4806
+Aguardando captura no funil principal.…
+NOVO Blanca
+MA
+Marina Andrade
++55 (82) 90000-4800 · com Blanca · Nº da imobiliária
+Ficha
+Finalizar
+Desativar IA
+Conversa pessoal
+Em atendimento por Blanca
+Olá, gostaria de conhecer Antunes Beach Resort.
+09h42 · cliente
+Olá! Você procura um imóvel para usar ou investir?
+09h43 · Blanca
+Quero usar com a família e gerar renda.
+09h45 · cliente
+Sai pelo WhatsApp da imobiliária (final 6529)
+Usar número de Blanca
+Enviar imóvel
+Venda:
+Apresentação
+Próximo passo
+■
+◷
+Enviar
+Marina Andrade
++55 (82) 90000-4800 · Blanca
+Origem: Meta Ads · Catraca: Antunes Beach Resort
+Campanha: TD | Forms | Antunes Beach Resort
+Conjunto: Argentina | Investimento
+Anúncio: Frente-mar | Vídeo 01
+Formulário: RT | Antunes Beach Resort
+Quente
+Morno
+Frio
+Resumo da conversa · IA
+Resumir a conversa
+ETAPA DO FUNIL
+NOVO
+Lead
+Atendimento Frio
+Atendimento qualificado
+Agendamento
+Visita
+Proposta
+Venda
+Repique 30D
+Compra Futura
+Perdido
+Inbox
+Etapa lida pela IA
+Sugestão para conferência, sem mudança automática.
+Ler etapa na conversa
+Direcionar para um corretor
+Catraca: Antunes Beach Resort
+Transferência conforme permissão da gestão.
+Tarefas e workflow
+Nenhuma tarefa de cadência neste lead.
++ Marcar tarefa
+Observações e respostas do formulário
+Objetivo: uso da família e renda
+Prazo: até 3 meses
+Investimento: R$ 650.000
+Idioma: Espanhol
+Busca um imóvel de frente para o mar para uso da família e renda.
+Adicionar observação
+Tags
+Antunes Beach Resort
+Espanhol
++ Tag
+Ficha do cliente
+Campos personalizados
+Campos de Configurações, preenchidos pela IA ou corretor; diferentes da ficha completa.
+Motivo de compra
+Produto
+Ticket
+Decisores
+Timing de compra
+Melhor período para ligação
+Por quê?
+Critérios do imóvel
+Follow-up
+Sem fluxo
+SDR | Antunes | 5 follow-ups
+SDR | Croas | 5 follow-ups
+Retomada | Atendimento Frio
+Novo lead | WhatsApp
+Reativação semanal
+O preenchimento pode iniciar a automação configurada.
+Idioma
+Retomada
+Temperatura
+Simulação
+Registrar venda
+Atendimento da IA neste lead
+Ativo até você assumir
+Desativar IA
+Linha do tempo
+Isto é conversa pessoal, não lead
+Dados pessoais do cliente
+
+>>> [Guia do projeto] clique em "04 Imóveis"
+[MUDOU NA TELA]
+O imóvel certo, com a informação certa.
+Catálogo, unidades e condições de pagamento conectados ao site.
+Simulação
+Todos os tipos
+Casa
+Empreendimento
+Imóvel pronto
+Loteamento
+Terreno
+Apartamento
+Filtros de imóveis
+Limpar filtros de imóveis
+Empreendimento
+Antunes Beach Resort
+Praia de Antunes · Maragogi, AL
+34 a 65 m² · Studio
+R$ 625.000
+Disponível
+Abrir imóvel
+Ver no site
+Empreendimento
+Villa Camboa Resort Clube
+Praia de Bitingui · Japaratinga, AL
+42 a 65 m² · Studio
+R$ 540.000
+Disponível
+Abrir imóvel
+Ver no site
+Loteamento
+Mirante de Maragogi
+Ponta de Mangue · Maragogi, AL
+200 m² · Lote
+R$ 180.000
+Disponível
+Abrir imóvel
+Ver no site
+Terreno
+Croas de São Bento
+São Bento · Maragogi, AL
+150 m² · Lote
+R$ 160.000
+Disponível
+Abrir imóvel
+Ver no site
+Imóvel pronto
+Maré Alta Residence
+Porto de Galinhas · Ipojuca, PE
+38 m² · Studio
+R$ 450.000
+Disponível
+Abrir imóvel
+Ver no site
+Casa
+Casa Jardim das Palmeiras
+Centro · Maragogi, AL
+180 m² · Studio
+R$ 920.000
+Disponível
+Abrir imóvel
+Ver no site
+
+>>> [Guia do projeto] clique em "05 Plantão"
+[MUDOU NA TELA]
+Sua escala de plantão.
+Equipes, turnos e catracas no mesmo planejamento.
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Equipes do plantão · Todos
+Mais filtros
+Limpar
+Novembro de 2026
+Vários plantões por dia
+1/11
+2/11
+3/11
+4/11
+5/11
+6/11
+7/11
+8/11
+9/11
+10/11
+11/11
+12/11
+13/11
+14/11
+15/11
+16/11
+17/11
+18/11
+19/11
+20/11
+21/11
+
+>>> [Guia do projeto] clique em "06 Minha conta"
+[MUDOU NA TELA]
+Minha conta
+Perfil, segurança e suas conexões pessoais.
+BE
+Blanca Elizabeth Rech
+Corretora · acesso básico
+Trocar foto
+Nome
+E-mail
+WhatsApp
+Salvar dados
+Trocar senha
+Senha atual
+Nova senha
+Confirmar nova senha
+Alterar senha
+Meu WhatsApp
+Atenda pelo seu número mantendo o histórico no CRM.
+Conectar
+Conectar meu telefone por QR Code
+IA no primeiro contato
+A IA apoia até você assumir a conversa.
+Confirmar novos números
+Escolha se o contato é lead ou pessoal antes de entrar.
+Mostrar grupos do meu WhatsApp
+Ver contatos pessoais
+Notificações no celular
+Receber aviso de novo lead e resposta
+Enviar teste
+
+>>> [Guia do projeto] clique em "07 Disponibilidade"
+[MUDOU NA TELA]
+Sua disponibilidade, de forma simples.
+Só participa da distribuição quem está disponível no dia.
+Você está indisponível hoje
+Você está fora do rodízio de distribuição até ficar disponível novamente.
+Ficar disponível
+A disponibilidade define quem pode receber o próximo lead. Ela não altera a propriedade dos leads já capturados.
+Seus últimos 7 dias
+10/11 · 08h03
+Disponível
+09/11 · 18h00
+Indisponível
+09/11 · 08h12
+Disponível
+06/11 · 18h00
+Indisponível
+
+>>> [Guia do projeto] clique em "08 Produção"
+[MUDOU NA TELA]
+Minha produção
+Seu resultado com os novos indicadores e funil.
+Este mês · novembro/2026
+Hoje
+Ontem
+Últimos 7 dias
+Últimos 30 dias
+Personalizado
+Mais filtros
+Limpar
+Leads recebidos por dia
+Distribuição por captura no período selecionado
+Terça-feira, 10 de novembro · Blanca
+5 recebidos
+BL
+Blanca · relatório individual
+Indicadores do corretor no período selecionado
+Relatório para reunião
+Recebidos
+60
+no período selecionado
+Qualificados
+18
+no período selecionado
+Agendamentos
+10
+no período selecionado
+Visitas
+6
+no período selecionado
+Propostas
+3
+no período selecionado
+Vendas
+1
+no período selecionado
+Funil de conversão individual
+Blanca · passagens no período
+Metas da gestão
+CHEGARAM À ETAPA
+DA ETAPA ANTERIOR
+DESDE A ENTRADA
+Lead
+60
+—
+início comercial · sem meta
+100,0%
+60 de 60 · meta 100%
+Atendimento qualificado
+18
+30,0%
+18 de 60 · meta 40%
+30,0%
+18 de 60 · meta 40%
+Agendamento
+10
+55,6%
+10 de 18 · meta 50%
+16,7%
+10 de 60 · meta 20%
+Visita
+6
+60,0%
+6 de 10 · meta 60%
+10,0%
+6 de 60 · meta 12%
+Proposta
+3
+50,0%
+3 de 6 · meta 40%
+5,0%
+3 de 60 · meta 4.8%
+Venda
+1
+33,3%
+1 de 3 · meta 50%
+1,7%
+1 de 60 · meta 2.4%
+Metas percentuais independentes das metas de atividade. Verde: dentro; vermelho: abaixo; sem meta/base: neutro.
+Onde estão os leads de Blanca agora
+Carteira atual · clique para ver os leads do recorte
+Carteira
+428
+contatos agora
+Atendimento Frio
+279
+65,2%
+Compra Futura
+53
+12,4%
+Lead
+42
+9,8%
+Atendimento qualificado
+34
+7,9%
+Inbox
+7
+1,6%
+Venda
+5
+1,2%
+Outras etapas
+8
+1,9%

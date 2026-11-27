@@ -151,7 +151,7 @@ function TrocarDeConta({escuro,compacto}){
     {aberto&&<div style={{position:escuro?"absolute":"static",bottom:escuro?"calc(100% + 6px)":"auto",left:0,right:0,zIndex:50,marginTop:escuro?0:8,
       background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:6,boxShadow:escuro?"0 12px 30px rgba(0,0,0,.25)":"none",minWidth:220}}>
       {CONTAS.map(c=><button key={c.org_id} onClick={()=>ir(c)} disabled={!!indo}
-        style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 10px",borderRadius:9,border:"none",cursor:indo?"default":"pointer",
+        style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"10px 10px",borderRadius:10,border:"none",cursor:indo?"default":"pointer",
           background:c.atual?C.greenSoft:"transparent",textAlign:"left",fontFamily:FONT}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:C.ink,fontSize:13.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome}</div>
@@ -522,27 +522,27 @@ function MoverParaOutroFunil({lead,acoes,session}){
   return <div style={{background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:10,marginBottom:10}}>
     <div style={{color:C.ink,fontSize:11.5,fontWeight:700,marginBottom:6}}>Mover para outro funil</div>
     <select value={alvo} onChange={e=>setAlvo(e.target.value)}
-      style={{width:"100%",fontSize:13,borderRadius:8,border:`1px solid ${C.line}`,padding:"7px 9px",marginBottom:6,background:C.card}}>
+      style={{width:"100%",fontSize:13,borderRadius:10,border:`1px solid ${C.line}`,padding:"7px 9px",marginBottom:6,background:C.card}}>
       <option value="">Escolher…</option>
       {outros.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
     </select>
     {etapasDestino.length>0&&<React.Fragment>
       <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,margin:"2px 0 4px"}}>Etapa</div>
       <select value={primeiraEtapa?primeiraEtapa.id:""} onChange={e=>setEtapaAlvo(e.target.value)}
-        style={{width:"100%",fontSize:13,borderRadius:8,border:`1px solid ${C.line}`,padding:"7px 9px",marginBottom:6,background:C.card}}>
+        style={{width:"100%",fontSize:13,borderRadius:10,border:`1px solid ${C.line}`,padding:"7px 9px",marginBottom:6,background:C.card}}>
         {etapasDestino.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}
       </select>
       <div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>O responsável não muda.</div>
     </React.Fragment>}
     <div style={{display:"flex",gap:6}}>
       <button onClick={()=>setAberto(false)}
-        style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"7px",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+        style={{flex:1,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"7px",fontSize:12,cursor:"pointer"}}>Cancelar</button>
       <button disabled={!primeiraEtapa||ocupado} onClick={async()=>{
           setOcupado(true);
           await acoes.mudarEtapa(lead.id,null,{stage_id:primeiraEtapa.id});
           setOcupado(false); setAberto(false);
         }}
-        style={{flex:1,border:"none",background:primeiraEtapa?C.green:C.coolSoft,color:primeiraEtapa?"#fff":C.faint,borderRadius:8,padding:"7px",fontSize:12,fontWeight:600,cursor:primeiraEtapa?"pointer":"default"}}>
+        style={{flex:1,border:"none",background:primeiraEtapa?C.green:C.coolSoft,color:primeiraEtapa?"#fff":C.faint,borderRadius:10,padding:"7px",fontSize:12,fontWeight:600,cursor:primeiraEtapa?"pointer":"default"}}>
         {ocupado?"Movendo…":"Mover"}
       </button>
     </div>
@@ -1196,7 +1196,7 @@ function BotaoLigar({tel,compacto,leadId,acoes,nome}){
           style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.line}`,
             background:C.surface,borderRadius:10,padding:"10px 12px",color:C.ink,outline:"none",marginBottom:10}}/>
 
-        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
+        {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
 
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           <button onClick={salvar} disabled={!escolha||salvando}
@@ -1353,7 +1353,7 @@ function Metric({n,label,value,sub,accent=C.green}){
   const tamanho=txt.length<=6?26:txt.length<=9?22:txt.length<=12?18:16;
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,flex:"1 1 150px",minWidth:0}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-      <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={n} size={16}/></div>
+      <div style={{background:accent+"18",color:accent,width:32,height:32,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={n} size={16}/></div>
       <span style={{color:C.sub,fontSize:12,fontWeight:500,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
     </div>
     <NumeroQueCabe texto={txt} max={tamanho} min={12} style={{color:C.ink,fontFamily:DISPLAY,fontWeight:700,letterSpacing:-.5,lineHeight:1.1}}/>
@@ -1587,7 +1587,7 @@ function Auth({onLogin}){
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Field n="mail" type="email" autoComplete="email" inputMode="email" placeholder="E-mail" value={f.email} onChange={set("email")} onKeyDown={onEnter}/>
           <Field n="lock" type="password" autoComplete="current-password" placeholder="Senha" value={f.pass} onChange={set("pass")} onKeyDown={onEnter}/>
-          {err&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:8,padding:"10px 12px",lineHeight:1.45}}>{err}</div>}
+          {err&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:10,padding:"10px 12px",lineHeight:1.45}}>{err}</div>}
           <button onClick={entrar} disabled={busy} style={{background:busy?C.faint:C.green,color:"#fff",fontSize:15,fontWeight:600,padding:"13px",borderRadius:12,border:"none",cursor:busy?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
             {busy?<React.Fragment><Icon n="loader" size={16} spin/> Entrando…</React.Fragment>:<React.Fragment>Entrar <Icon n="arrow" size={16}/></React.Fragment>}
           </button>
@@ -2688,7 +2688,7 @@ function RelatorioPlantao({acoes,isMobile,de,ate}){
           lê "100%" num mês em que quase nada foi conferido e vai para a
           reunião com um número que a equipe não reconhece. */}
       {d.totais.nao_conferidos>0&&<div style={{marginTop:9,background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,
-        borderRadius:9,padding:"9px 11px",lineHeight:1.5}}>
+        borderRadius:10,padding:"9px 11px",lineHeight:1.5}}>
         <b>{d.totais.nao_conferidos} turno(s) ninguém conferiu.</b> Eles não entram na conta acima —
         não contamos como falta o que ninguém viu. Marque em <b>Mês</b> para o número ficar completo.
       </div>}
@@ -2940,11 +2940,11 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
             const cor=veio?C.greenDeep:C.hot, fundo=veio?C.greenSoft:C.hotSoft;
             return <button onClick={()=>conferir(dia,turno,x.id,ativo?null:veio,x.presenca_obs)}
               title={ativo?"clique de novo para desmarcar":undefined}
-              style={{minHeight:32,padding:"0 11px",borderRadius:8,cursor:"pointer",fontSize:11.5,fontWeight:700,
+              style={{minHeight:32,padding:"0 11px",borderRadius:10,cursor:"pointer",fontSize:11.5,fontWeight:700,
                 border:`1px solid ${ativo?cor:C.line}`,background:ativo?fundo:C.card,color:ativo?cor:C.faint}}>
               {veio?"Veio":"Faltou"}</button>;
           };
-          return <div key={x.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 9px"}}>
+          return <div key={x.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 9px"}}>
             <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
               <span style={{color:C.ink,fontSize:12,fontWeight:600,flex:1,minWidth:60}}>{first(x.nome||"—")}</span>
               {bt(true)}{bt(false)}
@@ -2959,7 +2959,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
                     if((e.target.value||"")!==(x.presenca_obs||"")) conferir(dia,turno,x.id,x.presente,e.target.value);}}
                   onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape")setConferindo(null);}}
                   style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:11.5,border:`1px solid ${C.line}`,
-                    borderRadius:7,padding:"6px 8px",color:C.ink,outline:"none",background:C.surface}}/>
+                    borderRadius:9,padding:"6px 8px",color:C.ink,outline:"none",background:C.surface}}/>
                 :<button onClick={()=>setConferindo({dia,turno,userId:x.id})}
                   style={{background:"transparent",border:"none",padding:0,cursor:"pointer",textAlign:"left",
                     color:x.presenca_obs?C.sub:C.faint,fontSize:11,fontStyle:x.presenca_obs?"normal":"italic"}}>
@@ -2979,7 +2979,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
               salvarTurno(dia,turno,ids);
             }} disabled={salvando}
               style={{display:"flex",alignItems:"center",gap:7,border:`1px solid ${marcado?C.green:C.line}`,
-                background:marcado?C.greenSoft:C.card,borderRadius:8,padding:"6px 9px",cursor:"pointer",textAlign:"left"}}>
+                background:marcado?C.greenSoft:C.card,borderRadius:10,padding:"6px 9px",cursor:"pointer",textAlign:"left"}}>
               <Icon n={marcado?"check":"userplus"} size={12} color={marcado?C.greenDeep:C.faint}/>
               <span style={{color:C.ink,fontSize:12,fontWeight:marcado?700:500}}>{first(p.name)}</span>
             </button>;})}
@@ -3065,10 +3065,10 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
         </div>
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           <button onClick={apagarMes} disabled={apagando}
-            style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
             {apagando?"Apagando…":"Sim, apagar"}</button>
           <button onClick={()=>setConfirmando(false)} disabled={apagando}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
             Cancelar</button>
         </div>
       </div>}
@@ -3180,10 +3180,10 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       {aba==="relatorio"&&<React.Fragment>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
           <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})}
-            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
           <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center"}}>{nomeMesCap}</span>
           <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})}
-            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
         </div>
         <RelatorioPlantao acoes={acoes} isMobile={isMobile} de={iso(primeiro)} ate={iso(ultimo)}/>
       </React.Fragment>}
@@ -3191,10 +3191,10 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       {aba==="mes"&&<React.Fragment>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
           <button onClick={()=>setMes(m=>m.mes===0?{ano:m.ano-1,mes:11}:{ano:m.ano,mes:m.mes-1})}
-            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex",transform:"scaleX(-1)"}}><Icon n="chevron" size={14}/></button>
           <span style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,flex:1,textAlign:"center"}}>{nomeMesCap}</span>
           <button onClick={()=>setMes(m=>m.mes===11?{ano:m.ano+1,mes:0}:{ano:m.ano,mes:m.mes+1})}
-            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
+            style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 11px",cursor:"pointer",color:C.sub,display:"flex"}}><Icon n="chevron" size={14}/></button>
         </div>
         {Array.from({length:new Date(mes.ano,mes.mes+1,0).getDate()},(_,i)=>new Date(mes.ano,mes.mes,i+1).getTime())
           .map(ms=>linhaDoDia(ms,false))}
@@ -3331,7 +3331,7 @@ function TermoMarketing({d,org,acoes,aoMudar,isMobile}){
       </div>
       :<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>
         Leia antes de continuar. O aceite fica registrado com nome, data, hora e endereço de internet de quem aceitou.
-        {d.termo.versao_anterior&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:8,padding:"7px 10px",marginTop:8,fontWeight:600}}>
+        {d.termo.versao_anterior&&<div style={{background:C.amberSoft,color:"#8a6d1f",borderRadius:10,padding:"7px 10px",marginTop:8,fontWeight:600}}>
           O termo mudou desde o último aceite (versão {d.termo.versao_anterior}). Aceite a versão nova para continuar.</div>}
       </div>}
     {a&&<button onClick={()=>setAberto(!aberto)} style={{...botaoLeveMkt,marginBottom:aberto?10:0}}>{aberto?"Esconder o termo":"Ver o termo"}</button>}
@@ -3346,7 +3346,7 @@ function TermoMarketing({d,org,acoes,aoMudar,isMobile}){
         {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:8}}>{erro}</div>}
         <button onClick={aceitar} disabled={!li||ocupado} style={botaoMkt(li&&!ocupado)}>{ocupado?"Registrando…":"Aceitar termo"}</button>
       </React.Fragment>
-      :<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5}}>
+      :<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:10,padding:"8px 11px",lineHeight:1.5}}>
         Você está nesta conta como CETRO. O aceite precisa ser feito pelo gestor da imobiliária, na conta dele.</div>)}
   </div>;
 }
@@ -3381,12 +3381,12 @@ function NumeroDeDisparo({d,acoes,aoMudar,isMobile}){
   return <div style={CARTAO_MKT}>
     <div style={TITULO_MKT}><Icon n="whatsapp" size={16}/> De onde o disparo sai</div>
     {linha.erro
-      ?<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>{linha.erro}</div>
+      ?<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>{linha.erro}</div>
       :linha.propria
         ?<div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:10}}>Pelo <b style={{color:C.ink}}>número de contingência</b> cadastrado abaixo. O número de atendimento fica de fora.</div>
         :<React.Fragment>
           <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55,marginBottom:8}}>Pelo <b style={{color:C.ink}}>WhatsApp de atendimento</b>, já conectado no CETRO. Não precisa conectar nada.</div>
-          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:8,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>
+          <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,borderRadius:10,padding:"8px 11px",lineHeight:1.5,marginBottom:10}}>
             Se o WhatsApp restringir o número por causa do disparo, o atendimento para junto. Para separar os dois, use um número de contingência.</div>
         </React.Fragment>}
     <RitmoDoNumero limites={d.limites} acoes={acoes} aoMudar={aoMudar} isMobile={isMobile}/>
@@ -3910,7 +3910,7 @@ function WebhookDoDisparo({url}){
     <b style={{color:C.ink}}>Webhook:</b> na instância de disparo da Uazapi, cole este endereço no Webhook, com o evento de mensagens.
     Sem ele as respostas não chegam e o fluxo que espera resposta não anda.
     <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6,flexWrap:"wrap"}}>
-      <code style={{fontFamily:MONO,fontSize:11.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 9px",wordBreak:"break-all",flex:1,minWidth:200}}>{url}</code>
+      <code style={{fontFamily:MONO,fontSize:11.5,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 9px",wordBreak:"break-all",flex:1,minWidth:200}}>{url}</code>
       <button onClick={()=>{try{navigator.clipboard.writeText(url);setCopiado(true);setTimeout(()=>setCopiado(false),2000);}catch(e){}}} style={botaoLeveMkt}>{copiado?"Copiado":"Copiar"}</button>
     </div>
   </div>;
@@ -4233,7 +4233,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
     const p=pontoDeSaida(a,l.saida),q=pontoDeEntrada(b);return {l,p,q,chave:`${l.de}:${l.saida}`};}).filter(Boolean);
   const ligadasDe=(id)=>new Set(grafo.ligacoes.filter(l=>l.de===id).map(l=>l.saida));
   const sel=setaSel&&setas.find(s=>s.chave===setaSel);
-  const botaoZoom={width:32,height:32,border:`1px solid ${C.line}`,background:C.card,borderRadius:8,cursor:"pointer",fontSize:15,fontWeight:700,color:C.sub};
+  const botaoZoom={width:32,height:32,border:`1px solid ${C.line}`,background:C.card,borderRadius:10,cursor:"pointer",fontSize:15,fontWeight:700,color:C.sub};
   return <div ref={ref} onPointerDown={noFundo} onPointerMove={aoMover} onPointerUp={aoSoltar} onPointerCancel={()=>setGesto(null)}
     style={{position:"relative",height:altura,overflow:"hidden",borderRadius:12,border:`1px solid ${C.line}`,touchAction:"none",userSelect:"none",
       cursor:gesto&&gesto.tipo==="arrastar"?"grabbing":"default",background:C.surface,
@@ -4261,7 +4261,7 @@ function TelaDoFluxo({grafo,aoMudar,selecionado,aoSelecionar,somenteLeitura,cont
         borderRadius:10,boxShadow:"0 8px 22px rgba(10,61,48,.18)",padding:6,display:"flex",flexDirection:"column",gap:2,minWidth:170}}>
         <div style={{fontSize:11,color:C.faint,padding:"2px 6px 4px"}}>Criar o próximo bloco:</div>
         {TIPOS_NOVOS.map(t=><button key={t} onClick={()=>criarAqui(t)} style={{display:"flex",gap:8,alignItems:"center",
-          border:"none",background:"transparent",padding:"7px 8px",borderRadius:7,cursor:"pointer",fontSize:12.5,color:C.ink,textAlign:"left"}}>
+          border:"none",background:"transparent",padding:"7px 8px",borderRadius:9,cursor:"pointer",fontSize:12.5,color:C.ink,textAlign:"left"}}>
           <span style={{width:10,height:10,borderRadius:3,background:TIPO_BLOCO[t].cor}}/>{TIPO_BLOCO[t].nome}</button>)}
       </div>}
     </div>
@@ -4318,7 +4318,7 @@ function ConteudoDaMensagem({d,aoMudar,acoes,isMobile,linhas=7}){
       <div><div style={rot}>Arquivo (opcional)</div>
         {d.midia
           ?<div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center"}}>
-            {d.midia.tipo==="image"&&<img src={d.midia.url} alt="" style={{width:52,height:52,objectFit:"cover",borderRadius:8}}/>}
+            {d.midia.tipo==="image"&&<img src={d.midia.url} alt="" style={{width:52,height:52,objectFit:"cover",borderRadius:10}}/>}
             <div style={{flex:1,minWidth:0,fontSize:12.5,color:C.ink,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.midia.nome||"arquivo"}
               <div style={{color:C.faint,fontSize:11.5}}>{({image:"Foto",video:"Vídeo",audio:"Áudio",document:"Documento"})[d.midia.tipo]}{d.midia.tipo==="audio"?" · sai antes do texto":" · o texto vai como legenda"}</div></div>
             <button onClick={()=>dados({midia:null})} style={{...botaoLeveMkt,padding:"6px 10px"}}>Tirar</button>
@@ -4379,7 +4379,7 @@ function ModeloDaMeta({d,aoMudar,acoes,isMobile}){
     <div style={{display:"flex",gap:6}}>
       {[["livre","Texto livre"],["modelo","Modelo aprovado da Meta"]].map(([k,t])=>{const on=(k==="modelo")===usando;
         return <button key={k} onClick={()=>aoMudar(k==="modelo"?{modelo:{nome:"",idioma:"pt_BR",texto:"",variaveis:[]}}:{modelo:null})}
-          style={{flex:1,fontSize:12,fontWeight:600,padding:"8px 10px",borderRadius:9,cursor:"pointer",minHeight:34,fontFamily:FONT,
+          style={{flex:1,fontSize:12,fontWeight:600,padding:"8px 10px",borderRadius:10,cursor:"pointer",minHeight:34,fontFamily:FONT,
             border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
     </div>
     {usando&&<React.Fragment>
@@ -4457,7 +4457,7 @@ function NumeroDoGatilho({valor,aoMudar,acoes,isMobile,rot}){
     return()=>{vivo=false;}; },[]);
   return <div><div style={rot}>Por qual WhatsApp</div>
     <select value={valor||""} onChange={e=>aoMudar(e.target.value)} aria-label="Por qual WhatsApp"
-      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}>
+      style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink}}>
       <option value="">Qualquer número da conta</option>
       <option value="casa">WhatsApp da imobiliária</option>
       {(linhas||[]).filter(l=>l.tipo!=="imobiliaria").map(l=><option key={l.id} value={l.id}>WhatsApp {l.pessoa||l.nome||"da linha"}{l.wa_number?` · ${fmtTel(l.wa_number)}`:""}</option>)}
@@ -4476,7 +4476,7 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile,acoes}){
         {GATILHOS.map(([id,tit,desc,ic])=>{const on=(g.tipo||"manual")===id;
           return <button key={id} onClick={()=>aoMudar({tipo:id,reentrada:g.reentrada,parar_ao_responder:g.parar_ao_responder})} style={{display:"flex",gap:10,alignItems:"flex-start",textAlign:"left",cursor:"pointer",
             border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:10,padding:isMobile?"10px 11px":"8px 10px",fontFamily:FONT}}>
-            <span style={{width:26,height:26,borderRadius:8,flexShrink:0,background:on?C.greenDeep:C.surface,color:on?"#fff":C.sub,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={ic} size={14}/></span>
+            <span style={{width:26,height:26,borderRadius:10,flexShrink:0,background:on?C.greenDeep:C.surface,color:on?"#fff":C.sub,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={ic} size={14}/></span>
             <span><span style={{display:"block",color:C.ink,fontSize:12.5,fontWeight:600}}>{tit}</span>
               <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{desc}</span></span>
           </button>;})}
@@ -4525,13 +4525,13 @@ function EditorDoGatilho({g,aoMudar,op,pipelines,isMobile,acoes}){
     {g.tipo==="palavra"&&<React.Fragment>
       <div><div style={rot}>Quando</div>
         <select value={g.modo||"contem"} onChange={e=>muda({modo:e.target.value})} aria-label="Quando"
-          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}>
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink}}>
           {MODOS_PALAVRA.map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></div>
       {(g.modo||"contem")!=="codigo"&&<div><div style={rot}>Palavras ou frases</div>
         <input defaultValue={(g.palavras||[]).join(", ")} key={(g.palavras||[]).join("|")}
           onBlur={e=>muda({palavras:e.target.value.split(/[,;\n]/).map(x=>x.trim()).filter(Boolean)})}
           placeholder="ex.: quero alugar, valor, simulação" aria-label="Palavras"
-          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink}}/>
+          style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink}}/>
         <div style={{color:C.faint,fontSize:11,marginTop:4}}>Separe com vírgula. Palavra inteira, sem olhar maiúscula nem acento.</div></div>}
       <div style={{color:C.faint,fontSize:11,lineHeight:1.45}}>Não dispara se alguém da equipe escreveu para o cliente nas últimas 12 horas, nem se ele já está em outro fluxo — a palavra no meio de uma negociação não pode mandar boas-vindas.</div>
     </React.Fragment>}
@@ -4554,7 +4554,7 @@ function EditorDeBloco({no,aoMudar,aoApagar,aoDuplicar,acoes,isMobile,caminhos,d
   const t=TIPO_BLOCO[no.tipo];
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     <div style={{display:"flex",alignItems:"center",gap:8}}>
-      <span style={{width:26,height:26,borderRadius:8,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
+      <span style={{width:26,height:26,borderRadius:10,background:t.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n={t.icone} size={14}/></span>
       <div style={{fontFamily:DISPLAY,fontWeight:700,fontSize:15,color:C.ink,flex:1}}>{no.tipo==="inicio"&&totalGatilhos>1?`Gatilho ${numGatilho}`:t.nome}</div>
       {no.tipo!=="inicio"&&aoDuplicar&&<button onClick={aoDuplicar} title="Duplicar bloco" style={{...botaoLeveMkt,padding:"6px 10px"}}>Duplicar</button>}
       {(no.tipo!=="inicio"||totalGatilhos>1)&&<button onClick={aoApagar} title={no.tipo==="inicio"?"Apagar este gatilho":"Apagar bloco"} style={{...botaoLeveMkt,padding:"6px 9px",color:C.hot}}><Icon n="trash" size={14}/></button>}
@@ -4905,14 +4905,14 @@ function EditorDeFluxo({inicial,acoes,isMobile,aoVoltar}){
     {estado.ativo?"Desativar":"Ativar"}</button>;
   const botaoLogs=!manual&&estado.automacao&&<button onClick={()=>setVendoLogs(true)} style={{...botaoLeveMkt,...(isMobile?{padding:"7px 10px"}:{})}}>Logs</button>;
   const itemPaleta=(t)=><button key={t} onClick={()=>adicionar(t)} title={`Adicionar: ${TIPO_BLOCO[t].nome}`}
-    style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:isMobile?"7px 11px":"7px 9px",
+    style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:isMobile?"7px 11px":"7px 9px",
       cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:500,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
-    <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO[t].cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={TIPO_BLOCO[t].icone} size={12}/></span>
+    <span style={{width:22,height:22,borderRadius:8,background:TIPO_BLOCO[t].cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={TIPO_BLOCO[t].icone} size={12}/></span>
     {TIPO_BLOCO[t].nome}</button>;
   const botaoNovoGatilho=inicios.length<10&&<button onClick={adicionarGatilho} title="Mais um gatilho, com o próprio caminho"
-    style={{display:"flex",alignItems:"center",gap:8,border:`1px dashed ${TIPO_BLOCO.inicio.cor}`,background:C.card,borderRadius:9,padding:isMobile?"7px 11px":"7px 9px",
+    style={{display:"flex",alignItems:"center",gap:8,border:`1px dashed ${TIPO_BLOCO.inicio.cor}`,background:C.card,borderRadius:10,padding:isMobile?"7px 11px":"7px 9px",
       cursor:"pointer",fontSize:12.5,color:C.ink,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,fontFamily:FONT,textAlign:"left"}}>
-    <span style={{width:22,height:22,borderRadius:6,background:TIPO_BLOCO.inicio.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="zap" size={12}/></span>
+    <span style={{width:22,height:22,borderRadius:8,background:TIPO_BLOCO.inicio.cor,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="zap" size={12}/></span>
     Novo gatilho</button>;
   const logs=vendoLogs&&<LogsDoFluxo acoes={acoes} fluxoId={inicial.id} grafo={grafo} isMobile={isMobile} aoFechar={()=>setVendoLogs(false)}/>;
 
@@ -5141,9 +5141,9 @@ function NomeDaContaNoHub({conta,acoes,aoMudar}){
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>Aparece no topo da barra lateral da equipe, no hub, nos e-mails e no que a IA diz ao cliente. Quem estiver com o CRM aberto vê o nome novo ao recarregar.</div>
     <div style={{display:"flex",gap:6}}>
       <input value={nome} onChange={e=>setNome(e.target.value.slice(0,80))}
-        style={{flex:1,minWidth:0,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",fontSize:13.5,color:C.ink,background:C.surface,outline:"none",fontFamily:FONT}}/>
+        style={{flex:1,minWidth:0,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",fontSize:13.5,color:C.ink,background:C.surface,outline:"none",fontFamily:FONT}}/>
       <button onClick={salvar} disabled={!mudou||salvando}
-        style={{flexShrink:0,background:mudou&&!salvando?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"0 14px",fontSize:12.5,fontWeight:600,cursor:mudou&&!salvando?"pointer":"default"}}>{salvando?"…":"Salvar"}</button>
+        style={{flexShrink:0,background:mudou&&!salvando?C.green:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"0 14px",fontSize:12.5,fontWeight:600,cursor:mudou&&!salvando?"pointer":"default"}}>{salvando?"…":"Salvar"}</button>
     </div>
     {msg&&<div style={{color:C.greenMid,fontSize:12,fontWeight:600,marginTop:6}}>{msg}</div>}
     {erro&&<div style={{color:C.hot,fontSize:12,marginTop:6}}>{erro}</div>}
@@ -5208,7 +5208,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                 return <button key={t} onClick={()=>!sel&&definir(r,v)} disabled={!!ocupado}
                   style={{flex:"1 1 auto",background:sel?(v==="retirado"?C.hotSoft:C.greenSoft):C.surface,
                     color:sel?(v==="retirado"?C.hot:C.greenDeep):C.sub,border:`1px solid ${sel?(v==="retirado"?C.hot+"55":C.green+"55"):C.line}`,
-                    borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                    borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                   {ocupado===r.id+v?"…":t}</button>;})}
             </div>
           </div>;})}
@@ -5235,7 +5235,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
                 }}
                 style={{flex:"1 1 auto",background:sel?(v?C.amberSoft:C.greenSoft):C.surface,color:sel?(v?"#8a6d1f":C.greenDeep):C.sub,
-                  border:`1px solid ${sel?(v?C.amber+"88":C.green+"55"):C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                  border:`1px solid ${sel?(v?C.amber+"88":C.green+"55"):C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                 {ocupado==="livre"+v?"…":t}</button>;})}
           </div>
         </div>}
@@ -5256,7 +5256,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
               chaves do Pagar.me no servidor são de TESTE. Sem esta linha, o
               master veria "Asaas" e acharia que a mudança não foi publicada. */}
           {!conta.cobranca.escolhido&&!conta.cobranca.tem_asaas&&conta.cobranca.pagarme_ambiente==="teste"&&
-            <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:9}}>
+            <div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginBottom:9}}>
               As chaves do Pagar.me no servidor são de <b>teste</b>: o checkout só aparece nas contas que você puser no Pagar.me aqui. Com as chaves de produção, ele vale para todas as contas sem cobrança no Asaas.</div>}
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {[[null,"Regra padrão"],["asaas","Asaas"],["pagarme","Pagar.me"]].map(([v,t])=>{
@@ -5268,7 +5268,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
                 }}
                 style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
-                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                 {ocupado==="cobranca"+v?"…":t}</button>;})}
           </div>
         </div>}
@@ -5294,7 +5294,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
                 }}
                 style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
-                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                 {ocupado==="boleto"+v?"…":t}</button>;})}
           </div>
         </div>}
@@ -5320,7 +5320,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
                 }}
                 style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
-                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                 {ocupado==="parceira"+v?"…":t}</button>;})}
           </div>
         </div>
@@ -5353,7 +5353,7 @@ function BotaoFerramentasHub({conta,acoes,aoMudar,compacto,curto}){
                   catch(e){ window.alert(e.message); } finally{ setOcupado(""); }
                 }}
                 style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
-                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+                  border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
                 {ocupado==="fila"+v?"…":t}</button>;})}
           </div>
         </div>}
@@ -5398,14 +5398,14 @@ function CreditoNoHub({conta,acoes}){
     </div>
     {d&&<div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
       <button disabled={ocupado} onClick={()=>{ if(!d.ligado&&d.saldo<=0&&!window.confirm("A conta está sem saldo: a IA vai parar até alguém comprar crédito ou você lançar um. Ligar mesmo assim?")) return; mandar({ligado:!d.ligado}); }}
-        style={{background:d.ligado?C.surface:C.greenDeep,color:d.ligado?C.sub:"#fff",border:`1px solid ${d.ligado?C.line:C.greenDeep}`,borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+        style={{background:d.ligado?C.surface:C.greenDeep,color:d.ligado?C.sub:"#fff",border:`1px solid ${d.ligado?C.line:C.greenDeep}`,borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
         {d.ligado?"Desligar a cobrança por crédito":"Ligar a cobrança por crédito"}</button>
       <input value={valor} onChange={e=>setValor(e.target.value)} placeholder="R$ (ex.: 50 ou -10)" inputMode="decimal"
-        style={{width:130,fontSize:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        style={{width:130,fontSize:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
       <input value={motivo} onChange={e=>setMotivo(e.target.value)} placeholder="Motivo (opcional)"
-        style={{flex:"1 1 140px",fontSize:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        style={{flex:"1 1 140px",fontSize:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
       <button disabled={ocupado||!valor.trim()} onClick={()=>mandar({reais:valor,motivo})}
-        style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:valor.trim()?"pointer":"default"}}>Lançar</button>
+        style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:valor.trim()?"pointer":"default"}}>Lançar</button>
     </div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
   </div>;
@@ -5420,7 +5420,7 @@ function PrecoDoCreditoIA({acoes,isMobile}){
   useEffect(()=>{ acoes.iaCreditosConfig().then(x=>{setC(x);setF({cambio:String(x.cambio),margem:String(x.margem),pacotes:x.pacotes.join(", "),aviso_baixo:String(x.aviso_baixo)});}).catch(()=>{}); },[]);
   if(!c||!f) return null;
   const campo=(rot,k,larg)=><label style={{display:"flex",flexDirection:"column",gap:3,fontSize:10.5,color:C.faint,fontWeight:600}}>{rot}
-    <input value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} style={{width:larg,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/></label>;
+    <input value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} style={{width:larg,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/></label>;
   async function salvar(){
     setMsg("");
     try{ const x=await acoes.iaCreditosSalvarConfig(f); setC(x); setMsg("Salvo."); }catch(e){ setMsg(e.message); }
@@ -5436,7 +5436,7 @@ function PrecoDoCreditoIA({acoes,isMobile}){
       {campo("MARGEM (×)","margem",80)}
       {campo("PACOTES (R$, SEPARADOS POR VÍRGULA)","pacotes",isMobile?"100%":220)}
       {campo("AVISO DE SALDO BAIXO (R$)","aviso_baixo",110)}
-      <button onClick={salvar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar</button>
+      <button onClick={salvar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar</button>
     </div>
     {msg&&<div style={{color:msg==="Salvo."?C.greenDeep:C.hot,fontSize:12,marginTop:7}}>{msg}</div>}
   </div>;
@@ -5470,7 +5470,7 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
     try{ await acoes.definirMensalidade(conta.id,{vence_em:data||null,dias_carencia:tol,...(mudouValor?{valor_mensal:valorNum}:{})}); setOk(true); await aoMudar(); }
     catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
-  const campo={boxSizing:"border-box",fontSize:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  const campo={boxSizing:"border-box",fontSize:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"};
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Mensalidade</div>
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
@@ -5479,11 +5479,11 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
       {" · "}{m.ligada?"cobrança automática ligada":"cobrança automática não ligada"}
     </div>
     {m.status&&<div style={{background:m.status==="bloqueado"?C.hotSoft:C.surface,color:m.status==="bloqueado"?C.hot:C.sub,
-      fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
+      fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"7px 10px",marginBottom:9}}>
       <b>Hoje:</b> {ESTADO[m.status]||m.status}{m.motivo?` — ${m.motivo}`:""}</div>}
-    {m.cancelado_em&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
+    {m.cancelado_em&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"7px 10px",marginBottom:9}}>
       A assinatura foi cancelada em {fmtData(m.cancelado_em)}. <b>Salvar uma data aqui desfaz o cancelamento</b>: a conta volta a seguir o vencimento abaixo. Nenhuma cobrança é recriada.</div>}
-    {naAsaas&&!m.plano_id&&<div style={{background:C.surface,color:C.sub,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"7px 10px",marginBottom:9}}>
+    {naAsaas&&!m.plano_id&&<div style={{background:C.surface,color:C.sub,fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"7px 10px",marginBottom:9}}>
       Esta conta está na cobrança do <b>Asaas</b>. Para o cliente cadastrar o cartão no CETRO e ligar a mensalidade, escolha <b>Pagar.me</b> em Cobrança, logo abaixo.</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
       <label style={{display:"flex",flexDirection:"column",gap:3,flex:"1 1 120px"}}>
@@ -5499,7 +5499,7 @@ function MensalidadeNoHub({conta,acoes,aoMudar}){
         <input inputMode="numeric" value={tolerancia} onChange={e=>{setTolerancia(e.target.value.replace(/\D/g,"").slice(0,2));setOk(false);}} style={campo}/>
       </label>
       <button onClick={salvar} disabled={ocupado||!mudou}
-        style={{background:mudou?C.green:C.surface,color:mudou?"#fff":C.faint,border:mudou?"none":`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:mudou?"pointer":"default"}}>
+        style={{background:mudou?C.green:C.surface,color:mudou?"#fff":C.faint,border:mudou?"none":`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:mudou?"pointer":"default"}}>
         {ocupado?"Salvando…":"Salvar"}</button>
     </div>
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginTop:8}}>
@@ -5561,10 +5561,10 @@ function ApagarConta({conta,acoes,isMobile,aoApagar,aoFechar}){
       <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
         <button onClick={apagar} disabled={ocupado||resumo.unica||!confere}
           style={{background:confere&&!resumo.unica?C.hot:C.faint,color:"#fff",border:"none",
-            borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {ocupado?"Apagando…":"Apagar definitivamente"}</button>
         <button onClick={aoFechar} disabled={ocupado}
-          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
       </div>
     </React.Fragment>}
   </div>;
@@ -5603,7 +5603,7 @@ function AmbienteInterno({conta,isMobile,ocupado,copiado,entrar,copiar,criar}){
         <div key={t}><div style={{fontFamily:DISPLAY,letterSpacing:-.3,color:C.ink,fontSize:17,fontWeight:700,lineHeight:1}}>{v}</div>
           <div style={{color:C.faint,fontSize:10}}>{t}</div></div>)}
     </div>
-    {conta.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
+    {conta.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:10,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
       <Icon n="clock" size={12}/>{conta.pendentes} cadastro(s) aguardando aprovação — entre e aprove em Equipe</div>}
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.45}}>
       {conta.whatsapp?"WhatsApp conectado.":"Conecte o WhatsApp do suporte em Configurações → Conexão, dentro do ambiente."}
@@ -5709,7 +5709,7 @@ function HubContas({acoes,session,aoEntrar,aoSair,isMobile}){
 
             {/* Cadastro parado esperando aprovação é gente sem acesso ao
                 trabalho — é o que mais merece o clique agora. */}
-            {c.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:8,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
+            {c.pendentes>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,fontWeight:600,borderRadius:10,padding:"6px 9px",display:"flex",alignItems:"center",gap:6}}>
               <Icon n="clock" size={12}/>{c.pendentes} cadastro(s) aguardando aprovação</div>}
 
             <div><BotaoFerramentasHub conta={c} acoes={acoes} aoMudar={rever}/></div>
@@ -5901,22 +5901,22 @@ function Autonomos({acoes,isMobile,contas,aoMudar,aoEntrar}){
               lado, e a lixeira ficava fora do cartão (e a tela rolava de lado). */}
           <div style={{display:"flex",gap:6,flexWrap:"wrap",flexShrink:isMobile?1:0,width:isMobile?"100%":"auto"}}>
             <button onClick={()=>entrar(c)} disabled={!!ocupado} title={`Abrir o CRM de ${c.nome}`}
-              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:isMobile?"10px 13px":"7px 13px",
                 fontSize:12,fontWeight:600,cursor:ocupado?"default":"pointer",
                 display:"flex",alignItems:"center",gap:6}}>
               {ocupado==="entrar:"+c.id?"Entrando…":<React.Fragment>Entrar <Icon n="arrow" size={13}/></React.Fragment>}</button>
             <BotaoFerramentasHub conta={c} acoes={acoes} aoMudar={aoMudar} compacto curto={isMobile}/>
             <button onClick={()=>abrir(c,"liberar")} disabled={!!ocupado}
               style={{background:travado?C.greenMid:C.card,color:travado?"#fff":C.greenMid,
-                border:travado?"none":`1px solid ${C.green}55`,borderRadius:9,padding:isMobile?"10px 13px":"7px 13px",
+                border:travado?"none":`1px solid ${C.green}55`,borderRadius:10,padding:isMobile?"10px 13px":"7px 13px",
                 fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar…</button>
             {!travado&&<button onClick={()=>mexer(c,{dias:-1})} disabled={!!ocupado}
-              style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,
+              style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,
                 padding:isMobile?"10px 13px":"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
               {ocupado===c.id?"…":"Travar"}</button>}
             <button onClick={()=>abrir(c,"apagar")} disabled={!!ocupado} title="Apagar esta conta da plataforma"
               style={{background:painel&&painel.id===c.id&&painel.tipo==="apagar"?C.hotSoft:C.card,color:C.hot,
-                border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"10px 11px":"7px 10px",
+                border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"10px 11px":"7px 10px",
                 cursor:"pointer",display:"flex",alignItems:"center"}}>
               <Icon n="trash" size={14}/></button>
           </div>
@@ -6089,15 +6089,15 @@ function Socios({acoes,session,isMobile}){
           {!m.eu&&(tirando===m.id
             ? <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>tirar(m)} disabled={!!ocupado}
-                  style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",
+                  style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",
                     fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
                   {ocupado===m.id?"…":"Confirmar"}</button>
                 <button onClick={()=>setTirando(null)}
-                  style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+                  style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
                     padding:"7px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
               </div>
             : <button onClick={()=>setTirando(m.id)}
-                style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,
+                style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:10,
                   padding:"7px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Tirar acesso</button>)}
         </div>)}
       </div>}
@@ -6179,10 +6179,10 @@ function RegistroDns({r,isMobile}){
     <span style={{color:C.faint}}>{rot}</span>
     <span style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
       <span style={{overflowWrap:"anywhere",minWidth:0}}>{v}</span>
-      {campo&&<button onClick={()=>copiar(campo,v)} style={{flexShrink:0,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:7,
+      {campo&&<button onClick={()=>copiar(campo,v)} style={{flexShrink:0,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,
         padding:isMobile?"5px 9px":"2px 8px",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>{copiado===campo?"Copiado":"Copiar"}</button>}
     </span></>;
-  return <div style={{background:C.card,border:`1px solid ${r.ok?C.green+"66":C.line}`,borderRadius:9,padding:"8px 10px",margin:"8px 0",
+  return <div style={{background:C.card,border:`1px solid ${r.ok?C.green+"66":C.line}`,borderRadius:10,padding:"8px 10px",margin:"8px 0",
     display:"grid",gridTemplateColumns:"auto 1fr",gap:"4px 10px",fontFamily:MONO,fontSize:12,color:C.ink,alignItems:"center"}}>
     {linha("Tipo",null,r.tipo)}
     {linha("Nome","nome",r.nome)}
@@ -6229,14 +6229,14 @@ function DominiosDosSites({acoes,isMobile}){
           {x.dominio_detalhe&&<div style={{color:C.sub,fontSize:11.5,marginTop:5,lineHeight:1.45}}>{x.dominio_detalhe}</div>}
           {d.automatico&&x.automatico?<div style={{display:"flex",gap:8,marginTop:8,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{color:C.faint,fontSize:11.5,flex:"1 1 200px"}}>Cadastrado no Railway automaticamente{x.dominio_destino?` · destino ${x.dominio_destino}`:""}</span>
-            <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,
+            <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:10,
               padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado===x.org_id?"Conferindo…":"Conferir de novo"}</button>
           </div>
           :<div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
             <input value={rasc[x.org_id]??x.dominio_destino??""} onChange={e=>setRasc(r=>({...r,[x.org_id]:e.target.value}))}
               placeholder="Destino do DNS (ex.: abc123.up.railway.app)" style={{flex:"1 1 220px",minWidth:0,fontSize:isMobile?16:13,
-                border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",outline:"none",color:C.ink,background:C.surface}}/>
-            <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,
+                border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",color:C.ink,background:C.surface}}/>
+            <button onClick={()=>salvar(x)} disabled={ocupado===x.org_id} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:10,
               padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado===x.org_id?"Conferindo…":"Salvar e conferir"}</button>
           </div>}
         </div>;})}
@@ -6525,7 +6525,7 @@ function CartaoPagarme({dados,acoes,isMobile,aoSalvar,aoCancelar,botao="Salvar c
     background:C.card,borderRadius:10,padding:"11px 12px",color:C.ink,outline:"none",fontFamily:"inherit"};
   const rot=(t)=><div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
   return <form onSubmit={salvar} style={{display:"flex",flexDirection:"column",gap:9}}>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",lineHeight:1.45}}>{erro}</div>}
     <div>{rot("Número do cartão")}
       <input value={numero} onChange={e=>setNumero(dig(e.target.value).slice(0,19).replace(/(\d{4})(?=\d)/g,"$1 "))}
         inputMode="numeric" autoComplete="cc-number" name="cardnumber" placeholder="0000 0000 0000 0000" style={{...entrada,fontFamily:MONO}}/></div>
@@ -6589,7 +6589,7 @@ function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,a
       Plano {plano.nome} — {fmtMoeda(plano.total)}
       {parcelado?` em ${plano.parcelas}x`:plano.meses>1?` a cada ${plano.meses} meses`:" por mês"}
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
     {feito
       ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px",display:"flex",gap:7}}>
         <Icon n="check" size={14}/>
@@ -6599,7 +6599,7 @@ function PlanoNoPagarme({plano,pm,cartao,aoCartao,atual,acoes,isMobile,emTeste,a
       </div>
       :(!cartao||trocando)
       ?<React.Fragment>
-        {!cartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+        {!cartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginBottom:10}}>
           {parcelado
             ?(aguardandoCartao||emTeste
               ?`O anual é cobrado hoje, em 12x no cartão. Os 12 meses contam a partir do fim do teste de ${DIAS_TESTE} dias.`
@@ -6665,8 +6665,8 @@ function FerramentaNoPagarme({r,pm,acoes,isMobile,aoMudar}){
     }catch(e){ setErro(e.message); } finally{ setOcupado(false); }
   }
   return <div style={{marginTop:9}}>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:8}}>{erro}</div>}
-    {(aviso||aguardando)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",lineHeight:1.45,marginBottom:8}}>{erro}</div>}
+    {(aviso||aguardando)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginBottom:8}}>
       {aviso||"Contratação aguardando a confirmação do cartão."}{" "}
       <button onClick={aoMudar} style={{background:"none",border:"none",padding:0,color:"inherit",fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:11.5}}>verificar de novo</button>
     </div>}
@@ -6712,7 +6712,7 @@ function CartaoDeCobranca({pm,acoes,isMobile,aoMudar}){
       {cartao?"É neste cartão que a mensalidade e as ferramentas são cobradas."
         :"Cadastre o cartão de crédito da conta. Cadastrar não cobra nada — a cobrança só acontece quando você escolher um plano ou ligar a mensalidade."}
     </div>
-    {aviso&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:9,display:"flex",gap:6}}>
+    {aviso&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginBottom:9,display:"flex",gap:6}}>
       <Icon n="check" size={13}/><span>{aviso}</span></div>}
     {abrir
       ?<CartaoPagarme dados={pm} acoes={acoes} isMobile={isMobile} botao={cartao?"Trocar cartão":"Salvar cartão"}
@@ -6751,7 +6751,7 @@ function MensalidadeCombinada({pm,acoes,aoMudar}){
       <span style={{color:C.greenDeep,fontFamily:DISPLAY,letterSpacing:-.3,fontSize:18,fontWeight:700}}>{fmtMoeda(c.valor)}</span>
       <span style={{color:C.faint,fontSize:11}}>por mês · valor combinado com o CETRO</span>
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",lineHeight:1.45,marginBottom:9}}>{erro}</div>}
     {c.ligada
       ?<div style={{color:C.greenDeep,fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
         <Icon n="check" size={13}/> Cobrança automática ligada no cartão. Renova sozinha todo mês.</div>
@@ -6881,7 +6881,7 @@ function GerenciarAssinatura({acoes,isMobile,atualSituacao,aoMudar,cartaoAtual})
           fimDoTeste={emTeste?atualSituacao.vence_em:null} aoMudar={aoMudar}/>}
         {!pm&&<div style={{marginTop:11,background:C.surface,border:`1px solid ${C.green}44`,borderRadius:13,padding:13}}>
           {aguardandoCartao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,lineHeight:1.5,
-            borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+            borderRadius:10,padding:"8px 10px",marginBottom:10}}>
             Cadastrar o cartão não cobra nada agora — o teste de {DIAS_TESTE} dias começa
             assim que o Asaas confirmar, e a primeira cobrança só cai no fim dele.
           </div>}
@@ -7069,7 +7069,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
 
   return <div style={{display:"flex",flexDirection:"column",gap:9}}>
     {!so&&<div style={{color:C.ink,fontSize:13,fontWeight:700}}>Ferramentas</div>}
-    {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+    {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:10,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
     {lista.map(r=>{
       const aguardando=r.avulso&&r.avulso.status==="aguardando";
       const avulsaAtiva=r.origem==="avulso"&&r.avulso&&r.avulso.status==="ativo";
@@ -7086,7 +7086,7 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
         {avulsaAtiva&&<div style={{display:"flex",alignItems:"center",gap:8,marginTop:8,flexWrap:"wrap"}}>
           <span style={{flex:1,color:C.sub,fontSize:11.5}}>{fmtPreco(r.preco_avulso)}/mês · renova sozinha</span>
           <button onClick={()=>cancelar(r)} disabled={!!ocupado}
-            style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+            style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
             {ocupado===r.id?"…":"Cancelar"}</button>
         </div>}
         {r.origem==="avulso"&&r.avulso&&r.avulso.status==="cancelado"&&<div style={{color:C.sub,fontSize:11.5,marginTop:8}}>
@@ -7099,12 +7099,12 @@ function FerramentasDaConta({acoes,isMobile,so,aoMudar,versao}){
           :<div style={{color:C.faint,fontSize:11.5,marginTop:8}}>Fale com o CETRO para ligar esta ferramenta.</div>)}
         {!r.ativo&&r.origem==="fora_do_plano"&&r.preco_avulso>0&&!pm&&(d.asaas
           ?<div style={{marginTop:9}}>
-            {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
+            {aguardando&&(fatura?.id!==r.id)&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginBottom:8}}>
               Contratação aguardando pagamento.{" "}
               {r.avulso.link&&<a href={r.avulso.link} target="_blank" rel="noreferrer" style={{color:"inherit",fontWeight:700}}>Abrir a fatura</a>}
               {" · "}<button onClick={carregar} style={{background:"none",border:"none",padding:0,color:"inherit",fontWeight:700,textDecoration:"underline",cursor:"pointer",fontSize:11.5}}>verificar de novo</button>
             </div>}
-            {fatura?.id===r.id&&<div style={{color:C.greenDeep,background:C.card,border:`1px solid ${C.green}44`,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginBottom:8}}>
+            {fatura?.id===r.id&&<div style={{color:C.greenDeep,background:C.card,border:`1px solid ${C.green}44`,fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginBottom:8}}>
               A tela de pagamento abriu numa aba nova. Assim que o Asaas confirmar, a ferramenta liga sozinha.{" "}
               <a href={fatura.url} target="_blank" rel="noreferrer" style={{color:C.greenDeep,fontWeight:700}}>Abrir de novo</a>
             </div>}
@@ -7197,9 +7197,9 @@ function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
             {rot("Linha digitável")}
             <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
               <div style={{flex:1,minWidth:0,fontFamily:MONO,fontSize:11.5,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,
-                borderRadius:9,padding:"8px 9px",wordBreak:"break-all",lineHeight:1.45}}>{emAberto.linha}</div>
+                borderRadius:10,padding:"8px 9px",wordBreak:"break-all",lineHeight:1.45}}>{emAberto.linha}</div>
               <button onClick={()=>copiar(emAberto.linha.replace(/\D/g,""))}
-                style={{flexShrink:0,background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"0 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                style={{flexShrink:0,background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
                 {copiado?"Copiado":"Copiar"}</button>
             </div>
           </div>}
@@ -7244,7 +7244,7 @@ function PagarPorBoleto({acoes,isMobile,aoMudar,separado}){
                 <input value={end.cidade} onChange={e=>setEnd({...end,cidade:e.target.value})} placeholder="Cidade" style={{...entrada,flex:1}}/>
               </div>
             </div>}
-            {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+            {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:10,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
             {op&&<button onClick={gerar} disabled={!!ocupado||faltaCpf||faltaEnd}
               style={{width:"100%",background:(faltaCpf||faltaEnd)?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,
                 padding:"12px",fontSize:13.5,fontWeight:600,cursor:(faltaCpf||faltaEnd)?"default":"pointer"}}>
@@ -7265,7 +7265,7 @@ function CancelarAssinatura({a,acoes,aoMudar}){
   const [ocupado,setOcupado]=useState(false);
   const [erro,setErro]=useState("");
   const c=a.cancelamento||{};
-  if(a.cancelada_em) return <div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:9,padding:"8px 10px"}}>
+  if(a.cancelada_em) return <div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,lineHeight:1.5,borderRadius:10,padding:"8px 10px"}}>
     Assinatura cancelada em {fmtData(a.cancelada_em)}. Nada mais será cobrado{a.acesso_ate?<React.Fragment>, e o acesso continua até <b>{fmtData(a.acesso_ate)}</b></React.Fragment>:""}.
     Para voltar, escolha um plano acima.</div>;
   if(!c.pode){
@@ -7280,7 +7280,7 @@ function CancelarAssinatura({a,acoes,aoMudar}){
   }
   const ate=a.vence_em;
   return <div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",lineHeight:1.45,marginBottom:8}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",lineHeight:1.45,marginBottom:8}}>{erro}</div>}
     {!confirmar
       ?<button onClick={()=>setConfirmar(true)}
         style={{background:"none",border:"none",padding:0,color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer"}}>
@@ -7412,7 +7412,7 @@ function PainelAssinatura({acoes,isMobile,autonomo}){
           Ative a cobrança automática. Você recebe a fatura todo mês e escolhe entre
           Pix, boleto ou cartão. Ambiente: <b>{a.ambiente}</b>.
         </div>
-        {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
+        {erro&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:10,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>{erro}</div>}
         {!(a.valor||a.valor_mensal)
           ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
             O valor da sua mensalidade ainda não foi definido. Fale com o CETRO para combinar o plano —
@@ -7548,7 +7548,7 @@ function Bloqueado({assinatura,session,acoes,aoSair,aoRever,org}){
         ?<div style={{marginBottom:12,marginTop:2,display:"flex",flexDirection:"column",gap:12}}>
           <CartaoDeCobranca pm={cobr.pagarme} acoes={acoes} isMobile={true} aoMudar={async()=>{ await lerCobr(); await aoRever(); }}/>
           {cobr.pagarme.combinada.ligada&&!aguardandoCartao
-            ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:9,padding:"9px 11px"}}>
+            ?<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,lineHeight:1.5,borderRadius:10,padding:"9px 11px"}}>
               A cobrança automática está ligada, mas o pagamento ainda não foi confirmado. Se o cartão foi recusado, troque-o acima; se continuar travado, fale com o suporte.</div>
             :<div style={{borderTop:`1px solid ${C.line}`,paddingTop:12}}>
               <MensalidadeCombinada pm={cobr.pagarme} acoes={acoes} aoMudar={async()=>{ await lerCobr(); await aoRever(); }}/></div>}
@@ -7677,15 +7677,15 @@ function LogoClaude({size=16,cor=COR_CLAUDE}){
 function BaloesDaConversa({itens,isMobile}){
   return <React.Fragment>{itens.map(i=>{
     if(i.de==="acao") return <div key={i.id} style={{alignSelf:"flex-start",display:"flex",gap:6,alignItems:"center",
-      color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"6px 9px",fontSize:12,fontWeight:600,maxWidth:"92%"}}>
+      color:C.greenDeep,background:C.greenSoft,borderRadius:10,padding:"6px 9px",fontSize:12,fontWeight:600,maxWidth:"92%"}}>
       <Icon n="check" size={12}/><span>{i.texto.replace(/^✓\s*/,"")}</span></div>;
-    if(i.de==="erro") return <div key={i.id} style={{alignSelf:"flex-start",color:C.hot,background:C.hotSoft,borderRadius:9,
+    if(i.de==="erro") return <div key={i.id} style={{alignSelf:"flex-start",color:C.hot,background:C.hotSoft,borderRadius:10,
       padding:"6px 9px",fontSize:12,lineHeight:1.45,maxWidth:"92%"}}>{i.texto}</div>;
     if(i.de==="sistema") return <div key={i.id} style={{alignSelf:"center",color:C.faint,fontSize:11,textAlign:"center",
       padding:"2px 8px",lineHeight:1.45,maxWidth:"90%"}}>{i.texto}</div>;
     // Ação em massa esperando a pessoa confirmar (o Claude do gestor).
     if(i.de==="aviso") return <div key={i.id} style={{alignSelf:"flex-start",display:"flex",gap:6,alignItems:"flex-start",
-      color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"6px 9px",fontSize:12,fontWeight:600,lineHeight:1.45,maxWidth:"92%"}}>
+      color:"#8a6d1f",background:C.amberSoft,borderRadius:10,padding:"6px 9px",fontSize:12,fontWeight:600,lineHeight:1.45,maxWidth:"92%"}}>
       <Icon n="clock" size={12}/><span>{i.texto}</span></div>;
     const meu=i.de==="voce"||i.de==="cliente";
     return <div key={i.id} style={{alignSelf:meu?"flex-end":"flex-start",maxWidth:"86%",
@@ -7695,7 +7695,7 @@ function BaloesDaConversa({itens,isMobile}){
       {i.de==="suporte"&&<div style={{color:C.green,fontSize:10.5,fontWeight:700,marginBottom:2}}>Suporte CETRO</div>}
       {Array.isArray(i.anexos)&&i.anexos.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:5,whiteSpace:"normal"}}>
         {i.anexos.map((a,k)=><span key={k} style={{display:"inline-flex",alignItems:"center",gap:4,background:"rgba(255,255,255,.16)",
-          borderRadius:6,padding:"2px 6px",fontSize:11,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          borderRadius:8,padding:"2px 6px",fontSize:11,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
           <Icon n="clipe" size={11}/>{a.nome}{a.tipo==="video"&&a.quadros?` · ${a.quadros} cenas`:""}</span>)}
       </div>}
       {i.texto}
@@ -7916,9 +7916,9 @@ function AnexosEscolhidos({lista,tirar,preparando}){
   if(!lista.length&&!preparando) return null;
   return <div style={{display:"flex",flexWrap:"wrap",gap:6,padding:"8px 10px 0",background:C.card,borderTop:`1px solid ${C.line}`}}>
     {lista.map(a=><div key={a.id} style={{display:"flex",alignItems:"center",gap:7,border:`1px solid ${C.line}`,background:C.surface,
-      borderRadius:9,padding:4,paddingRight:6,maxWidth:"100%"}}>
-      {a.miniatura?<img src={a.miniatura} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>
-        :<div style={{width:34,height:34,borderRadius:6,background:C.greenSoft,color:C.greenDeep,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="clipe" size={15}/></div>}
+      borderRadius:10,padding:4,paddingRight:6,maxWidth:"100%"}}>
+      {a.miniatura?<img src={a.miniatura} alt="" style={{width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
+        :<div style={{width:34,height:34,borderRadius:8,background:C.greenSoft,color:C.greenDeep,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n="clipe" size={15}/></div>}
       <div style={{minWidth:0,maxWidth:170}}>
         <div style={{color:C.ink,fontSize:11.5,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.nome}</div>
         <div style={{color:C.faint,fontSize:10.5}}>{a.rotulo}</div>
@@ -8027,7 +8027,7 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
           <div style={{color:C.ink,fontSize:14,fontWeight:700}}>Assistente Claude</div>
           <div style={{color:C.faint,fontSize:11}}>{consulta?"Tira dúvidas e pesquisa para você":"Faz o trabalho da gestão conversando"}</div>
         </div>
-        {itens.length>0&&<button onClick={nova} title="Começar outra conversa" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"6px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Nova</button>}
+        {itens.length>0&&<button onClick={nova} title="Começar outra conversa" style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"6px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Nova</button>}
         <button onClick={aoFechar} aria-label="Fechar" style={{width:34,height:34,border:"none",background:"transparent",color:C.sub,cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
       </div>
       <div ref={lista} style={{flex:1,minHeight:0,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:9}}>
@@ -8052,13 +8052,13 @@ function PainelAssistente({aoFechar,isMobile,irPara,menu,aoMudarMenu}){
           <LogoClaude size={13}/>{consulta?"Pesquisando…":pendente&&pendente.anexos&&pendente.anexos.length?"Lendo os arquivos e trabalhando…":"Pensando e trabalhando…"}</div>}
         {continuando&&<div style={{alignSelf:"flex-start",display:"flex",gap:8,alignItems:"center",color:C.faint,fontSize:12}}>
           <LogoClaude size={13}/>Continuando o trabalho…
-          <button onClick={()=>{pararRef.current=true;}} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"3px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button></div>}
+          <button onClick={()=>{pararRef.current=true;}} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"3px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button></div>}
         {!ocupado&&!continuando&&d&&d.parou&&<div style={{alignSelf:"flex-start",display:"flex",gap:8,alignItems:"center",color:C.sub,fontSize:12.5}}>
           O trabalho ficou no meio.
-          <button onClick={()=>continuar(false)} style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Continuar</button></div>}
+          <button onClick={()=>continuar(false)} style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"6px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Continuar</button></div>}
         <BotaoIrPara navegar={navegar} irPara={irPara?(t)=>{irPara(t);aoFechar();}:null}/>
-        {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
-        {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}
+        {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:10,padding:"8px 10px",fontSize:12.5}}>{erro}</div>}
+        {d&&!d.disponivel&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:10,padding:"8px 10px",fontSize:12.5}}>{d.motivo}</div>}
       </div>
       {d&&d.disponivel&&podeAnexar&&<AnexosEscolhidos lista={anexos} preparando={preparando>0} tirar={(id)=>setAnexos(x=>x.filter(a=>a.id!==id))}/>}
       {podeAnexar&&<input ref={arquivoRef} type="file" multiple style={{display:"none"}}
@@ -8161,7 +8161,7 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
           <div style={{fontSize:14,fontWeight:700}}>{comPessoa?`Suporte CETRO · #${chamado.numero}`:"Suporte CETRO"}</div>
           <div style={{fontSize:11,opacity:.8}}>{comPessoa?"Você está falando com uma pessoa":"Tire sua dúvida — se precisar, chamo uma pessoa"}</div>
         </div>
-        {!comPessoa&&itensIA.length>0&&<button onClick={recomecar} style={{border:"1px solid rgba(255,255,255,.35)",background:"transparent",color:"#fff",borderRadius:9,padding:"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Nova</button>}
+        {!comPessoa&&itensIA.length>0&&<button onClick={recomecar} style={{border:"1px solid rgba(255,255,255,.35)",background:"transparent",color:"#fff",borderRadius:10,padding:"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Nova</button>}
         <button onClick={()=>setAberta(false)} aria-label="Fechar" style={{width:32,height:32,border:"none",background:"transparent",color:"#fff",cursor:"pointer",fontSize:22,lineHeight:1}}>×</button>
       </div>
       <div ref={lista} style={{flex:1,minHeight:0,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8}}>
@@ -8199,8 +8199,8 @@ function NuvemDeSuporte({isMobile,irPara,view,nome}){
             <button onClick={()=>{setFormulario(null);setErro("");}} disabled={ocupado} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"10px 13px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Voltar</button>
           </div>
         </div>}
-        {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{aviso}</div>}
-        {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
+        {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,borderRadius:10,padding:"7px 10px",fontSize:12}}>{aviso}</div>}
+        {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:10,padding:"7px 10px",fontSize:12}}>{erro}</div>}
       </div>
       {d&&!comPessoa&&!humano&&!formulario&&<button onClick={abrirFormulario} disabled={ocupado}
         style={{border:"none",borderTop:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,fontSize:12,fontWeight:600,padding:"9px",cursor:"pointer"}}>
@@ -8253,7 +8253,7 @@ function PlanosCetrolab({acoes,isMobile}){
             <div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>{p.nome} · {fmtPreco(p.valor_mensal)}/mês</div>
             <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>{d.publicos[p.para]}{p.resumo?" · "+p.resumo:""}</div>
           </div>
-          <button onClick={()=>salvar(p.id,{ativo:!p.ativo})} style={{background:p.ativo?C.surface:C.green,color:p.ativo?C.sub:"#fff",border:p.ativo?`1px solid ${C.line}`:"none",borderRadius:9,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>{p.ativo?"Desativar":"Ativar"}</button>
+          <button onClick={()=>salvar(p.id,{ativo:!p.ativo})} style={{background:p.ativo?C.surface:C.green,color:p.ativo?C.sub:"#fff",border:p.ativo?`1px solid ${C.line}`:"none",borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:36}}>{p.ativo?"Desativar":"Ativar"}</button>
         </div>)}
       </div>
       {!novo
@@ -8265,8 +8265,8 @@ function PlanosCetrolab({acoes,isMobile}){
             {Object.entries(d.publicos).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label>
           <label style={{fontSize:11.5,color:C.faint,fontWeight:600}}>Resumo (opcional)<input value={novo.resumo} onChange={e=>setNovo({...novo,resumo:e.target.value.slice(0,240)})} placeholder="O que o plano inclui, em uma linha" style={{...entrada,marginTop:4}}/></label>
           <div style={{display:"flex",gap:8,gridColumn:"1 / -1"}}>
-            <button onClick={()=>salvar(null,novo)} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar plano</button>
-            <button onClick={()=>setNovo(null)} style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={()=>salvar(null,novo)} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar plano</button>
+            <button onClick={()=>setNovo(null)} style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
           </div>
         </div>}
     </React.Fragment>}
@@ -8429,10 +8429,10 @@ function PropostasNoHub({isMobile,contas}){
             {p.erro&&p.estado!=="paga"&&<div style={{fontSize:11.5,color:C.hot,marginTop:3}}>Última tentativa: {p.erro}</div>}
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {["aberta","pagando","processando","aguardando"].includes(p.estado)&&<button onClick={()=>copiar(p.link,p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{copiado===p.id?"Copiado!":"Copiar link"}</button>}
-            <a href={p.link} target="_blank" rel="noopener" style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,textDecoration:"none"}}>Abrir</a>
-            {["aberta","aguardando"].includes(p.estado)&&<button onClick={()=>cancelar(p)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>}
-            {["aberta","cancelada","vencida"].includes(p.estado)&&<button onClick={()=>apagar(p)} title="Apagar esta proposta da lista" style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar</button>}
+            {["aberta","pagando","processando","aguardando"].includes(p.estado)&&<button onClick={()=>copiar(p.link,p.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,borderRadius:10,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>{copiado===p.id?"Copiado!":"Copiar link"}</button>}
+            <a href={p.link} target="_blank" rel="noopener" style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:10,padding:"7px 11px",fontSize:12,fontWeight:600,textDecoration:"none"}}>Abrir</a>
+            {["aberta","aguardando"].includes(p.estado)&&<button onClick={()=>cancelar(p)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:10,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>}
+            {["aberta","cancelada","vencida"].includes(p.estado)&&<button onClick={()=>apagar(p)} title="Apagar esta proposta da lista" style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:10,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar</button>}
           </div>
         </div>;})}
     </div>}
@@ -8498,12 +8498,12 @@ function SuporteNoHub({isMobile,equipe}){
       <span style={{fontSize:12,fontWeight:600,color:d.config.linha_ligada&&!d.config.mesmo_numero?C.greenDeep:C.hot}}>
         {d.config.mesmo_numero?"● A linha que envia é o MESMO número que recebe: a mensagem cairia em “conversa com você” e não tocaria. Conecte outro número na linha que envia."
           :d.config.linha_ligada?"● A linha está conectada":"● Essa conta não tem WhatsApp conectado — os chamados ficam só aqui no painel"}</span>
-      <button onClick={testar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Enviar teste</button>
+      <button onClick={testar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:10,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Enviar teste</button>
     </div>
     </React.Fragment>}
     </React.Fragment>}
-    {msg&&<div style={{color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{msg}</div>}
-    {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"7px 10px",fontSize:12}}>{erro}</div>}
+    {msg&&<div style={{color:C.greenDeep,background:C.greenSoft,borderRadius:10,padding:"7px 10px",fontSize:12}}>{msg}</div>}
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:10,padding:"7px 10px",fontSize:12}}>{erro}</div>}
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginTop:4}}>Chamados</div>
     {!d.chamados.length&&<div style={{color:C.faint,fontSize:12}}>Nenhum chamado ainda.</div>}
     {d.chamados.map(c=><div key={c.id} style={{border:`1px solid ${C.line}`,borderRadius:11,background:C.card}}>
@@ -9167,7 +9167,7 @@ function BarraLateral({nav,view,setView,aviso,irParaCasa,sair,org,papel,nome,aco
           quando recolhida. Seta que não muda vira adivinhação. */}
       <button onClick={alternar} title={recolhida?"Abrir o menu":"Recolher o menu"}
         aria-label={recolhida?"Abrir o menu":"Recolher o menu"}
-        style={{width:30,height:30,flexShrink:0,borderRadius:9,border:"none",cursor:"pointer",
+        style={{width:30,height:30,flexShrink:0,borderRadius:10,border:"none",cursor:"pointer",
           background:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.7)",
           display:"flex",alignItems:"center",justifyContent:"center",
           transform:recolhida?"none":"scaleX(-1)"}}>
@@ -9349,7 +9349,7 @@ function SinoCutucar({lead,cutucar}){
       :jaChamado?`${first(lead.assignedName)||"O corretor"} já foi chamado às ${fmtClock(chamadoEm)}`
       :`Chamar ${first(lead.assignedName)||"o corretor"} para este atendimento`}
     aria-label={jaChamado?"Corretor já chamado":"Chamar o corretor"}
-    style={{display:"flex",alignItems:"center",padding:3,borderRadius:7,cursor:"pointer",
+    style={{display:"flex",alignItems:"center",padding:3,borderRadius:9,cursor:"pointer",
       background:jaChamado?C.greenSoft:"transparent",color:cor,flexShrink:0}}>
     <Icon n={enviando?"loader":"bell"} size={13} color={cor} spin={enviando}/>
   </span>;
@@ -9625,15 +9625,15 @@ function PossivelDuplicado({lead,acoes,podeUnir}){
       </div>
       <div style={{color:"#8a6d1f",fontSize:11,marginTop:1}}>{x.porque}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:6}}>
-        <button onClick={()=>acoes.abrir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:"none",background:C.greenDeep,color:"#fff",cursor:"pointer",fontFamily:FONT}}>Abrir este lead</button>
-        {podeUnir&&(x.motivo==="forma"||x.motivo==="final")&&<button onClick={()=>setUnindo({id:x.id,nome:x.nome})} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.greenDeep}`,background:C.card,color:C.greenDeep,cursor:"pointer",fontFamily:FONT}}>Unir os dois</button>}
-        <button onClick={()=>naoE(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Não é a mesma pessoa</button>
+        <button onClick={()=>acoes.abrir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:10,border:"none",background:C.greenDeep,color:"#fff",cursor:"pointer",fontFamily:FONT}}>Abrir este lead</button>
+        {podeUnir&&(x.motivo==="forma"||x.motivo==="final")&&<button onClick={()=>setUnindo({id:x.id,nome:x.nome})} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:10,border:`1px solid ${C.greenDeep}`,background:C.card,color:C.greenDeep,cursor:"pointer",fontFamily:FONT}}>Unir os dois</button>}
+        <button onClick={()=>naoE(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:10,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Não é a mesma pessoa</button>
       </div>
-      {unindo&&unindo.id===x.id&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",marginTop:7}}>
+      {unindo&&unindo.id===x.id&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",marginTop:7}}>
         <div style={{color:C.ink,fontSize:12,lineHeight:1.5}}>Juntar os dois num lead só? A conversa, as tarefas, as observações e o histórico ficam juntos, e a cópia sai da lista. Não tem desfazer.</div>
         <div style={{display:"flex",gap:8,marginTop:7,flexWrap:"wrap"}}>
-          <button disabled={unindo.indo} onClick={()=>unir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontFamily:FONT}}>{unindo.indo?"Unindo…":"Sim, unir"}</button>
-          <button disabled={unindo.indo} onClick={()=>setUnindo(null)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:8,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Cancelar</button>
+          <button disabled={unindo.indo} onClick={()=>unir(x.id)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:10,border:"none",background:C.green,color:"#fff",cursor:"pointer",fontFamily:FONT}}>{unindo.indo?"Unindo…":"Sim, unir"}</button>
+          <button disabled={unindo.indo} onClick={()=>setUnindo(null)} style={{fontSize:11.5,fontWeight:600,padding:"6px 10px",borderRadius:10,border:`1px solid ${C.line}`,background:C.card,color:C.sub,cursor:"pointer",fontFamily:FONT}}>Cancelar</button>
         </div>
       </div>}
     </div>)}
@@ -9710,8 +9710,8 @@ function BotaoApagar({m,pode,leadId,acoes}){
       <div style={{color:C.sub,fontSize:12,lineHeight:1.4}}>O cliente vai ver “Esta mensagem foi apagada”. Não tem desfazer.</div>
       {erro&&<div style={{color:C.hot,fontSize:11.5,lineHeight:1.4}}>{erro}</div>}
       <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>setAberto(false)} disabled={indo} style={{flex:1,border:`1px solid ${C.line}`,background:"#fff",borderRadius:9,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-        <button onClick={apagar} disabled={indo} style={{flex:1,border:"none",background:C.hot,color:"#fff",borderRadius:9,padding:"10px",fontSize:13,fontWeight:700,cursor:indo?"default":"pointer"}}>{indo?"Apagando…":"Apagar para todos"}</button>
+        <button onClick={()=>setAberto(false)} disabled={indo} style={{flex:1,border:`1px solid ${C.line}`,background:"#fff",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={apagar} disabled={indo} style={{flex:1,border:"none",background:C.hot,color:"#fff",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:indo?"default":"pointer"}}>{indo?"Apagando…":"Apagar para todos"}</button>
       </div>
     </div></div>}
   </span>;
@@ -9746,7 +9746,7 @@ function MensagemApagada({m,mine,session}){
    o dedo já está e onde o teclado abre. A barra diz o que está sendo editado
    e some com o ×. */
 function BarraEdicao({texto,erro,isMobile,aoCancelar}){
-  return <div style={{background:C.surface,borderLeft:`3px solid ${C.green}`,borderRadius:8,
+  return <div style={{background:C.surface,borderLeft:`3px solid ${C.green}`,borderRadius:10,
     padding:"7px 10px",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
     <div style={{flex:1,minWidth:0}}>
       <div style={{color:C.greenDeep,fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",gap:5}}>
@@ -9789,7 +9789,7 @@ function Citacao({c,claro,aoFechar}){
   return <div style={{display:"flex",alignItems:"center",gap:8,
     background:claro?"rgba(255,255,255,.16)":C.surface,
     borderLeft:`3px solid ${claro?"rgba(255,255,255,.75)":C.green}`,
-    borderRadius:6,padding:"5px 8px",marginBottom:5,maxWidth:"100%"}}>
+    borderRadius:8,padding:"5px 8px",marginBottom:5,maxWidth:"100%"}}>
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:10.5,fontWeight:700,color:claro?"rgba(255,255,255,.9)":C.greenDeep}}>{quem}</div>
       <div style={{fontSize:11.5,color:claro?"rgba(255,255,255,.8)":C.sub,
@@ -9876,7 +9876,7 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     <Icon n="clip" size={13} color={C.greenDeep}/>
     <span style={{flex:1,minWidth:120,color:C.greenDeep}}>Esta mensagem tem <b>{comArquivo.midia_nome||ROTULO_ARQ(comArquivo.midia_mime).toLowerCase()}</b>. O texto já está no campo.</span>
     <button onClick={enviarArquivo} disabled={enviandoArq}
-      style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+      style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
       {enviandoArq?"Enviando…":`Enviar ${ROTULO_ARQ(comArquivo.midia_mime).toLowerCase()}`}</button>
     <button onClick={()=>setComArquivo(null)} style={{border:"none",background:"none",color:C.sub,cursor:"pointer",fontSize:12}}>Não enviar</button>
     {erroArq&&<span style={{color:C.hot,fontSize:11.5,width:"100%"}}>{erroArq}</span>}
@@ -9949,7 +9949,7 @@ function PreviaColagem({arquivos,legenda,enviando,onRemover,onEnviar,onCancelar,
     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
       {arquivos.map((a,i)=><div key={i} style={{position:"relative"}}>
         <img src={a.previa} alt={a.nome} style={{width:isMobile?76:92,height:isMobile?76:92,
-          objectFit:"cover",borderRadius:9,border:`1px solid ${C.line}`,display:"block",background:C.card}}/>
+          objectFit:"cover",borderRadius:10,border:`1px solid ${C.line}`,display:"block",background:C.card}}/>
         <button onClick={()=>onRemover(i)} disabled={enviando} title="Tirar esta imagem"
           style={{position:"absolute",top:-6,right:-6,width:22,height:22,borderRadius:99,border:"none",
             background:C.hot,color:"#fff",fontSize:13,lineHeight:1,cursor:"pointer",fontWeight:700,
@@ -9962,11 +9962,11 @@ function PreviaColagem({arquivos,legenda,enviando,onRemover,onEnviar,onCancelar,
     </div>}
     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
       <button onClick={onEnviar} disabled={enviando}
-        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",
           fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
         <Icon n={enviando?"loader":"send"} size={13} spin={enviando}/>{enviando?"Enviando…":"Enviar"}</button>
       <button onClick={onCancelar} disabled={enviando}
-        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 14px",
           fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
     </div>
   </div>;
@@ -9983,7 +9983,7 @@ function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
   if(!audio) return null;
   const mm=String(Math.floor((audio.segundos||0)/60)).padStart(2,"0");
   const ss=String((audio.segundos||0)%60).padStart(2,"0");
-  const botao={borderRadius:9,padding:isMobile?"11px 14px":"8px 14px",fontSize:12.5,fontWeight:600,cursor:enviando?"default":"pointer"};
+  const botao={borderRadius:10,padding:isMobile?"11px 14px":"8px 14px",fontSize:12.5,fontWeight:600,cursor:enviando?"default":"pointer"};
   return <div style={{background:C.surface,border:`1px solid ${C.green}55`,borderRadius:12,padding:10,marginBottom:8}}>
     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,flexWrap:"wrap"}}>
       <Icon n="phone" size={13} color={C.greenDeep}/>
@@ -10167,7 +10167,7 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar,aoFluxo}){
         servidor, não transferência). "100%" parado por mais tempo pareceria
         travado de novo — por isso o texto muda sozinho nesse ponto. */}
     {progressoVideo!=null&&<div style={{position:"absolute",bottom:isMobile?48:50,left:0,zIndex:21,background:C.greenDeep,color:"#fff",
-        fontSize:11,fontWeight:700,padding:"5px 10px",borderRadius:8,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,.18)"}}>
+        fontSize:11,fontWeight:700,padding:"5px 10px",borderRadius:10,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,.18)"}}>
       {progressoVideo<100?`Enviando vídeo… ${progressoVideo}%`:"Processando vídeo…"}</div>}
     <button onClick={()=>setAberto(a=>!a)} disabled={!!ocupado}
       title={progressoVideo!=null?(progressoVideo<100?`Enviando vídeo… ${progressoVideo}%`:"Processando vídeo…"):"Anexar"}
@@ -10589,10 +10589,10 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
         O lead, as mensagens e os arquivos saem do CRM, e este número deixa de entrar. No WhatsApp nada muda.</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <button onClick={tirarDoCrm} disabled={!!ocupado}
-          style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"9px 13px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
+          style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:isMobile?"9px 13px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
           {ocupado==="pessoal"?"Tirando…":"Tirar do CRM"}</button>
         <button onClick={()=>setPessoal(false)} disabled={!!ocupado}
-          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"9px 13px":"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"9px 13px":"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
       </div>
     </div>}
   </div>;
@@ -10856,7 +10856,7 @@ function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
               com o número trocado, e a duplicata acontece do mesmo jeito. */}
           {erro.leadId&&<button onClick={()=>{abrirLead&&abrirLead(erro.leadId);aoFechar();}}
             style={{display:"block",marginTop:7,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}66`,
-              borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
             Abrir a conversa desse lead</button>}
         </div>}
 
@@ -11098,7 +11098,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
   const showChat=!!sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const showFicha=!!sel&&(fichaPorBotao?pane==="ficha":fichaAberta);
   const seloCorretor=(label,valor,setar,opcoes)=><select value={valor} onChange={e=>setar(e.target.value)}
-    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
     {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
@@ -11130,10 +11130,10 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
           <input type="date" value={de} onChange={e=>setDe(e.target.value)}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${de?C.green+"66":C.line}`,background:de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            style={{fontSize:isMobile?16:12,border:`1px solid ${de?C.green+"66":C.line}`,background:de?C.greenSoft:C.surface,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
           <input type="date" value={ate} onChange={e=>setAte(e.target.value)}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${ate?C.green+"66":C.line}`,background:ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            style={{fontSize:isMobile?16:12,border:`1px solid ${ate?C.green+"66":C.line}`,background:ate?C.greenSoft:C.surface,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
         </div>
       </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
@@ -11255,7 +11255,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
             style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
         </div>
-        {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
+        {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:10,cursor:"pointer"}}>{erroAnexo}</div>}
         {/* A frase da assinatura vale no número da CASA. Na linha pessoal a
             mensagem não é assinada, e repetir aqui "assinada como Marina"
             contradiria, na mesma tela, a faixa logo acima. */}
@@ -11296,7 +11296,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
               const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
               setStatus(sel.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
             }}
-            style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,sel.status),background:C.surface}}>
+            style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:10,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,sel.status),background:C.surface}}>
             {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
           </select>;
         })()}
@@ -11307,7 +11307,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         {!canHandoff&&temPerm(session,"repassar_leads")&&sel.assignedTo===session.id&&<RepasseDoCorretor lead={sel} acoes={acoes} session={session}/>}
         {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
           <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Repassar para um corretor</div>
-          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
+          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
           {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>{textoDaVez(proximoDaVez)}</div>}
           <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
@@ -11381,25 +11381,25 @@ function FichaVenda({lead,onSalvar,lado,aoAbrir,acoes}){
     <div style={{margin:"3px 0 8px"}}><CampoMoeda valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={interna?"497,00":"285.000,00"}/></div>
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Data da venda</label>
     <input type="date" value={f.data} onChange={e=>setF({...f,data:e.target.value})}
-      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
     {!interna&&produtos.length>0&&<React.Fragment>
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Imóvel do catálogo</label>
       <select value={f.produto_id} onChange={e=>{const p=produtos.find(x=>x.id===e.target.value); setF({...f,produto_id:e.target.value,unidade_id:"",valor:f.valor||(p&&p.valor)||""});}}
-        style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}>
+        style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}>
         <option value="">Sem vínculo com o catálogo</option>{produtos.map(p=><option key={p.id} value={p.id}>{p.titulo}</option>)}</select>
       {unidades.length>0&&<select aria-label="Unidade vendida" value={f.unidade_id} onChange={e=>{const u=unidades.find(x=>x.id===e.target.value); setF({...f,unidade_id:e.target.value,valor:u&&u.preco?u.preco:f.valor});}}
-        style={{width:"100%",margin:"0 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}>
+        style={{width:"100%",margin:"0 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}>
         <option value="">Unidade (opcional)</option>{unidades.map(u=><option key={u.id} value={u.id}>{u.bloco?u.bloco+" · ":""}{u.identificacao} · {fmtValorMoeda(u.preco,u.moeda)}</option>)}</select>}
     </React.Fragment>}
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{interna?"Qual plano":"Qual imóvel (texto)"}</label>
     <input value={f.imovel} onChange={e=>setF({...f,imovel:e.target.value})} placeholder={interna?"Ex.: Essencial semestral":"Ex.: Jardim Amazonas — Casa 14"}
-      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+      style={{width:"100%",margin:"3px 0 8px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
     {!interna&&<React.Fragment>
     <div style={{display:"flex",alignItems:"center",gap:8}}><label style={{color:C.faint,fontSize:10.5,fontWeight:600,flex:1}}>Comissão desta venda — opcional</label>
-      {[["pct","%"],["valor","R$"]].map(([m,t])=><button key={m} type="button" onClick={()=>setF({...f,modoCom:m})} style={{border:`1px solid ${f.modoCom===m?C.green:C.line}`,background:f.modoCom===m?C.greenSoft:C.surface,color:f.modoCom===m?C.greenDeep:C.sub,borderRadius:7,padding:"3px 9px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>{t}</button>)}</div>
+      {[["pct","%"],["valor","R$"]].map(([m,t])=><button key={m} type="button" onClick={()=>setF({...f,modoCom:m})} style={{border:`1px solid ${f.modoCom===m?C.green:C.line}`,background:f.modoCom===m?C.greenSoft:C.surface,color:f.modoCom===m?C.greenDeep:C.sub,borderRadius:9,padding:"3px 9px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>{t}</button>)}</div>
     {f.modoCom==="pct"
       ?<input type="number" min="0" max="100" step="0.1" value={f.comissao} onChange={e=>setF({...f,comissao:e.target.value})} placeholder="Ex.: 5"
-        style={{width:"100%",margin:"3px 0 4px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:8,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
+        style={{width:"100%",margin:"3px 0 4px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",background:C.surface,color:C.ink}}/>
       :<div style={{margin:"3px 0 4px"}}><CampoMoeda valor={f.comissao_valor} onChange={x=>setF({...f,comissao_valor:x})} placeholder="15.000,00"/></div>}
     <div style={{color:C.faint,fontSize:10.5,marginBottom:8}}>{(()=>{const val=numeroBR(f.valor); if(!val) return "O valor da venda entra no VGV; a comissão, no VGC — nunca somadas.";
       if(f.modoCom==="pct"&&numeroBR(f.comissao)!=null) return `= ${fmtMoeda(val*numeroBR(f.comissao)/100)} (VGC)`;
@@ -11409,8 +11409,8 @@ function FichaVenda({lead,onSalvar,lado,aoAbrir,acoes}){
     </React.Fragment>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginBottom:8}}>{erro}</div>}
     <div style={{display:"flex",gap:6}}>
-      <button onClick={salvar} disabled={salvando} style={{flex:1,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
-      <button onClick={()=>setAberto(false)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"9px 12px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+      <button onClick={salvar} disabled={salvando} style={{flex:1,background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px",fontSize:12.5,fontWeight:600,cursor:salvando?"default":"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+      <button onClick={()=>setAberto(false)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"9px 12px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
     </div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:7,lineHeight:1.4}}>{interna?<React.Fragment>Ao salvar, o lead vai para a etapa de ganho do funil e entra no seu relatório.</React.Fragment>:<React.Fragment>Ao salvar, o lead vai para a etapa <b>Venda</b> e entra no seu relatório.</React.Fragment>}</div>
   </div>;
@@ -11551,7 +11551,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",origem:"",de:"",ate:""});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
-      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
     {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
@@ -11632,7 +11632,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               :onde==="corretor"?"Buscar por nome do corretor"
               :"Buscar por lead ou corretor"}
             style={{width:"100%",fontSize:isMobile?16:12.5,padding:isMobile?"10px 32px 10px 30px":"8px 32px 8px 30px",
-              borderRadius:9,border:`1px solid ${busca?C.green+"66":C.line}`,background:busca?C.greenSoft:C.surface,
+              borderRadius:10,border:`1px solid ${busca?C.green+"66":C.line}`,background:busca?C.greenSoft:C.surface,
               color:C.ink,outline:"none"}}/>
           {busca&&<button onClick={()=>setBusca("")} aria-label="Limpar busca"
             style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",
@@ -11644,7 +11644,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         <button onClick={()=>setOcultar(o=>!o)} aria-pressed={ocultar}
           aria-label={ocultar?"Mostrar telefone e e-mail dos leads":"Esconder telefone e e-mail dos leads"}
           title={ocultar?"Telefone e e-mail escondidos — clique para mostrar":"Esconder telefone e e-mail (para gravar a tela ou tirar print)"}
-          style={{width:isMobile?42:36,height:isMobile?42:34,flexShrink:0,borderRadius:9,cursor:"pointer",
+          style={{width:isMobile?42:36,height:isMobile?42:34,flexShrink:0,borderRadius:10,cursor:"pointer",
             display:"flex",alignItems:"center",justifyContent:"center",
             border:`1px solid ${ocultar?C.hot+"66":C.line}`,background:ocultar?C.hotSoft:C.surface,color:ocultar?C.hot:C.sub}}>
           <Icon n={ocultar?"olhoFechado":"olho"} size={16}/></button>
@@ -11661,7 +11661,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
           title="Onde procurar o que você digitou"
           style={{fontSize:isMobile?16:12.5,fontWeight:600,flexShrink:0,cursor:"pointer",
             color:onde==="tudo"?C.sub:C.greenDeep,background:onde==="tudo"?C.surface:C.greenSoft,
-            border:`1px solid ${onde==="tudo"?C.line:C.green+"66"}`,borderRadius:9,
+            border:`1px solid ${onde==="tudo"?C.line:C.green+"66"}`,borderRadius:10,
             padding:isMobile?"10px 8px":"8px 9px",outline:"none"}}>
           <option value="tudo">Lead ou corretor</option>
           <option value="lead">Só o lead</option>
@@ -11688,7 +11688,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             um clique no meio do atendimento. */}
         {pipelines.length>0&&<select value={pipeAtual?pipeAtual.id:""}
           onChange={e=>{ if(e.target.value==="__novo"){setCriandoFunil(true);} else setPipeSel(e.target.value); }}
-          style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
+          style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,
             padding:isMobile?"10px 11px":"8px 11px",fontSize:isMobile?13:12,fontWeight:700,
             cursor:"pointer",flexShrink:0,outline:"none",maxWidth:isMobile?170:230}}>
           {pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
@@ -11696,7 +11696,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         </select>}
         <button onClick={()=>setFiltrosAbertos(a=>!a)}
           style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
-            background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,
+            background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,
             padding:isMobile?"10px 13px":"8px 12px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
           <Icon n="columns" size={13}/>Filtros
           {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,
@@ -11736,7 +11736,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
           Comece de um modelo e ajuste depois — nada aqui é definitivo.
         </div>
 
-        {criandoErro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px"}}>{criandoErro}</div>}
+        {criandoErro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px"}}>{criandoErro}</div>}
 
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
           {templates.map(t=><button key={t.id} onClick={()=>setNovoFunil({...novoFunil,template:t.id})}
@@ -11764,7 +11764,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             <input value={novoFunil.nome} onChange={e=>setNovoFunil({...novoFunil,nome:e.target.value})}
               placeholder={novoFunil.template?(templates.find(t=>t.id===novoFunil.template)||{}).nome:"ex.: Locação"}
               style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
-                background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/></div>
+                background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"}}/></div>
           <button disabled={criandoOcupado||(!novoFunil.template&&!novoFunil.nome.trim())}
             onClick={async()=>{
               setCriandoErro("");setCriandoOcupado(true);
@@ -11797,7 +11797,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
           {mostrarDono&&<SeletorDePessoas valor={f.dono} mudar={v=>setF(a=>({...a,dono:v||""}))} isMobile={isMobile} rotuloTodos="Todo mundo"
             pessoas={pessoas.map(p=>({id:p.id,name:session&&p.id===session.id?`${p.name} (eu)`:p.name}))}
-            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>}
+            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>}
           {selo("Temperatura",f.prioridade,"prioridade",
             [{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           {/* Só aparece quando a casa tem tag: um seletor vazio é um filtro
@@ -11828,15 +11828,15 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               Qualificado neste mês" só aparece no segundo. */}
           <select value={f.data==="etapa"?"etapa":"criacao"} onChange={e=>setF({...f,data:e.target.value==="etapa"?"etapa":""})}
             title="Qual data o período olha"
-            style={{fontSize:11.5,fontWeight:600,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"5px 6px",background:C.card,fontFamily:FONT}}>
+            style={{fontSize:11.5,fontWeight:600,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"5px 6px",background:C.card,fontFamily:FONT}}>
             <option value="criacao">Criação do lead, de</option>
             <option value="etapa">Entrada na etapa, de</option>
           </select>
           <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
           <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
         </div>
       </div>}
     </div>
@@ -11863,7 +11863,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span>
             {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Prazo e consequência de "+st}
               aria-label={"Prazo e consequência de "+st}
-              style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:7,width:26,height:26,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+              style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:9,width:26,height:26,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
                 color:col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}}>
               <Icon n="gear" size={12} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}</span></div>
           {algumaNegociacao&&<div title={emNegociacao>0?"Soma do valor em negociação dos leads desta coluna (sem os vendidos)":undefined}
@@ -11887,7 +11887,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     {/* O cartao fantasma segue o dedo: sem ele, arrastar no celular vira um
         gesto as cegas — nada indica que o lead esta na mao. */}
     {arrasto&&<div style={{position:"fixed",left:arrasto.x,top:arrasto.y,transform:"translate(-50%,-50%) rotate(-2deg)",
-      pointerEvents:"none",zIndex:60,background:C.card,border:`1px solid ${C.green}`,borderRadius:8,
+      pointerEvents:"none",zIndex:60,background:C.card,border:`1px solid ${C.green}`,borderRadius:10,
       padding:"8px 12px",boxShadow:"0 10px 24px rgba(0,0,0,.22)",maxWidth:200}}>
       <div style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{arrasto.nome}</div>
       <div style={{color:alvo&&alvo!==arrasto.de?STAGE_C[alvo]:C.faint,fontSize:10.5,fontWeight:600,marginTop:2}}>
@@ -11971,7 +11971,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
     <span style={{flex:1,color:C.ink,fontSize:12.5,fontWeight:700}}>{t}</span>{extra}</div>;
   const caixa=(rot,v)=><div style={{marginBottom:8}}>
     <div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:3}}>{rot}</div>
-    <div style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"8px 10px",color:v?C.ink:C.faint,fontSize:12,overflowWrap:"anywhere",boxShadow:SOMBRA}}>{v||"—"}</div></div>;
+    <div style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:"8px 10px",color:v?C.ink:C.faint,fontSize:12,overflowWrap:"anywhere",boxShadow:SOMBRA}}>{v||"—"}</div></div>;
   const doAnuncio=l.fonte==="meta";
   const plat=l.plataforma?(NOME_PLATAFORMA[String(l.plataforma).toLowerCase()]||l.plataforma):null;
   const canal=doAnuncio?`Anúncio${plat?` · ${plat}`:""}`:(l.fonte==="portal"?"Portal":l.origem||"WhatsApp");
@@ -11993,7 +11993,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
         </div>
       </div>
       {podeTransferir&&!transferindo&&<button onClick={()=>setTransferindo(true)}
-        style={{width:"100%",marginTop:10,background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px",fontSize:12.5,fontWeight:700,
+        style={{width:"100%",marginTop:10,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px",fontSize:12.5,fontWeight:700,
           cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
         <Icon n="transfer" size={14}/> Transferir lead</button>}
       {podeTransferir&&transferindo&&<div style={{marginTop:10,marginBottom:-14}}><RepasseDoCorretor lead={l} acoes={acoes} session={session}/></div>}
@@ -12012,7 +12012,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
         return <button key={e.id||e.name} disabled={on} title={on?"Etapa atual":`Mover para ${e.name}`}
           onClick={()=>acoes.mudarEtapa(l.id,e.name,e.id?{stage_id:e.id}:undefined)}
           style={{width:`${100-i*passo}%`,border:"none",cursor:on?"default":"pointer",padding:"9px 14px",
-            clipPath:"polygon(0 0,100% 0,calc(100% - 9px) 100%,9px 100%)",borderRadius:6,
+            clipPath:"polygon(0 0,100% 0,calc(100% - 9px) 100%,9px 100%)",borderRadius:8,
             background:on?C.greenSoft:C.surface,color:on?C.greenDeep:C.faint,
             fontSize:10.5,fontWeight:on?800:600,letterSpacing:.6,textTransform:"uppercase",
             overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.name}</button>;})}
@@ -12038,9 +12038,9 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
     </div>
     {!l.venda&&<div style={{display:"flex",gap:6,padding:"6px 0"}}>
       <button onClick={()=>{setAba("imoveis");setSimulando(false);setPerdendo(false);}}
-        style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:11.5,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>VENDI</button>
+        style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:11.5,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>VENDI</button>
       {etapaPerda&&!(etapaAtual&&etapaAtual.id===etapaPerda.id)&&<button onClick={()=>setPerdendo(true)}
-        style={{background:C.hot,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:11.5,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>NÃO VENDI</button>}
+        style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:11.5,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>NÃO VENDI</button>}
     </div>}
   </div>;
 
@@ -12048,7 +12048,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
     {perdendo&&etapaPerda&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:"10px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
       <span style={{flex:1,minWidth:160,color:C.ink,fontSize:12.5}}>Mover este lead para <b>{etapaPerda.name}</b>?</span>
       <button onClick={async()=>{setPerdendo(false);await acoes.mudarEtapa(l.id,etapaPerda.name,{stage_id:etapaPerda.id});}}
-        style={{background:C.hot,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Confirmar</button>
+        style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Confirmar</button>
       <button onClick={()=>setPerdendo(false)} style={{background:"transparent",border:"none",color:C.sub,fontSize:12,cursor:"pointer"}}>cancelar</button>
     </div>}
     {!l.carregado&&<div style={{color:C.faint,fontSize:12.5,padding:"10px 0",display:"flex",alignItems:"center",gap:7}}>
@@ -12096,7 +12096,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
 
       <div style={{background:C.greenDeep,padding:isMobile?"12px 15px":"14px 18px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"rgba(255,255,255,.12)",color:"#fff",
-          width:32,height:32,borderRadius:9,cursor:"pointer",fontSize:17,flexShrink:0}}>×</button>
+          width:32,height:32,borderRadius:10,cursor:"pointer",fontSize:17,flexShrink:0}}>×</button>
         <div style={{flex:1,textAlign:"center",color:"#fff",fontFamily:DISPLAY,fontSize:isMobile?15:17,fontWeight:700,marginRight:32}}>
           Informações do <span style={{color:"#7BE0B4"}}>lead</span></div>
       </div>
@@ -12168,9 +12168,9 @@ function GoogleAgenda({acoes,session,isMobile}){
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
       Ligado, cada tarefa no seu nome vira um evento na sua agenda, e dá para criar o link do Meet junto.
       Vai para o Google só o título da tarefa, a hora e o nome do cliente.</div>
-    {aviso&&aviso.estado==="ok"&&<div style={{color:C.greenDeep,background:C.greenSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Google Agenda ligado.</div>}
-    {aviso&&aviso.estado==="erro"&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>Não deu para ligar: {aviso.motivo}</div>}
-    {!d.configurado&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"8px 10px"}}>
+    {aviso&&aviso.estado==="ok"&&<div style={{color:C.greenDeep,background:C.greenSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginBottom:8}}>Google Agenda ligado.</div>}
+    {aviso&&aviso.estado==="erro"&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginBottom:8}}>Não deu para ligar: {aviso.motivo}</div>}
+    {!d.configurado&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:10,padding:"8px 10px"}}>
       Ainda não está ligado nesta instalação: falta o projeto do CETRO no Google Cloud (e a verificação do Google). Fale com o CETRO.</div>}
     {d.configurado&&(d.conectado
       ?<button onClick={desconectar} disabled={ocupado} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{ocupado?"…":"Desligar o Google"}</button>
@@ -12225,10 +12225,10 @@ function TarefasDoLead({lead,acoes,isMobile}){
 
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
       {abertas.map(t=>{const atrasada=t.quando<Date.now();
-        return <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:9,padding:"7px 9px"}}>
+        return <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"7px 9px"}}>
           <button onClick={()=>roda(t.id,()=>acoes.marcarTarefa(t.id,true))} disabled={!!ocupado}
             aria-label="Marcar como feita" title="Marcar como feita"
-            style={{width:19,height:19,borderRadius:6,border:`1.5px solid ${atrasada?C.hot:C.faint}`,background:"transparent",
+            style={{width:19,height:19,borderRadius:8,border:`1.5px solid ${atrasada?C.hot:C.faint}`,background:"transparent",
               cursor:"pointer",flexShrink:0}}/>
           <div style={{minWidth:0,flex:1}}>
             <div style={{color:C.ink,fontSize:12,lineHeight:1.35}}>{t.titulo}</div>
@@ -12254,12 +12254,12 @@ function TarefasDoLead({lead,acoes,isMobile}){
     {abrindo&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
       <input value={titulo} onChange={e=>setTitulo(e.target.value)} maxLength={120} autoFocus
         placeholder="O que precisa ser feito?"
-        style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         <input type="datetime-local" value={quando} onChange={e=>setQuando(e.target.value)}
-          style={{flex:"1 1 160px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+          style={{flex:"1 1 160px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
         <button onClick={criar} disabled={ocupado==="nova"}
-          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {ocupado==="nova"?"…":"Marcar"}</button>
         <button onClick={()=>{setAbrindo(false);setErro("");}}
           style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer",padding:4}}>cancelar</button>
@@ -12268,7 +12268,7 @@ function TarefasDoLead({lead,acoes,isMobile}){
         <input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/>
         Criar link do Meet (vai para o Google Agenda de quem é a tarefa, se a pessoa ligou o Google)</label>}
     </div>}
-    {avisoAgenda&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{avisoAgenda}</div>}
+    {avisoAgenda&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8}}>{avisoAgenda}</div>}
 
     {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:3}}>
       <span>{feitas.length} tarefa(s) já feita(s)</span>
@@ -12277,7 +12277,7 @@ function TarefasDoLead({lead,acoes,isMobile}){
         ✓ {t.titulo}<span style={{color:C.faint}}> · {fmtTarefa(t.feito_em)}{t.concluida_por?` · ${t.concluida_por==="manual"?"marcada à mão":"concluída: "+(t.evidencia||CRITERIOS_CADENCIA[t.concluida_por]||t.concluida_por)}`:""}</span></span>)}
     </div>}
 
-    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8}}>{erro}</div>}
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8}}>{erro}</div>}
   </div>;
 }
 
@@ -12314,7 +12314,7 @@ function passaNaSituacao(l,sit){
 // O seletor da gaveta de filtros, para quem guarda cada filtro num estado próprio.
 function SeloLocal({rotulo,valor,mudar,opcoes,isMobile}){
   return <select value={valor} onChange={e=>mudar(e.target.value)}
-    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{rotulo}</option>
     {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
@@ -12376,7 +12376,7 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
        O `overflow:hidden` entrou aqui só para a faixa de urgência respeitar o
        canto arredondado — e levou junto a proteção contra encolher. Com 96
        leads numa etapa, os 96 cards viraram tiras de 3px empilhadas. */
-    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,overflow:"hidden",flexShrink:0,boxShadow:"0 2px 6px rgba(23,60,40,.04)",
+    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden",flexShrink:0,boxShadow:"0 2px 6px rgba(23,60,40,.04)",
       opacity:opaco?.35:1,cursor:arrastando?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
     {/* A faixa de urgência no topo: some quando está tudo bem. */}
     {urgencia&&<div style={{height:3,background:urgencia}}/>}
@@ -12503,12 +12503,12 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
         {/* Dizer a hora do corte ANTES de ele acontecer é o que evita achar que
             o sistema desligou por conta própria. */}
         {exp&&exp.fim&&<div style={{color:avail?C.greenDeep:C.faint,background:avail?C.greenSoft:"transparent",
-          fontSize:12,fontWeight:600,borderRadius:9,padding:avail?"7px 11px":0,marginTop:12,display:"inline-flex",alignItems:"center",gap:6}}>
+          fontSize:12,fontWeight:600,borderRadius:10,padding:avail?"7px 11px":0,marginTop:12,display:"inline-flex",alignItems:"center",gap:6}}>
           <Icon n="clock" size={13}/>
           {ehPonto
             ?(avail?`Fecha sozinho às ${exp.fim} se você não encerrar`:`O ponto fecha às ${exp.fim} todos os dias`)
             :(avail?`Vale até as ${exp.fim} de hoje`:`A prontidão vale até as ${exp.fim} de cada dia`)}</div>}
-        {erro&&!perguntando&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:9,padding:"9px 11px",marginTop:12,lineHeight:1.45}}>{erro}</div>}
+        {erro&&!perguntando&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:10,padding:"9px 11px",marginTop:12,lineHeight:1.45}}>{erro}</div>}
         <div><button onClick={clicou} style={{marginTop:18,background:avail?C.coolSoft:C.green,color:avail?C.sub:"#fff",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,padding:"10px 22px",borderRadius:12}}>{rotuloBotao}</button></div>
       </div>
 
@@ -12556,7 +12556,7 @@ function Disponibilidade({avail,toggle,name,acoes,isMobile,ehPonto}){
               {enviando?"Enviando…":"Enviar e iniciar atendimento"}</button>
           </div>}
 
-          {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:9,padding:"9px 11px",marginTop:11,lineHeight:1.45}}>{erro}</div>}
+          {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12.5,borderRadius:10,padding:"9px 11px",marginTop:11,lineHeight:1.45}}>{erro}</div>}
           <button onClick={()=>setPerguntando(false)} disabled={enviando}
             style={{width:"100%",marginTop:10,background:"transparent",color:C.faint,border:"none",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
         </div>
@@ -12695,9 +12695,9 @@ function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
       <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Encerrar a prontidão de todos às</div>
       <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
         <input value={rascunho} onChange={e=>setRascunho(e.target.value)} placeholder="18:00"
-          style={{width:90,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+          style={{width:90,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
         <button onClick={salvarExp} disabled={salvando}
-          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
           {salvando?"Salvando…":"Salvar"}</button>
         <span style={{color:C.faint,fontSize:11}}>em branco desliga o encerramento automático</span>
       </div>
@@ -12724,7 +12724,7 @@ function AvisoCutucada({lead,acoes}){
       {lead.cutucadoRecado&&<div style={{color:C.sub,fontSize:12,marginTop:2,lineHeight:1.4}}>“{lead.cutucadoRecado}”</div>}
     </div>
     <button onClick={()=>{setSumindo(true);acoes.viCutucada(lead.id).catch(()=>setSumindo(false));}}
-      style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"5px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"5px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
       Vi</button>
   </div>;
 }
@@ -12798,7 +12798,7 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
     {aberto&&<div style={{marginTop:10}}>
     {d.minutos>0&&<div style={{color:C.faint,fontSize:11,marginBottom:8}}>Aviso automático ao corretor depois de {d.minutos} min sem resposta.</div>}
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
 
     {d.leads.length===0
       ?<div style={{color:C.faint,fontSize:12.5,marginBottom:4}}>
@@ -12816,15 +12816,15 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
             {feito[l.id]
               ?<span style={{color:C.greenMid,fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:4}}><Icon n="check" size={12}/>{feito[l.id]}</span>
               :<button onClick={()=>{setAbrindoRecado(abrindoRecado===l.id?"":l.id);setRecado("");}} disabled={enviando===l.id}
-                style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"6px 12px",
+                style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"6px 12px",
                   fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}>
                 <Icon n={enviando===l.id?"loader":"zap"} size={12} spin={enviando===l.id}/>Chamar o corretor</button>}
           </div>
           {abrindoRecado===l.id&&<div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
             <input value={recado} onChange={e=>setRecado(e.target.value)} placeholder="Recado (opcional)" maxLength={200}
-              style={{flex:"1 1 150px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"7px 10px",color:C.ink,outline:"none"}}/>
+              style={{flex:"1 1 150px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:"7px 10px",color:C.ink,outline:"none"}}/>
             <button onClick={()=>chamar(l)} disabled={enviando===l.id}
-              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
               {enviando===l.id?"Enviando…":"Enviar"}</button>
           </div>}
         </div>)}
@@ -12835,9 +12835,9 @@ function SemResposta({acoes,isMobile,podeConfigurar}){
       <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Avisar o corretor depois de quantos minutos sem resposta</div>
       <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
         <input value={rascunho} onChange={e=>setRascunho(e.target.value.replace(/\D/g,""))} placeholder="30" inputMode="numeric"
-          style={{width:80,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",fontFamily:MONO}}/>
+          style={{width:80,fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none",fontFamily:MONO}}/>
         <button onClick={salvarMin}
-          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Salvar</button>
         <span style={{color:C.faint,fontSize:11}}>0 desliga o aviso automático</span>
       </div>
     </div>}
@@ -12875,7 +12875,7 @@ function RepasseDoCorretor({lead,acoes,session}){
       <Icon n="transfer" size={13} color={C.greenMid}/> Repassar para outro corretor</div>
     {!d&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
     {d&&!colegas.length&&<div style={{color:C.sub,fontSize:11.5}}>Nenhum colega disponível agora.</div>}
-    {proximo&&<button onClick={()=>passar(null)} disabled={ocupado} style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:6}}>
+    {proximo&&<button onClick={()=>passar(null)} disabled={ocupado} style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:6}}>
       <Icon n="transfer" size={14}/> {ocupado?"Repassando…":`Passar para ${first(proximo.name)}`}</button>}
     {colegas.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5}}>
       {colegas.filter(p=>!proximo||p.id!==proximo.id).map(p=><button key={p.id} onClick={()=>passar(p.id)} disabled={ocupado}
@@ -12946,7 +12946,7 @@ function CatracaDoLead({lead,acoes}){
       Catraca
       <select value={lead.catracaId||""} disabled={ocupado} onChange={e=>trocar(e.target.value)}
         style={{flex:1,minWidth:0,fontSize:16,fontWeight:500,color:C.ink,background:C.card,border:`1px solid ${C.line}`,
-          borderRadius:8,padding:"6px 8px",outline:"none"}}>
+          borderRadius:10,padding:"6px 8px",outline:"none"}}>
         <option value="">Catraca principal</option>
         {ativas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
         {atual&&!atual.ativa&&<option value={atual.id} disabled>{atual.nome} (desativada)</option>}
@@ -13056,9 +13056,9 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
         {!c.ativa&&<span style={{color:C.amber,fontSize:10.5,fontWeight:600}}>desativada</span>}
         <span style={{marginLeft:"auto",display:"flex",gap:6}}>
           <button onClick={()=>setRelatorio(c.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenMid,
-            borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Relatório</button>
+            borderRadius:10,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Relatório</button>
           {podeEditar&&<button onClick={()=>setEditando(c.id)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,
-            borderRadius:8,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
+            borderRadius:10,padding:isMobile?"7px 12px":"4px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>}
         </span>
       </div>
       {c.ativa&&<div style={{color:f&&f.proximo?C.greenDeep:C.amber,fontSize:11.5,marginTop:5}}>
@@ -13081,9 +13081,9 @@ function CatracasDeProduto({acoes,isMobile,pessoas,podeEditar,versao}){
       <Icon n="transfer" size={15} color={C.green}/>
       <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Catracas por produto</span>
       {d.catracas.length>0&&<button onClick={()=>setRelatorio("todas")} style={{border:`1px solid ${C.line}`,background:C.card,color:C.greenMid,
-        borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Comparar catracas</button>}
+        borderRadius:10,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Comparar catracas</button>}
       {podeEditar&&editando!=="nova"&&<button onClick={()=>setEditando("nova")} style={{border:"none",background:C.greenDeep,color:"#fff",
-        borderRadius:9,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova catraca</button>}
+        borderRadius:10,padding:isMobile?"8px 12px":"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova catraca</button>}
     </div>
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
       Cada produto com a sua fila: de onde vêm os leads dela e a etapa do funil que entrega o lead ao próximo corretor.
@@ -13136,13 +13136,13 @@ function RelatorioDasCatracas({acoes,isMobile,inicial,onFechar}){
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,width:isMobile?"100%":"min(880px,94vw)",maxHeight:isMobile?"100%":"90vh",
       borderRadius:isMobile?0:16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,padding:isMobile?"14px 14px 10px":"16px 18px 10px",borderBottom:`1px solid ${C.line}`}}>
-        {aberta&&inicial==="todas"&&<button onClick={()=>setAberta(null)} aria-label="Voltar" style={{width:32,height:32,borderRadius:9,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={16}/></button>}
+        {aberta&&inicial==="todas"&&<button onClick={()=>setAberta(null)} aria-label="Voltar" style={{width:32,height:32,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)"}}><Icon n="chevron" size={16}/></button>}
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:16,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{titulo}
             {uma&&aberta&&!uma.catraca.ativa&&<span style={{color:C.amber,fontSize:11,fontWeight:600,marginLeft:8}}>desativada</span>}</div>
           <div style={{color:C.faint,fontSize:11.5}}>Leads que entraram {((aberta?uma:todas)||{}).periodo?((aberta?uma:todas).periodo.rotulo):"…"}</div>
         </div>
-        <button onClick={onFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,borderRadius:9,width:34,height:34,cursor:"pointer",fontSize:18}}>×</button>
+        <button onClick={onFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:18}}>×</button>
       </div>
       <div style={{overflowY:"auto",padding:isMobile?14:18}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>{PERIODOS_CATRACA.map(([id,t])=>pilula(id,t))}</div>
@@ -13290,7 +13290,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     try{ await onApagar(); } catch(e){ setErro(e.message); setOcupado(false); }
   }
   const rotulo={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,margin:"13px 0 5px"};
-  const caixa={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"9px 10px":"7px 9px",
+  const caixa={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"9px 10px":"7px 9px",
     background:C.card,color:C.ink,outline:"none",cursor:"pointer",fontFamily:FONT};
   const opcao=(v,titulo,texto)=><label key={v} style={{flex:1,minWidth:isMobile?"100%":160,display:"flex",gap:7,alignItems:"flex-start",cursor:"pointer",
     border:`1px solid ${entrega===v?C.green:C.line}`,background:entrega===v?C.greenSoft:C.card,borderRadius:10,padding:"8px 10px"}}>
@@ -13298,7 +13298,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
     <span><span style={{display:"block",color:C.ink,fontSize:12,fontWeight:600}}>{titulo}</span>
       <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4}}>{texto}</span></span></label>;
   const marca=(on,aoClicar,titulo,detalhe,chave)=><label key={chave} style={{display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer",
-    border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:9,padding:isMobile?"9px 10px":"6px 9px"}}>
+    border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,borderRadius:10,padding:isMobile?"9px 10px":"6px 9px"}}>
     <input type="checkbox" checked={on} onChange={aoClicar} style={{marginTop:2}}/>
     <span style={{minWidth:0}}>
       <span style={{display:"block",color:C.ink,fontSize:12,fontWeight:on?600:500,overflowWrap:"anywhere"}}>{titulo}</span>
@@ -13307,7 +13307,7 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
   const outrasDo=(f)=>(f.catraca_ids||[]).filter(id=>id!==inicial.id).map(id=>nomesDasCatracas[id]).filter(Boolean);
   return <div style={{border:`1px solid ${C.green}55`,borderRadius:12,padding:12,marginBottom:8,background:C.card}}>
     <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Nome (ex.: Lançamento Jardins, Aluguel)" maxLength={60}
-      style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",outline:"none",color:C.ink}}/>
+      style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",outline:"none",color:C.ink}}/>
 
     <div style={rotulo}>De onde vêm os leads</div>
     <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -13443,14 +13443,14 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
       {!ativa&&<span style={{color:C.amber,fontSize:11}}>— desativada, os leads dela vão pela catraca principal</span>}</label>}
     {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>{erro}</div>}
     <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap",alignItems:"center"}}>
-      <button onClick={salvar} disabled={ocupado} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,
+      <button onClick={salvar} disabled={ocupado} style={{border:"none",background:C.greenDeep,color:"#fff",borderRadius:10,
         padding:isMobile?"10px 16px":"7px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>{novo?"Criar catraca":"Salvar"}</button>
-      <button onClick={onCancelar} disabled={ocupado} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,
+      <button onClick={onCancelar} disabled={ocupado} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,
         padding:isMobile?"10px 16px":"7px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
       {!novo&&onApagar&&(confirmar
         ?<span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
           <span style={{color:C.sub,fontSize:11.5}}>{inicial.leads_abertos||inicial.formularios?"Com leads ligados ela é desativada, não apagada.":"Apagar de vez?"}</span>
-          <button onClick={apagar} disabled={ocupado} style={{border:"none",background:C.hot,color:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Confirmar</button></span>
+          <button onClick={apagar} disabled={ocupado} style={{border:"none",background:C.hot,color:"#fff",borderRadius:10,padding:"6px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Confirmar</button></span>
         :<button onClick={()=>setConfirmar(true)} style={{marginLeft:"auto",border:"none",background:"none",color:C.hot,fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar</button>)}
     </div>
   </div>;
@@ -13477,7 +13477,7 @@ function ChipsDisponibilidade({gente,toggleAvail,vazio}){
   </div>;
 }
 function LinhaCaptura({nome,sub,etiqueta,principal,outros,aoAbrir,ocupado,isMobile}){
-  return <div style={{border:`1px solid ${C.line}`,borderRadius:8,padding:isMobile?"12px 13px":"14px 16px",display:"flex",alignItems:isMobile?"stretch":"center",flexDirection:isMobile?"column":"row",gap:10,background:C.card}}>
+  return <div style={{border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"12px 13px":"14px 16px",display:"flex",alignItems:isMobile?"stretch":"center",flexDirection:isMobile?"column":"row",gap:10,background:C.card}}>
     <button onClick={aoAbrir} disabled={!aoAbrir} style={{flex:1,minWidth:0,border:"none",background:"transparent",padding:0,textAlign:"left",cursor:aoAbrir?"pointer":"default"}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
       <div style={{color:C.faint,fontSize:11,marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>
@@ -13739,7 +13739,7 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
     title={ordem==="antigos"?"Mostrando os mais antigos primeiro — toque para os mais recentes":"Mostrando os mais recentes primeiro — toque para os mais antigos"}
     aria-label="Inverter a ordem da lista"
     style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${ordem==="antigos"?C.green+"66":C.line}`,background:ordem==="antigos"?C.greenSoft:C.surface,
-      color:ordem==="antigos"?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"6px 10px":"6px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+      color:ordem==="antigos"?C.greenDeep:C.sub,borderRadius:10,padding:isMobile?"6px 10px":"6px 10px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
     <span style={{fontSize:13,lineHeight:1}}>{ordem==="antigos"?"↑":"↓"}</span>{ordem==="antigos"?"Antigos":"Recentes"}
   </button>;
 
@@ -13759,7 +13759,7 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
       <div style={{display:"flex",alignItems:"center",gap:6}}>
         <button onClick={()=>setAberta(a=>!a)} aria-expanded={aberta}
           style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:6,border:`1px solid ${ligados?C.green+"66":C.line}`,
-            background:ligados?C.greenSoft:C.surface,color:ligados?C.greenDeep:C.sub,borderRadius:9,padding:"6px 10px",
+            background:ligados?C.greenSoft:C.surface,color:ligados?C.greenDeep:C.sub,borderRadius:10,padding:"6px 10px",
             fontSize:12.5,fontWeight:600,cursor:"pointer",fontFamily:FONT}}>
           <Icon n="search" size={14}/>
           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
@@ -13770,13 +13770,13 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
         </button>
         {vista!=="novos"&&botaoOrdem}
         <button onClick={onNovoLead} title="Cadastrar um lead na mão" aria-label="Cadastrar um lead na mão"
-          style={{width:32,height:32,flexShrink:0,borderRadius:9,border:`1px solid ${C.green}55`,background:C.card,
+          style={{width:32,height:32,flexShrink:0,borderRadius:10,border:`1px solid ${C.green}55`,background:C.card,
             color:C.greenDeep,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <Icon n="userplus" size={15}/></button>
       </div>
       {contador&&!aberta&&<div style={{color:C.faint,fontSize:11}}>{contador}</div>}
       {aberta&&<React.Fragment>
-        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"0 10px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 10px"}}>
           <Icon n="search" size={14} color={C.faint}/>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome ou telefone"
             style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:16,padding:"6px 0",color:C.ink,minWidth:0}}/>
@@ -13784,7 +13784,7 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{chips.map(chip)}</div>
         {vista==="formulario"&&<SeletorDeCampanha lista={lista} campanha={campanha} setCampanha={setCampanha} isMobile={isMobile}/>}
         {vista!=="novos"&&seletor&&<select value={seletor.valor} onChange={e=>seletor.mudar(e.target.value)} aria-label={seletor.rotulo} title={seletor.rotulo}
-          style={{fontSize:16,fontWeight:600,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"6px 10px",outline:"none",minWidth:0,alignSelf:"flex-start",maxWidth:"100%"}}>
+          style={{fontSize:16,fontWeight:600,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 10px",outline:"none",minWidth:0,alignSelf:"flex-start",maxWidth:"100%"}}>
           {seletor.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
         </select>}
         {vista!=="novos"&&children}
@@ -13813,13 +13813,13 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
       {seletor&&<select value={seletor.valor} onChange={e=>seletor.mudar(e.target.value)} aria-label={seletor.rotulo}
         title={seletor.rotulo}
         style={{fontSize:isMobile?16:12,fontWeight:600,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,
-          borderRadius:9,padding:isMobile?"9px 10px":"6px 8px",outline:"none",maxWidth:"60%",minWidth:0,cursor:"pointer"}}>
+          borderRadius:10,padding:isMobile?"9px 10px":"6px 8px",outline:"none",maxWidth:"60%",minWidth:0,cursor:"pointer"}}>
         {seletor.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
       </select>}
       {/* Os filtros detalhados ficam recolhidos: abertos, empurravam a lista
           para baixo. O número ao lado avisa quando algum ficou ligado. */}
       <button onClick={()=>setGaveta(a=>!a)}
-        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:isMobile?"9px 12px":"6px 10px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
+        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,padding:isMobile?"9px 12px":"6px 10px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
         <Icon n="columns" size={13}/>Filtros
         {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
         <span style={{display:"inline-flex",transform:gaveta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
@@ -13854,7 +13854,7 @@ function SeletorDeCampanha({lista,campanha,setCampanha,isMobile}){
   const sumiu=campanha&&campanha!==SEM_CAMPANHA&&!campanhas.has(campanha);
   return <select value={campanha||""} onChange={e=>setCampanha(e.target.value)} aria-label="Campanha"
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:campanha?C.ink:C.sub,background:campanha?C.greenSoft:C.surface,
-      border:`1px solid ${campanha?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",width:"100%",minWidth:0}}>
+      border:`1px solid ${campanha?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",width:"100%",minWidth:0}}>
     <option value="">Todas as campanhas ({total})</option>
     {ordenadas.map(([c,n])=><option key={c} value={c}>{c} ({n})</option>)}
     {sumiu&&<option value={campanha}>{campanha} (0)</option>}
@@ -13988,7 +13988,7 @@ function LigarGrupos({acoes,isMobile}){
     {d.linhas.map(l=><label key={l.id} style={{display:"flex",alignItems:"center",gap:9,padding:"6px 0",cursor:"pointer",color:C.ink,fontSize:12.5}}>
       <input type="checkbox" checked={l.grupos} disabled={ocupado===l.id} onChange={()=>mudar(l)} style={{width:16,height:16}}/>
       {l.nome}{ocupado===l.id&&<span style={{color:C.faint,fontSize:11}}> · salvando…</span>}</label>)}
-    {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:6}}>{aviso}</div>}
+    {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:6}}>{aviso}</div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
   </div>;
 }
@@ -14035,10 +14035,10 @@ function NovosContatos({triagem,recarregar,acoes,abrir,isMobile,session}){
       </div>
       <div style={{display:"flex",gap:8,marginTop:9}}>
         <button onClick={()=>decidir(n,"lead")} disabled={!!ocupado}
-          style={{flex:1,border:"none",background:C.greenDeep,color:"#fff",borderRadius:9,padding:isMobile?"10px 0":"7px 0",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
+          style={{flex:1,border:"none",background:C.greenDeep,color:"#fff",borderRadius:10,padding:isMobile?"10px 0":"7px 0",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
           {ocupado===n.id+"lead"?"Criando…":"É lead"}</button>
         <button onClick={()=>decidir(n,"pessoal")} disabled={!!ocupado} title="Este número deixa de entrar no CRM. Dá para desfazer."
-          style={{flex:1,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:isMobile?"10px 0":"7px 0",fontSize:12.5,fontWeight:600,cursor:"pointer",opacity:ocupado?.6:1}}>
+          style={{flex:1,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:isMobile?"10px 0":"7px 0",fontSize:12.5,fontWeight:600,cursor:"pointer",opacity:ocupado?.6:1}}>
           {ocupado===n.id+"pessoal"?"Marcando…":"É pessoal"}</button>
       </div>
     </div>)}
@@ -14345,7 +14345,7 @@ function EditorDePost({acoes,isMobile,pagina,post,aoSalvar,aoCancelar}){
         {midias.map((m,i)=><div key={m.url+i} style={{position:"relative",width:84,height:84,borderRadius:10,overflow:"hidden",background:C.surface,border:`1px solid ${C.line}`}}>
           {m.tipo==="foto"?<img src={m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
             :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.sub,fontSize:11,fontWeight:700,flexDirection:"column",gap:4}}><Icon n="zap" size={18}/>Vídeo</div>}
-          <span style={{position:"absolute",left:4,top:4,background:"rgba(0,0,0,.6)",color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:6,padding:"1px 5px"}}>{i+1}</span>
+          <span style={{position:"absolute",left:4,top:4,background:"rgba(0,0,0,.6)",color:"#fff",fontSize:10.5,fontWeight:700,borderRadius:8,padding:"1px 5px"}}>{i+1}</span>
           <button onClick={()=>setMidias(x=>x.filter((_,j)=>j!==i))} title="Tirar" style={{position:"absolute",right:3,top:3,width:24,height:24,borderRadius:"50%",border:"none",background:"rgba(0,0,0,.6)",color:"#fff",cursor:"pointer",fontSize:14,lineHeight:"22px",padding:0}}>×</button>
           {midias.length>1&&<div style={{position:"absolute",left:0,right:0,bottom:0,display:"flex",justifyContent:"space-between"}}>
             <button onClick={()=>mover(i,-1)} disabled={i===0} style={{border:"none",background:"rgba(0,0,0,.45)",color:"#fff",cursor:"pointer",width:28,height:22,padding:0}}>‹</button>
@@ -14440,7 +14440,7 @@ function EngajamentoDasRedes({acoes,isMobile,pagina}){
       <div style={TITULO_MKT}>Posts recentes</div>
       {!d.posts.length&&<div style={{...CARTAO_MKT,color:C.sub,fontSize:13}}>Nenhum post encontrado.</div>}
       {d.posts.slice(0,30).map(x=><div key={x.rede+x.id} style={{...CARTAO_MKT,padding:10,display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}}>
-        <div style={{width:54,height:54,borderRadius:8,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:54,height:54,borderRadius:10,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
           {x.imagem?<img src={x.imagem} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<LogoRede rede={x.rede} size={20}/>}</div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:11.5,color:C.faint,marginBottom:3}}>
@@ -14499,7 +14499,7 @@ function ComentariosAutomaticos({acoes,isMobile,pagina,irParaAnuncios}){
           <Icon n={r.ativo?"toggleOn":"toggleOff"} size={26}/></button>
       </div>
       <div style={{fontSize:12,color:C.sub,marginTop:4,lineHeight:1.5}}>
-        {r.palavras.length?<React.Fragment>Palavras: {r.palavras.map(p=><span key={p} style={{background:C.surface,borderRadius:6,padding:"1px 6px",marginRight:4,fontWeight:600}}>{p}</span>)}</React.Fragment>:"Qualquer comentário"}
+        {r.palavras.length?<React.Fragment>Palavras: {r.palavras.map(p=><span key={p} style={{background:C.surface,borderRadius:8,padding:"1px 6px",marginRight:4,fontWeight:600}}>{p}</span>)}</React.Fragment>:"Qualquer comentário"}
         {" · "}{r.posts.length?`${r.posts.length} post${r.posts.length>1?"s":""} escolhido${r.posts.length>1?"s":""}`:"todos os posts"}
       </div>
       <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:12,color:C.sub,marginTop:6}}>
@@ -14508,7 +14508,7 @@ function ComentariosAutomaticos({acoes,isMobile,pagina,irParaAnuncios}){
         <span><b style={{color:C.ink,fontFamily:MONO}}>{r.numeros.privadas}</b> mensagens no privado</span>
         {r.numeros.falhas>0&&<span style={{color:C.hot}}><b style={{fontFamily:MONO}}>{r.numeros.falhas}</b> com falha</span>}
       </div>
-      {r.faltam_permissoes.length>0&&<div style={{color:"#6b561a",background:C.amberSoft,fontSize:12,borderRadius:8,padding:"7px 10px",marginTop:8,lineHeight:1.45}}>
+      {r.faltam_permissoes.length>0&&<div style={{color:"#6b561a",background:C.amberSoft,fontSize:12,borderRadius:10,padding:"7px 10px",marginTop:8,lineHeight:1.45}}>
         Falta a Meta liberar: {descreverPermissoes(r.faltam_permissoes)}. Até lá esta parte não sai.</div>}
       {r.ultimo_erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6,lineHeight:1.45}}>Último problema ({fmtDataHoraMkt(r.ultimo_erro.em)}): {r.ultimo_erro.erro}</div>}
       <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
@@ -14595,7 +14595,7 @@ function EditorDeAutomacao({acoes,isMobile,pagina,regra,whatsapp,aoSalvar,aoCanc
           return <label key={p.rede+p.id} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 10px",borderBottom:`1px solid ${C.line}`,cursor:"pointer",minHeight:44}}>
             <input type="checkbox" checked={on} onChange={()=>alternarPost(p)} style={{width:18,height:18,flexShrink:0}}/>
             <LogoRede rede={p.rede} size={14}/>
-            {p.imagem&&<img src={p.imagem} alt="" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>}
+            {p.imagem&&<img src={p.imagem} alt="" style={{width:34,height:34,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
             <span style={{fontSize:12.5,color:C.ink,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>{p.texto||"(sem texto)"}</span>
           </label>;})}
       </div>}</div>
@@ -14769,12 +14769,12 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     </span>
     {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
       style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
-        borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+        borderRadius:10,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
       {ocupado?"…":noMeu?(isMobile?"Voltar à imobiliária":"Voltar para o número da imobiliária"):(isMobile?"Usar meu WhatsApp":"Continuar no meu WhatsApp")}</button>}
     {!canal.pode_trocar&&canal.pode_voltar_casa&&<button disabled={ocupado} onClick={()=>trocar("imobiliaria")}
       title="A conversa volta a sair pelo número da imobiliária. Para o WhatsApp pessoal, só quem está com o lead leva."
       style={{background:C.card,border:`1px solid ${C.line}`,color:C.sub,
-        borderRadius:8,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+        borderRadius:10,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
       {ocupado?"…":"Trazer para o número da imobiliária"}</button>}
     {erro&&<span style={{color:C.hot,fontSize:11}}>{erro}</span>}
   </div>;
@@ -14855,7 +14855,7 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
   const mostrarChat=sel&&(isMobile?pane==="chat":(fichaPorBotao?pane!=="ficha":true));
   const mostrarFicha=sel&&(fichaPorBotao?pane==="ficha":fichaAberta);
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
-    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
     {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
@@ -14880,14 +14880,14 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           {/* Várias pessoas por caixas de seleção (CETRO 04.1). */}
           <SeletorDePessoas valor={f.atendente} mudar={v=>setF({...f,atendente:v||""})} isMobile={isMobile} rotuloTodos="Todo mundo"
             pessoas={pessoas.map(p=>({id:p.id,name:p.id===session.id?`${p.name} (eu)`:p.name}))}
-            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>
+            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>
           {selo("Etapa",f.etapa,"etapa",opcoesDeEtapa(funisDaConta))}
           {selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           {!!tagsDaCasa.length&&<SeloLocal rotulo="Tag" valor={fTag} mudar={setFTag} opcoes={tagsDaCasa.map(t=>({v:t.id,t:t.nome}))} isMobile={isMobile}/>}
           <SeloLocal rotulo="Situação" valor={fSit} mudar={setFSit} opcoes={SITUACOES} isMobile={isMobile}/>
           {/* Por qual número: a peneira é no navegador. */}
           {linhas.varias&&<select value={numero} onChange={e=>setNumero(e.target.value)}
-            style={{fontSize:isMobile?16:12.5,fontWeight:500,color:numero?C.ink:C.sub,background:numero?C.greenSoft:C.surface,border:`1px solid ${numero?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+            style={{fontSize:isMobile?16:12.5,fontWeight:500,color:numero?C.ink:C.sub,background:numero?C.greenSoft:C.surface,border:`1px solid ${numero?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
             <option value="">Todos os números</option>
             {linhas.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
           </select>}
@@ -14906,10 +14906,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
                   border:`1px solid ${on?C.green+"66":C.line}`,background:on?C.greenSoft:C.surface,color:on?C.green:C.sub}}>{t}</button>;});})()}
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>Entraram de</span>
           <input type="date" value={f.de} onChange={e=>setF({...f,de:e.target.value})}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.de?C.green+"66":C.line}`,background:f.de?C.greenSoft:C.surface,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
           <span style={{color:C.faint,fontSize:11,fontWeight:600}}>até</span>
           <input type="date" value={f.ate} onChange={e=>setF({...f,ate:e.target.value})}
-            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
+            style={{fontSize:isMobile?16:12,border:`1px solid ${f.ate?C.green+"66":C.line}`,background:f.ate?C.greenSoft:C.surface,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0}}/>
         </div>
       </TopoDaCaixa>
       <div style={{flex:1,overflowY:"auto"}}>
@@ -15077,22 +15077,22 @@ function Observacoes({lead,acoes,session,isMobile}){
       <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={3} maxLength={1000} autoFocus
         placeholder="Ex.: só atende depois das 18h; quem decide é o marido."
         style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
-          border:`1px solid #E8D9A8`,background:C.card,borderRadius:9,padding:"8px 10px",
+          border:`1px solid #E8D9A8`,background:C.card,borderRadius:10,padding:"8px 10px",
           color:C.ink,outline:"none",resize:"vertical",marginBottom:7}}/>
       <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:o.lista.length?9:0}}>
         <button onClick={salvar} disabled={!texto.trim()||o.salvando}
-          style={{border:"none",background:texto.trim()?C.greenDeep:C.faint,color:"#fff",borderRadius:9,
+          style={{border:"none",background:texto.trim()?C.greenDeep:C.faint,color:"#fff",borderRadius:10,
             padding:isMobile?"11px 15px":"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {o.salvando?"Salvando…":"Salvar"}</button>
         <button onClick={()=>{setEscrevendo(false);setTexto("");}} disabled={o.salvando}
-          style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,
+          style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,
             padding:isMobile?"11px 15px":"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
       </div>
     </React.Fragment>}
 
-    {o.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginBottom:8}}>{o.erro}</div>}
+    {o.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginBottom:8}}>{o.erro}</div>}
 
-    {o.lista.map(obs=><div key={obs.id} style={{background:C.card,borderRadius:9,padding:"8px 10px",marginTop:6}}>
+    {o.lista.map(obs=><div key={obs.id} style={{background:C.card,borderRadius:10,padding:"8px 10px",marginTop:6}}>
       <div style={{color:C.ink,fontSize:12.5,lineHeight:1.45,whiteSpace:"pre-wrap"}}>{obs.texto}</div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
         <span style={{color:C.faint,fontSize:10.5,flex:1}}>{obs.autor||"alguém"} · {fmtQuando(obs.created_at)}</span>
@@ -15160,7 +15160,7 @@ function ResumoIA({lead,acoes,isMobile}){
     {!dados&&<React.Fragment>
       <div style={{height:7}}/>
       <button onClick={gerar} disabled={carregando}
-        style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+        style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
           padding:"10px",fontSize:12.5,fontWeight:600,cursor:carregando?"default":"pointer",
           display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
         {carregando?<React.Fragment><Icon n="loader" size={14} spin/> Lendo a conversa…</React.Fragment>
@@ -15171,10 +15171,10 @@ function ResumoIA({lead,acoes,isMobile}){
     {dados&&<React.Fragment>
       <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5,marginTop:6}}>{dados.situacao}</div>
       {dados.atencao&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,fontWeight:600,lineHeight:1.45,
-        borderRadius:9,padding:"8px 10px",marginTop:8,display:"flex",gap:6}}>
+        borderRadius:10,padding:"8px 10px",marginTop:8,display:"flex",gap:6}}>
         <Icon n="flame" size={13}/><span>{dados.atencao}</span></div>}
       {dados.proximo_passo&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,fontWeight:600,
-        lineHeight:1.45,borderRadius:9,padding:"8px 10px",marginTop:8}}>Próximo passo: {dados.proximo_passo}</div>}
+        lineHeight:1.45,borderRadius:10,padding:"8px 10px",marginTop:8}}>Próximo passo: {dados.proximo_passo}</div>}
 
       {aberto&&<React.Fragment>
         {linha("O que procura",dados.quer)}
@@ -15188,12 +15188,12 @@ function ResumoIA({lead,acoes,isMobile}){
         </div>}
       </React.Fragment>}
 
-      {novas>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:9,lineHeight:1.45}}>
+      {novas>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:9,lineHeight:1.45}}>
         {novas} mensagem(ns) nova(s) depois deste resumo.</div>}
 
       <div style={{display:"flex",alignItems:"center",gap:8,marginTop:9,flexWrap:"wrap"}}>
         <button onClick={gerar} disabled={carregando}
-          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,
+          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,
             padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:carregando?"default":"pointer",display:"flex",alignItems:"center",gap:6}}>
           {carregando?<React.Fragment><Icon n="loader" size={12} spin/> lendo…</React.Fragment>:"Atualizar"}</button>
         <span style={{color:C.faint,fontSize:10.5,lineHeight:1.4,flex:1,minWidth:120}}>
@@ -15202,7 +15202,7 @@ function ResumoIA({lead,acoes,isMobile}){
       </div>
     </React.Fragment>}
 
-    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>{erro}</div>}
+    {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>{erro}</div>}
   </div>;
 }
 
@@ -15253,9 +15253,9 @@ function NomeDoLead({lead,acoes}){
         onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
         placeholder="Nome do cliente"
         style={{flex:1,minWidth:0,fontSize:16,fontWeight:600,border:`1px solid ${C.green}66`,background:C.surface,
-          borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+          borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
       <button onClick={salvar} disabled={salvando}
-        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 13px",
           fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
         {salvando?"…":"Salvar"}</button>
       <button onClick={()=>setEditando(false)} disabled={salvando}
@@ -15311,11 +15311,11 @@ function TelefoneDoLead({lead,acoes}){
         onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
         placeholder={pais==="BR"?"DDD + número":"Número"}
         style={{flex:1,minWidth:0,fontSize:16,border:`1px solid ${C.green}66`,background:C.surface,
-          borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+          borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
     </div>
     <div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}>
       <button onClick={salvar} disabled={salvando}
-        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 13px",
           fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
         {salvando?"…":"Salvar"}</button>
       <button onClick={()=>setEditando(false)} disabled={salvando}
@@ -15351,10 +15351,10 @@ function EmailDoLead({lead,acoes}){
       onKeyDown={e=>{ if(e.key==="Enter") salvar(); if(e.key==="Escape") setEditando(false); }}
       placeholder="E-mail do cliente"
       style={{width:"100%",boxSizing:"border-box",fontSize:16,border:`1px solid ${C.green}66`,background:C.surface,
-        borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
     <div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}>
       <button onClick={salvar} disabled={salvando}
-        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 13px",
           fontSize:12.5,fontWeight:700,cursor:salvando?"default":"pointer",flexShrink:0}}>
         {salvando?"…":"Salvar"}</button>
       <button onClick={()=>setEditando(false)} disabled={salvando}
@@ -15385,7 +15385,7 @@ function ImovelDeInteresse({lead,acoes}){
     {editando
       ?<div style={{display:"flex",gap:6,alignItems:"center"}}>
         <select autoFocus value={(p&&p.id)||""} onChange={e=>escolher(e.target.value)} disabled={!produtos}
-          style={{flex:1,minWidth:0,fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,borderRadius:7,padding:"6px 7px",color:C.ink,outline:"none"}}>
+          style={{flex:1,minWidth:0,fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,borderRadius:9,padding:"6px 7px",color:C.ink,outline:"none"}}>
           <option value="">{produtos?"Nenhum":"Carregando…"}</option>
           {p&&p.id&&produtos&&!produtos.some(x=>x.id===p.id)&&<option value={p.id}>{p.titulo}</option>}
           {(produtos||[]).map(x=><option key={x.id} value={x.id}>{x.titulo}</option>)}
@@ -15503,16 +15503,16 @@ function RoboNoLead({lead,acoes,isMobile}){
     </div>
     {/* A IA tentou e falhou: a conversa ficou parada. Sem isto, a linha de
         cima diria "a IA responde" enquanto o cliente esperava sem resposta. */}
-    {e.ultima_falha&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
+    {e.ultima_falha&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
       A última tentativa da IA neste lead falhou ({fmtClock(e.ultima_falha.em)}): {e.ultima_falha.erro} A conversa ficou sem resposta.</div>}
     {e.mensagens>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:4}}>
       Já respondeu {e.mensagens} vez(es) neste lead.</div>}
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8}}>{erro}</div>}
 
     <button onClick={()=>alternar(!e.ligado)} disabled={salvando}
       style={{marginTop:9,width:"100%",background:e.ligado?C.card:C.greenDeep,
-        color:e.ligado?C.sub:"#fff",border:e.ligado?`1px solid ${C.line}`:"none",borderRadius:9,
+        color:e.ligado?C.sub:"#fff",border:e.ligado?`1px solid ${C.line}`:"none",borderRadius:10,
         padding:isMobile?"11px":"9px",fontSize:12.5,fontWeight:600,cursor:"pointer",
         display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
       <Icon n={e.ligado?"x":"spark"} size={13} color={e.ligado?C.sub:"#fff"}/>
@@ -15567,14 +15567,14 @@ function SugestaoDaConversa({lead,acoes,isMobile}){
       {s.palavra?<span> — alguém falou em <b style={{color:C.ink}}>“{s.palavra}”</b> na conversa.</span>:"."}
       {" "}Nada muda até você confirmar.
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginBottom:8}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginBottom:8}}>{erro}</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
       <button onClick={()=>resolver("confirmar")} disabled={!!ocupado}
-        style={{flex:1,minWidth:120,background:ocupado?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+        style={{flex:1,minWidth:120,background:ocupado?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
           padding:isMobile?"11px":"9px 14px",fontSize:12.5,fontWeight:600,cursor:ocupado?"default":"pointer"}}>
         {ocupado==="confirmar"?"…":`Confirmar ${s.para}`}</button>
       <button onClick={()=>resolver("dispensar")} disabled={!!ocupado}
-        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
           padding:isMobile?"11px 14px":"9px 14px",fontSize:12.5,fontWeight:600,cursor:ocupado?"default":"pointer"}}>
         {ocupado==="dispensar"?"…":"Não é isso"}</button>
     </div>
@@ -15631,7 +15631,7 @@ function EtapaIA({lead,acoes,isMobile}){
     {!sug&&<React.Fragment>
       <div style={{height:7}}/>
       <button onClick={ler} disabled={carregando}
-        style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+        style={{width:"100%",background:carregando?C.faint:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
           padding:"10px",fontSize:12.5,fontWeight:600,cursor:carregando?"default":"pointer",
           display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
         {carregando?<React.Fragment><Icon n="loader" size={14} spin/> Lendo a conversa…</React.Fragment>
@@ -15652,7 +15652,7 @@ function EtapaIA({lead,acoes,isMobile}){
       </div>
 
       {concorda
-        ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:11.5,fontWeight:600,lineHeight:1.45,borderRadius:9,padding:"8px 10px"}}>
+        ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:11.5,fontWeight:600,lineHeight:1.45,borderRadius:10,padding:"8px 10px"}}>
           A IA concorda com a etapa atual. Nada a mudar.</div>
         :<div style={{color:C.ink,fontSize:12,lineHeight:1.5}}>{sug.porque}</div>}
 
@@ -15662,14 +15662,14 @@ function EtapaIA({lead,acoes,isMobile}){
         padding:"7px 10px",marginTop:8,color:C.sub,fontSize:11.5,lineHeight:1.45,fontStyle:"italic"}}>
         “{sug.trecho}”</div>}
 
-      {novas>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
+      {novas>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>
         {novas} mensagem(ns) nova(s) depois desta leitura.</div>}
 
-      {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:8,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>{erro}</div>}
+      {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8,lineHeight:1.45}}>{erro}</div>}
 
       {!concorda&&<div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,flexWrap:"wrap"}}>
         <button onClick={aplicar} disabled={aplicando}
-          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",
             fontSize:12.5,fontWeight:700,cursor:aplicando?"default":"pointer",display:"flex",alignItems:"center",gap:6}}>
           {aplicando?<React.Fragment><Icon n="loader" size={12} spin/> movendo…</React.Fragment>
             :<React.Fragment><Icon n="check" size={13}/> Mover para {sug.etapa}</React.Fragment>}</button>
@@ -15740,10 +15740,10 @@ function ConversaPessoal({lead,acoes,session,minhaLinha,isMobile}){
     {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:8}}>{erro}</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
       <button onClick={apagar} disabled={ocupado}
-        style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 14px":"8px 13px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
+        style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:isMobile?"10px 14px":"8px 13px",fontSize:12.5,fontWeight:700,cursor:"pointer",opacity:ocupado?.6:1}}>
         {ocupado?"Tirando…":"Tirar do CRM"}</button>
       <button onClick={()=>setConfirmando(false)} disabled={ocupado}
-        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"10px 14px":"8px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"10px 14px":"8px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
     </div>
   </div>;
 }
@@ -15796,15 +15796,15 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
     {aberto&&<div style={{marginTop:10}}>
       <div style={{color:C.faint,fontSize:11,lineHeight:1.55,marginBottom:10}}>Use só a pedido do próprio cliente.</div>
 
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"8px 10px",marginBottom:9}}>{erro}</div>}
 
       {feito||lead.anonimizado_em
-        ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:11.5,borderRadius:9,padding:"9px 11px",lineHeight:1.5}}>
+        ?<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:11.5,borderRadius:10,padding:"9px 11px",lineHeight:1.5}}>
           Os dados pessoais deste atendimento já foram apagados a pedido do titular.
           O histórico continua nos relatórios, sem identificar ninguém.</div>
         :<React.Fragment>
           <button onClick={exportar} disabled={!!ocupado}
-            style={{width:"100%",background:C.surface,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,
+            style={{width:"100%",background:C.surface,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,
               padding:isMobile?"11px":"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:7}}>
             {ocupado==="exportar"?"Gerando…":"Baixar tudo que temos sobre ele"}</button>
           <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginBottom:11}}>
@@ -15812,7 +15812,7 @@ function DadosDoTitular({lead,acoes,session,isMobile}){
           </div>
 
           <button onClick={anonimizar} disabled={!!ocupado}
-            style={{width:"100%",background:"none",color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,
+            style={{width:"100%",background:"none",color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,
               padding:isMobile?"11px":"9px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
             {ocupado==="anonimizar"?"Apagando…":"Apagar os dados pessoais deste cliente"}</button>
           <div style={{color:C.faint,fontSize:10.5,lineHeight:1.5,marginTop:6}}>
@@ -15878,7 +15878,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,aoFechar,l
             const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
             acoes.mudarEtapa(lead.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
           }}
-          style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:8,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,lead.status),background:C.surface}}>
+          style={{width:"100%",marginTop:4,marginBottom:8,fontSize:16,fontWeight:600,borderRadius:10,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,lead.status),background:C.surface}}>
           {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
         </select>;
       })()}
@@ -15895,7 +15895,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,aoFechar,l
             faz nada mais um "ou escolher:" sem ninguém para escolher. */}
         {corretoresDisponiveis.length?<React.Fragment>
           <button onClick={()=>acoes.repassar(lead.id)}
-            style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+            style={{width:"100%",background:C.green,color:"#fff",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
             <Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Corretor da vez (rodízio)"}
           </button>
           {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>
@@ -16080,8 +16080,8 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
           :(isMobile?"Na fila, sem atendente":"Este lead está na fila, sem atendente.")}
     </span>
     {meu
-      ?<button onClick={()=>setDevolvendo(true)} style={{border:`1px solid ${C.green}55`,background:C.card,color:C.greenMid,fontSize:11.5,fontWeight:700,padding:"5px 11px",borderRadius:8,cursor:"pointer",flexShrink:0}}>Devolver</button>
-      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"none",background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:8,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}><Icon n="zap" size={12}/> {isMobile?"Assumir":"Assumir negociação"}</button>}
+      ?<button onClick={()=>setDevolvendo(true)} style={{border:`1px solid ${C.green}55`,background:C.card,color:C.greenMid,fontSize:11.5,fontWeight:700,padding:"5px 11px",borderRadius:10,cursor:"pointer",flexShrink:0}}>Devolver</button>
+      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"none",background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:10,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}><Icon n="zap" size={12}/> {isMobile?"Assumir":"Assumir negociação"}</button>}
   </div>;
 }
 
@@ -16147,7 +16147,7 @@ function FaixaFluxo({fx,acoes,isMobile}){
         {" · "}{x.enviadas} enviada{x.enviadas===1?"":"s"}
         <br/><span style={{color:C.faint,fontSize:11}}>{[x.para_se_responder?"para se o cliente responder":null,x.para_se_equipe?"para se alguém da equipe escrever":"continua mesmo se a equipe escrever"].filter(Boolean).join(" · ")}</span>
         {x.ultimo_erro&&<><br/><span style={{color:C.hot,fontSize:11}}>Última tentativa falhou: {x.ultimo_erro}</span></>}</span>
-      <button onClick={()=>parar_(x.id)} style={{border:`1px solid ${C.hot}44`,background:C.card,color:C.hot,borderRadius:8,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button>
+      <button onClick={()=>parar_(x.id)} style={{border:`1px solid ${C.hot}44`,background:C.card,color:C.hot,borderRadius:10,padding:"5px 10px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Parar</button>
     </div>;})}
     {fx.aberto&&<div style={{border:`1px solid ${C.green}55`,background:C.card,borderRadius:12,padding:12,marginBottom:8}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
@@ -16159,11 +16159,11 @@ function FaixaFluxo({fx,acoes,isMobile}){
         ?<div style={{color:C.faint,fontSize:12}}>Nenhum fluxo pronto. Os fluxos são montados em Marketing → Fluxos.</div>
         :<React.Fragment>
           <select value={esc} onChange={e=>setEsc(e.target.value)} aria-label="Fluxo"
-            style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,marginBottom:8}}>
+            style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,marginBottom:8}}>
             <option value="">Escolha o fluxo…</option>
             {fx.d.fluxos.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
           </select>
-          {escolhido&&<div style={{background:C.surface,borderRadius:9,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+          {escolhido&&<div style={{background:C.surface,borderRadius:10,padding:"8px 10px",marginBottom:8,maxHeight:160,overflowY:"auto"}}>
             <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>O que sai agora</div>
             {escolhido.previa.mensagens.length===0&&<div style={{color:C.faint,fontSize:12}}>Nenhuma mensagem antes de {escolhido.previa.parou}.</div>}
             {escolhido.previa.mensagens.map((m,i)=><div key={i} style={{fontSize:12,color:C.ink,whiteSpace:"pre-wrap",marginBottom:5}}>
@@ -16178,7 +16178,7 @@ function FaixaFluxo({fx,acoes,isMobile}){
             <input type="checkbox" checked={pararEquipe} onChange={e=>setPararEquipe(e.target.checked)} style={{accentColor:C.green}}/>
             Parar o fluxo se alguém da equipe escrever <span style={{color:C.faint}}>(desmarque para follow-up)</span></label>
           <button onClick={mandar} disabled={!escolhido||ocupado}
-            style={{background:escolhido?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:escolhido?"pointer":"default"}}>
+            style={{background:escolhido?C.green:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:escolhido?"pointer":"default"}}>
             {ocupado?"Mandando…":"Mandar para o cliente"}</button>
         </React.Fragment>}
     </div>}
@@ -16242,18 +16242,18 @@ function FaixaSugestaoIA({sg,acoes,draft,setDraft,isMobile}){
       <input value={sg.pedido} onChange={e=>sg.setPedido(e.target.value)} maxLength={300}
         onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();if(!sg.ocupado)pedir();}}}
         placeholder="O que você quer com a mensagem? (opcional)"
-        style={{flex:"1 1 180px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",background:C.card,color:C.ink,outline:"none"}}/>
+        style={{flex:"1 1 180px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 10px",background:C.card,color:C.ink,outline:"none"}}/>
       <button onClick={pedir} disabled={sg.ocupado}
-        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
+        style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
         {sg.ocupado?"Escrevendo…":"Escrever"}</button>
     </div>}
     {sg.r&&<React.Fragment>
-      <div style={{background:C.card,borderRadius:9,padding:"8px 10px",color:C.ink,fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{sg.r.mensagem}</div>
+      <div style={{background:C.card,borderRadius:10,padding:"8px 10px",color:C.ink,fontSize:13,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{sg.r.mensagem}</div>
       {sg.r.porque&&<div style={{color:C.sub,fontSize:11,marginTop:5}}>{sg.r.porque}</div>}
       <div style={{display:"flex",gap:6,marginTop:7,flexWrap:"wrap"}}>
-        <button onClick={usar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
+        <button onClick={usar} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:700,cursor:"pointer",minHeight:34}}>
           {draft.trim()?"Trocar pelo que está no campo":"Usar no campo"}</button>
-        <button onClick={pedir} disabled={sg.ocupado} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:34}}>
+        <button onClick={pedir} disabled={sg.ocupado} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",minHeight:34}}>
           {sg.ocupado?"Escrevendo…":"Outra sugestão"}</button>
       </div>
       <div style={{color:C.faint,fontSize:10.5,marginTop:6}}>Confira antes de enviar: o que estiver entre [colchetes] a IA não sabia.</div>
@@ -16357,13 +16357,13 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
           return <React.Fragment>{atalho(`Amanhã ${horaAtalho}`,amanhaAs(h,1,m))}{atalho(`Depois de amanhã ${horaAtalho}`,amanhaAs(h,2,m))}</React.Fragment>;})()}
         <label style={{display:"flex",alignItems:"center",gap:4,color:C.faint,fontSize:11}}>às
           <input type="time" value={horaAtalho} onChange={e=>setHoraAtalho(e.target.value||"09:00")} aria-label="Horário dos atalhos"
-            style={{fontSize:isMobile?16:11.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"3px 6px",color:C.ink,background:C.card,outline:"none"}}/></label>
+            style={{fontSize:isMobile?16:11.5,border:`1px solid ${C.line}`,borderRadius:10,padding:"3px 6px",color:C.ink,background:C.card,outline:"none"}}/></label>
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
         <input type="datetime-local" value={quando} min={paraCampoDataHora(Date.now())} onChange={e=>setQuando(e.target.value)} aria-label="Dia e hora do envio"
-          style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 8px",color:C.ink,background:C.card,outline:"none",minWidth:0}}/>
+          style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 8px",color:C.ink,background:C.card,outline:"none",minWidth:0}}/>
         <button onClick={agendar} disabled={ocupado}
-          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"10px 14px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:isMobile?"10px 14px":"7px 12px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {ocupado?"Agendando…":ts?`Agendar para ${fmtTarefa(ts)}`:"Agendar"}</button>
       </div>
       <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4}}>Sai em seu nome, pelo mesmo número da conversa. Se o lead passar para outra pessoa antes do horário, o agendamento é cancelado e o motivo fica aqui.</div>
@@ -16469,7 +16469,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
         disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
         style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
     </div>
-    {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:8,cursor:"pointer"}}>{erroAnexo}</div>}
+    {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:10,cursor:"pointer"}}>{erroAnexo}</div>}
     {/* A frase da assinatura só vale no número da CASA. Na linha pessoal a
         mensagem NÃO é assinada — o cliente salvou aquele número e está falando
         com a pessoa dele —, e repetir aqui "assinada como Vanessa" ensinaria
@@ -16514,7 +16514,7 @@ function VersaoDoApp(){
     {velha&&<React.Fragment>
       <div style={{color:C.hot,fontSize:11,fontWeight:600}}>o servidor já está na {publicada}</div>
       <button onClick={atualizarConHub}
-        style={{marginTop:7,background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+        style={{marginTop:7,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
           padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Atualizar este aparelho</button>
     </React.Fragment>}
   </div>;
@@ -16604,7 +16604,7 @@ function ConfigTriagem({acoes,linha,isMobile}){
         {!minha.pode_mudar&&<span style={{display:"block",color:C.faint,marginTop:3}}>Só o gestor liga ou desliga isto.</span>}
       </span>
     </label>
-    {minha.ligada&&minha.robo&&<div style={{background:C.amberSoft,color:C.ink,fontSize:12,lineHeight:1.5,borderRadius:9,padding:"8px 10px",marginTop:9}}>
+    {minha.ligada&&minha.robo&&<div style={{background:C.amberSoft,color:C.ink,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"8px 10px",marginTop:9}}>
       Com isto ligado, o Autoatendimento com IA só responde um número novo <b>depois</b> do “É lead”.
     </div>}
     {erro&&<div style={{color:C.hot,fontSize:12,marginTop:8}}>{erro}</div>}
@@ -16616,7 +16616,7 @@ function ConfigTriagem({acoes,linha,isMobile}){
           <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.ink}}>
             {p.nome||"Sem nome"} <span style={{color:C.faint}}>· {fmtTel(p.phone)}</span></span>
           <button onClick={()=>voltar(p)} disabled={ocupado}
-            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:isMobile?"8px 10px":"4px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:isMobile?"8px 10px":"4px 9px",fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>
             Voltar a receber</button>
         </div>)}
       </div>}
@@ -16659,9 +16659,9 @@ function PainelQr({qr,gerando,aoGerarOutro,aoFechar}){
   return <div style={{marginTop:12,border:`1px solid ${C.line}`,borderRadius:12,padding:14,
     display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
     {qr.img
-      ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,maxWidth:"100%",background:"#fff",borderRadius:8,padding:6,boxSizing:"border-box"}}/>
+      ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,maxWidth:"100%",background:"#fff",borderRadius:10,padding:6,boxSizing:"border-box"}}/>
       :<div style={{width:220,height:220,maxWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:12,
-        textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:8}}>Gerando o código…</div>}
+        textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:10}}>Gerando o código…</div>}
     <div style={{flex:"1 1 200px",minWidth:0}}>
       <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:6}}>Leia com o celular do número</div>
       <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
@@ -16670,7 +16670,7 @@ function PainelQr({qr,gerando,aoGerarOutro,aoFechar}){
       {qr.codigo&&<div style={{marginTop:8,color:C.sub,fontSize:12}}>Ou use o código de pareamento: <b style={{fontFamily:MONO,color:C.ink}}>{qr.codigo}</b></div>}
       <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
         <button onClick={aoGerarOutro} disabled={gerando}
-          style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
+          style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
           {gerando?"Gerando…":"Gerar outro código"}</button>
         <button onClick={aoFechar}
           style={{background:"none",color:C.faint,border:"none",padding:"7px 4px",fontSize:12,cursor:"pointer"}}>Fechar</button>
@@ -16743,7 +16743,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     <span style={{display:"block",color:C.sub,fontSize:11.5,marginBottom:4}}>{rot}</span>
     <input value={f[k]} onChange={e=>setF({...f,[k]:e.target.value})} placeholder={dica}
       style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
-        borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",background:C.surface}}/>
+        borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",background:C.surface}}/>
   </label>;
 
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
@@ -16760,12 +16760,12 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
       “{first(session.name)}:”, porque o cliente já sabe com quem está falando.
     </div>
 
-    {aviso&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",marginBottom:10,lineHeight:1.45,
+    {aviso&&<div style={{fontSize:12.5,borderRadius:10,padding:"9px 11px",marginBottom:10,lineHeight:1.45,
       color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
     {/* Ligado e NÃO recebendo: a última conferência do servidor diz por quê.
         Sem esta linha o corretor veria "ligado" e esperaria mensagens que
         não vão chegar. */}
-    {!aviso&&meu&&meu.conectado&&meu.recebimento&&meu.recebimento.estado!=="ok"&&<div style={{fontSize:12.5,borderRadius:9,
+    {!aviso&&meu&&meu.conectado&&meu.recebimento&&meu.recebimento.estado!=="ok"&&<div style={{fontSize:12.5,borderRadius:10,
       padding:"9px 11px",marginBottom:10,lineHeight:1.45,color:C.hot,background:C.hotSoft}}>
       Seu número está ligado, mas as mensagens dos clientes não estão chegando no CRM. {meu.recebimento.detalhe} Avise o gestor.</div>}
 
@@ -16822,10 +16822,10 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
             :<React.Fragment>O token está salvo, mas <b>o WhatsApp do seu número ainda não foi pareado</b> — nenhuma mensagem sai nem chega até ler o QR Code.</React.Fragment>}
         </div>
         {w.ok!==false&&<button onClick={()=>pq.pedir(false)} disabled={pq.gerando}
-          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
           {pq.gerando?"Gerando QR Code…":"Conectar com QR Code"}</button>}
       </div>}
-      {pq.erro&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",marginBottom:10,color:C.hot,background:C.hotSoft}}>{pq.erro}
+      {pq.erro&&<div style={{fontSize:12.5,borderRadius:10,padding:"9px 11px",marginBottom:10,color:C.hot,background:C.hotSoft}}>{pq.erro}
         {!pq.qr&&<button onClick={()=>pq.pedir(true)} disabled={pq.gerando}
           style={{marginLeft:8,background:"none",border:"none",color:C.hot,textDecoration:"underline",cursor:"pointer",fontSize:12.5,padding:0}}>
           forçar reconexão com novo QR Code</button>}</div>}
@@ -16869,10 +16869,10 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
           </div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
             <button onClick={desligar} disabled={ocupado}
-              style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",
+              style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",
                 fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{ocupado?"Desligando…":"Sim, desligar"}</button>
             <button onClick={()=>setConfirmando(false)}
-              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+              style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
                 padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
           </div>
         </div>}
@@ -16929,7 +16929,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
     }catch(e){ setAviso({ok:false,txt:e.message}); }
     finally{ setSubindo(false); }
   }
-  const recado=(a)=>a&&<div style={{fontSize:12.5,borderRadius:9,padding:"9px 11px",lineHeight:1.45,
+  const recado=(a)=>a&&<div style={{fontSize:12.5,borderRadius:10,padding:"9px 11px",lineHeight:1.45,
     color:a.ok?C.greenDeep:C.hot,background:a.ok?C.greenSoft:C.hotSoft}}>{a.txt}</div>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
@@ -16948,11 +16948,11 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:17,fontWeight:700}}>{session.name}</div>
           <div style={{color:C.faint,fontSize:12.5}}>{session.funcao||roleParaTexto(session.role)}</div>
           <div style={{display:"flex",gap:8,marginTop:9,flexWrap:"wrap"}}>
-            <label style={{display:"inline-flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:subindo?"default":"pointer"}}>
+            <label style={{display:"inline-flex",alignItems:"center",gap:6,border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:subindo?"default":"pointer"}}>
               <Icon n={subindo?"loader":"users"} size={13} spin={subindo}/>{subindo?"Enviando…":session.avatar?"Trocar foto":"Adicionar foto"}
               <input type="file" accept="image/jpeg,image/png,image/webp" onChange={enviarFoto} disabled={subindo} style={{display:"none"}}/>
             </label>
-            {session.avatar&&<button onClick={()=>acoes.removerFoto()} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Remover</button>}
+            {session.avatar&&<button onClick={()=>acoes.removerFoto()} style={{border:`1px solid ${C.line}`,background:C.card,color:C.hot,borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Remover</button>}
           </div>
         </div>
       </div>
@@ -17046,7 +17046,7 @@ function CodigoDeAcesso({acoes}){
     {d.livre&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12.5,lineHeight:1.5,borderRadius:10,padding:"10px 12px"}}>
       <b>O CETRO pode entrar sem código</b>{d.livre.desde?` desde ${fmtData(d.livre.desde)}`:""}, para a implantação da sua conta: até {d.livre.horas} horas por dia, e você é avisado a cada entrada. Hoje foram usados {fmtDuracao(d.livre.usado_hoje_ms)}.
       <div><button onClick={desligarLivre} disabled={desligando}
-        style={{marginTop:8,border:`1px solid ${C.amber}88`,background:"#fff",color:"#8a6d1f",borderRadius:9,padding:"8px 11px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        style={{marginTop:8,border:`1px solid ${C.amber}88`,background:"#fff",color:"#8a6d1f",borderRadius:10,padding:"8px 11px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
         {desligando?"Desligando…":"Voltar a exigir o código"}</button></div>
     </div>}
     <div style={{borderTop:`1px solid ${C.line}`,paddingTop:10}}>
@@ -17250,7 +17250,7 @@ function Notificacoes({acoes,isMobile}){
   return <div style={caixa}>
     {titulo}
     {explica("Avisa quando um lead cair na sua mão e quando o cliente responder — mesmo com o CETRO fechado.")}
-    {recado&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,lineHeight:1.45,
+    {recado&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:10,lineHeight:1.45,
       color:recado.ok?C.greenDeep:C.hot,background:recado.ok?C.greenSoft:C.hotSoft}}>{recado.txt}</div>}
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
       {ativoAqui
@@ -17378,7 +17378,7 @@ function CampoQual({rotulo,valor,icone,onSalvar}){
       ?<input autoFocus value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
         onKeyDown={e=>{if(e.key==="Enter")confirmar();if(e.key==="Escape")setEditando(false);}}
         style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,
-          borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
+          borderRadius:9,padding:"5px 7px",color:C.ink,outline:"none"}}/>
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:valor==="—"?C.faint:C.ink,
           fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%",overflowWrap:"anywhere",lineHeight:1.35}}>{fmtResposta(valor)}</button>}
@@ -17471,7 +17471,7 @@ function CampoPersonalizado({def,valor,onSalvar}){
   if(def.type==="select") return <div>{rotulo}
     <select value={valor||""} onChange={e=>onSalvar(e.target.value)}
       style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.line}`,background:C.card,
-        borderRadius:7,padding:"5px 7px",color:valor?C.ink:C.faint,outline:"none",cursor:"pointer"}}>
+        borderRadius:9,padding:"5px 7px",color:valor?C.ink:C.faint,outline:"none",cursor:"pointer"}}>
       <option value="">—</option>
       {(def.options||[]).map(o=><option key={o} value={o}>{o}</option>)}
     </select></div>;
@@ -17499,7 +17499,7 @@ function CampoPersonalizado({def,valor,onSalvar}){
         value={texto} onChange={e=>setTexto(e.target.value)} onBlur={confirmar}
         onKeyDown={e=>{if(e.key==="Enter")confirmar();if(e.key==="Escape")setEditando(false);}}
         style={{width:"100%",boxSizing:"border-box",fontSize:12.5,border:`1px solid ${C.green}66`,background:C.card,
-          borderRadius:7,padding:"5px 7px",color:C.ink,outline:"none"}}/>
+          borderRadius:9,padding:"5px 7px",color:C.ink,outline:"none"}}/>
       :<button onClick={()=>setEditando(true)} title="Toque para editar"
         style={{border:"none",background:"transparent",padding:0,cursor:"text",color:bruto?C.ink:C.faint,
           fontSize:12.5,fontWeight:500,textAlign:"left",width:"100%",overflowWrap:"anywhere"}}>{bruto?fmtValorCampo(bruto,def.type):"—"}</button>}
@@ -17543,7 +17543,7 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
   };
 
   const caixa={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
-    background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+    background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"};
   const pilula=(on)=>({border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.card,
     color:on?C.greenDeep:C.sub,borderRadius:999,padding:"7px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"});
   const editor=(f)=>{
@@ -17593,7 +17593,7 @@ function PreencherParaMover({faltando,nome,acoes,isMobile,abrirFicha,aoFechar}){
           {campos.length>0?"E também, na ficha do lead: ":"Preencha na ficha do lead: "}
           <b style={{color:C.ink}}>{nativos.map(f=>f.label).join(", ")}</b>.
           <div><button onClick={abrirFicha} style={{marginTop:8,border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,
-            borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir a ficha</button></div>
+            borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir a ficha</button></div>
         </div>}
         {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"9px 12px"}}>{erro}</div>}
       </div>
@@ -17663,7 +17663,7 @@ function SimuladorCalculado({lead,acoes,isMobile,aoGravar}){
     try{ await acoes.gravarSimulacaoCalculada(lead.id,{tipo,premissas,produto_id:produtoId||null,unidade_id:unidadeId||null}); setOk("Simulação salva no lead e na linha do tempo."); aoGravar&&aoGravar(); }
     catch(e){setErro(e.message);} finally{setGravando(false);} }
   const mo=tipo==="pronto"?pr.moeda:la.moeda; const din=(v)=>fmtValorMoeda(v,mo);
-  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none",fontFamily:FONT};
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 10px",color:C.ink,outline:"none",fontFamily:FONT};
   const rot=(t)=><div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{t}</div>;
   const cx=(t,el)=><div style={{flex:"1 1 130px",minWidth:0}}>{rot(t)}{el}</div>;
   const comp=(k,campo,v)=>setLa(x=>({...x,c:{...x.c,[k]:{...(x.c[k]||{}),[campo]:v}}}));
@@ -17718,8 +17718,8 @@ function SimuladorCalculado({lead,acoes,isMobile,aoGravar}){
         {res.residuo_arredondamento!==0&&<div>Arredondamento das parcelas: {din(res.residuo_arredondamento)} (fica na última parcela).</div>}
       </div>}
     </React.Fragment>}
-    {erro&&<div style={{fontSize:12.5,color:C.hot,background:C.hotSoft,borderRadius:9,padding:"9px 11px",marginTop:10}}>{erro}</div>}
-    {ok&&<div style={{fontSize:12.5,color:C.greenDeep,background:C.greenSoft,borderRadius:9,padding:"9px 11px",marginTop:10}}>{ok}</div>}
+    {erro&&<div style={{fontSize:12.5,color:C.hot,background:C.hotSoft,borderRadius:10,padding:"9px 11px",marginTop:10}}>{erro}</div>}
+    {ok&&<div style={{fontSize:12.5,color:C.greenDeep,background:C.greenSoft,borderRadius:10,padding:"9px 11px",marginTop:10}}>{ok}</div>}
     <div style={{color:C.faint,fontSize:11,margin:"10px 0",lineHeight:1.45}}>É simulação: não inclui seguros, tarifas nem correção, e não é aprovação de crédito.</div>
     <button onClick={gravar} disabled={gravando||!res} style={{width:"100%",background:gravando||!res?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:14,fontWeight:600,cursor:gravando||!res?"default":"pointer"}}>{gravando?"Salvando…":"Salvar simulação no lead"}</button>
   </div>;
@@ -17786,7 +17786,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{rotulo}</div>
     <input value={form[chave]} onChange={set(chave)} inputMode="decimal" placeholder={dica||""}
       style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
-        borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none"}}/>
+        borderRadius:10,padding:"9px 10px",color:C.ink,outline:"none"}}/>
   </div>;
 
   /* Painel comum, no fluxo da página — não é janela flutuante.
@@ -17826,7 +17826,7 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
       </div>
 
       {confianca&&<div style={{background:confianca==="baixa"?C.hotSoft:C.greenSoft,color:confianca==="baixa"?C.hot:C.greenDeep,
-        fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:11,lineHeight:1.45}}>
+        fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:11,lineHeight:1.45}}>
         {confianca==="baixa"
           ?"Não consegui ler bem esse print. Confira cada valor com atenção — pode estar errado."
           :"Valores lidos do print. Confira antes de enviar."}
@@ -17846,10 +17846,10 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
         <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>Observação para o cliente (opcional)</div>
         <textarea value={form.observacoes} onChange={set("observacoes")} rows={2} placeholder="Ex.: condição válida até o fim do mês"
           style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
-            borderRadius:9,padding:"9px 10px",color:C.ink,outline:"none",resize:"vertical",fontFamily:FONT}}/>
+            borderRadius:10,padding:"9px 10px",color:C.ink,outline:"none",resize:"vertical",fontFamily:FONT}}/>
       </div>
 
-      {aviso&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:9,marginBottom:11,lineHeight:1.45,
+      {aviso&&<div style={{fontSize:12.5,padding:"9px 11px",borderRadius:10,marginBottom:11,lineHeight:1.45,
         color:aviso.ok?C.greenDeep:C.hot,background:aviso.ok?C.greenSoft:C.hotSoft}}>{aviso.txt}</div>}
 
       <button onClick={salvar} disabled={salvando||!preenchido}
@@ -17881,10 +17881,10 @@ function Simulacao({lead,acoes,isMobile,aoFechar}){
           <div style={{display:"flex",gap:8,marginTop:9,flexWrap:"wrap"}}>
             <button onClick={()=>acoes.enviarSimulacao(lead.id,s.id).then(recarregar)}
               style={{background:s.enviada_em?C.surface:C.green,color:s.enviada_em?C.sub:"#fff",border:s.enviada_em?`1px solid ${C.line}`:"none",
-                borderRadius:9,padding:"8px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                borderRadius:10,padding:"8px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
               <Icon n="send" size={12}/>{s.enviada_em?"Enviar de novo":"Enviar resumo ao cliente"}</button>
             {s.print_url&&<a href={s.print_url} target="_blank" rel="noreferrer"
-              style={{textDecoration:"none",border:`1px solid ${C.line}`,color:C.sub,borderRadius:9,padding:"8px 13px",fontSize:12.5,fontWeight:600}}>ver print</a>}
+              style={{textDecoration:"none",border:`1px solid ${C.line}`,color:C.sub,borderRadius:10,padding:"8px 13px",fontSize:12.5,fontWeight:600}}>ver print</a>}
             <button onClick={()=>{if(window.confirm("Apagar esta simulação?")) acoes.apagarSimulacao(lead.id,s.id).then(recarregar);}}
               style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer"}}>apagar</button>
           </div>
@@ -17963,7 +17963,7 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
   const etapasDoDestino=((funis.find(p=>p.id===f.pipeline_id)||{}).stages)||[];
 
   const sel={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,
-    borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px"};
+    borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px"};
 
   return cartao(<React.Fragment>
     <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Mover os leads de uma pessoa para outro funil</div>
@@ -17972,8 +17972,8 @@ function MoverFunil({acoes,isMobile,cartao,aoAplicar}){
       os do corretor no comercial. O <b>responsável não muda</b> — só o fluxo em que o lead anda.
     </div>
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
-    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:10,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
 
     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
       <select value={f.user_id} onChange={e=>setF({...f,user_id:e.target.value})} style={sel}>
@@ -18081,8 +18081,8 @@ function UnirDuplicados({acoes,isMobile,cartao,aoAplicar}){
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.5,marginBottom:9}}>
       Leads com o mesmo celular, escrito de jeitos diferentes. Unir junta a conversa, as tarefas, as observações e o histórico no lead que fica, e a cópia sai da lista.
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
-    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:10,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
     {!d&&!erro&&<div style={{color:C.faint,fontSize:11.5}}>Procurando…</div>}
     {d&&!d.grupos.length&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum lead em dobro.</div>}
     {d&&d.grupos.length>0&&<React.Fragment>
@@ -18141,7 +18141,7 @@ function PassarLeads({acoes,isMobile,cartao,aoAplicar}){
   },[f.de,f.para,f.finalizados]);
 
   const sel={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.card,
-    borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px",minWidth:0};
+    borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",cursor:"pointer",flex:"1 1 150px",minWidth:0};
 
   return cartao(<React.Fragment>
     <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:4}}>Passar os leads de uma pessoa para outra</div>
@@ -18149,8 +18149,8 @@ function PassarLeads({acoes,isMobile,cartao,aoAplicar}){
       Todos os leads em aberto vão para quem você escolher, como o repasse da ficha. Os que têm venda registrada continuam com quem está.
     </div>
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
-    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:9,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:9}}>{erro}</div>}
+    {feito&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12.5,fontWeight:600,borderRadius:10,padding:"9px 11px",marginBottom:9}}>{feito}</div>}
 
     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
       <select value={f.de} onChange={e=>{setFeito("");setF({...f,de:e.target.value});}} style={sel} aria-label="Leads de quem">
@@ -18352,7 +18352,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
         Ficam <b>de fora</b>: quem está com a atendente ou sem dono (não é atendimento de corretor),
         quem não tem conversa, quem tem venda registrada e quem está em etapa marcada na mão.
       </div>
-      {ia&&!ia.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px"}}>
+      {ia&&!ia.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"8px 10px"}}>
         A IA não está ligada nesta instalação.</div>}
       {ia&&ia.configurada&&<React.Fragment>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
@@ -18384,7 +18384,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
               height:"100%",background:C.green,transition:"width .3s"}}/>
           </div>
           {andamento.falhas&&andamento.falhas.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",
-            fontSize:11,borderRadius:9,padding:"7px 10px",margin:"6px 0",lineHeight:1.5}}>
+            fontSize:11,borderRadius:10,padding:"7px 10px",margin:"6px 0",lineHeight:1.5}}>
             {andamento.tentados-andamento.feitos} não deram para ler: {andamento.falhas[0].erro}</div>}
           {andamento.exemplos.slice(0,6).map((x,i)=><div key={i} style={{color:C.sub,fontSize:11,lineHeight:1.5}}>
             {first(x.nome)}: <span style={{color:STAGE_C[x.de]}}>{x.de}</span> → <b style={{color:STAGE_C[x.para]}}>{x.para}</b>
@@ -18426,7 +18426,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
         de sempre: quem está com a atendente, sem conversa, com venda ou em etapa marcada na mão.
       </div>
 
-      {temp&&!temp.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px"}}>
+      {temp&&!temp.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"8px 10px"}}>
         A IA não está ligada nesta instalação.</div>}
 
       {temp&&temp.configurada&&<React.Fragment>
@@ -18470,7 +18470,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
           {/* Conversa que a IA não leu aparece com o motivo. Sem isso, "4 de 4"
               e "0 de 4" tinham a mesma cara. */}
           {leitura.falhas&&leitura.falhas.length>0&&<div style={{background:C.amberSoft,color:"#8a6d1f",
-            fontSize:11,borderRadius:9,padding:"7px 10px",margin:"6px 0",lineHeight:1.5}}>
+            fontSize:11,borderRadius:10,padding:"7px 10px",margin:"6px 0",lineHeight:1.5}}>
             {leitura.tentados-leitura.marcados} não deram para ler: {leitura.falhas[0].erro}</div>}
           <div style={{display:"flex",gap:5,flexWrap:"wrap",margin:"7px 0"}}>
             {["QUENTE","MORNO","FRIO"].map(k=><span key={k} style={{background:prioDe(k).bg,color:prioDe(k).c,
@@ -18549,7 +18549,7 @@ function DiagnosticoFunil({g,comConversa,isMobile}){
         o padrão está errado. Nos dois casos, o funil trava naquela etapa. */}
     <div style={{color:C.faint,fontSize:11,fontWeight:600,marginBottom:5}}>Em quantas conversas cada palavra aparece</div>
     <div style={{display:"flex",flexDirection:"column",gap:3}}>
-      {g.gatilhos.map(x=><div key={x.etapa} style={{display:"flex",alignItems:"center",gap:8,background:C.card,borderRadius:8,padding:"6px 10px",flexWrap:"wrap"}}>
+      {g.gatilhos.map(x=><div key={x.etapa} style={{display:"flex",alignItems:"center",gap:8,background:C.card,borderRadius:10,padding:"6px 10px",flexWrap:"wrap"}}>
         <span style={{color:x.leads?C.ink:C.faint,fontSize:11.5,fontWeight:600,minWidth:0,flex:"1 1 120px"}}>
           “{x.palavra}”<span style={{color:C.faint,fontWeight:400}}> → {x.etapa}</span></span>
         {!x.leads&&<span style={{color:C.hot,background:C.hotSoft,fontSize:10,fontWeight:700,borderRadius:999,padding:"2px 8px"}}>nunca aparece</span>}
@@ -18613,7 +18613,7 @@ function ReanalisarFunil({acoes,isMobile,aoAplicar}){
         ?<div style={{color:C.faint,fontSize:12.5}}>Nenhum lead precisa mudar — o funil já está de acordo com a regra nova.</div>
         :<React.Fragment>
           <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:10}}>
-            {d.resumo.map(x=><div key={x.de+x.para} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:9,padding:"7px 10px",flexWrap:"wrap"}}>
+            {d.resumo.map(x=><div key={x.de+x.para} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"7px 10px",flexWrap:"wrap"}}>
               <span style={{color:STAGE_C[x.de],fontSize:12,fontWeight:600}}>{x.de}</span>
               <Icon n="chevron" size={12} color={C.faint}/>
               <span style={{color:STAGE_C[x.para],fontSize:12,fontWeight:700}}>{x.para}</span>
@@ -18889,7 +18889,7 @@ function AcoesEmLote({ids,rotulo,pessoas,acoes,aoFechar,aoAplicar,isMobile}){
   useEffect(()=>{setPrev(null);setErro("");},[resp,quem,fa,pid,ea,sid,JSON.stringify(mapa)]);
   async function verPrevia(){ setErro(""); try{ setPrev(await acoes.loteAcaoPrevia(pedido())); }catch(e){setErro(e.message);} }
   async function aplicar(){ setRodando(true); setErro(""); try{ const r=await acoes.loteAcao({...pedido(),assinatura:prev.assinatura}); setFeito(r); aoAplicar(); }catch(e){setErro(e.message);} finally{setRodando(false);} }
-  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"};
   const destino=funis.find(f=>f.id===pid);
   const etapasDe=(f)=>f?(f.stages||f.etapas||[]).filter(e=>e.is_active!==0):[];
   const funilDaEtapa=fa==="mover"?destino:null;
@@ -18928,7 +18928,7 @@ function AcoesEmLote({ids,rotulo,pessoas,acoes,aoFechar,aoAplicar,isMobile}){
           <b style={{color:C.ink}}>{l.nome}</b>: {l.para.dono?<span>{l.de.dono} → <b>{l.para.dono}</b> </span>:null}{l.para.etapa?<span>· {l.de.funil} › {l.de.etapa} → <b>{l.para.funil} › {l.para.etapa}</b></span>:null}</div>)}
           {prev.mudam>prev.linhas.length&&<div style={{color:C.faint,paddingTop:4}}>e mais {prev.mudam-prev.linhas.length}…</div>}</div>
       </div>}
-      {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:9,padding:"9px 11px",fontSize:12.5,marginBottom:10}}>{erro}</div>}
+      {erro&&<div style={{color:C.hot,background:C.hotSoft,borderRadius:10,padding:"9px 11px",fontSize:12.5,marginBottom:10}}>{erro}</div>}
       <div style={{display:"flex",gap:8}}>
         <button onClick={verPrevia} style={{flex:1,background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer"}}>{prev?"Atualizar a prévia":"Ver a prévia"}</button>
         <button onClick={aplicar} disabled={!prev||!prev.pode_aplicar||rodando} style={{flex:1,background:!prev||!prev.pode_aplicar?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:!prev||!prev.pode_aplicar?"default":"pointer"}}>{rodando?"Aplicando…":prev&&prev.pode_aplicar?`Aplicar em ${prev.mudam}`:"Aplicar"}</button>
@@ -19095,13 +19095,13 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>apagarLote(l,false)} disabled={subindo}
-                  style={{flex:"1 1 130px",background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                  style={{flex:"1 1 130px",background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                   {subindo?"Apagando…":l.com_conversa>0?`Apagar ${l.na_base-l.com_conversa} sem conversa`:"Apagar os leads"}</button>
                 {l.com_conversa>0&&<button onClick={()=>apagarLote(l,true)} disabled={subindo}
-                  style={{flex:"1 1 130px",background:C.card,color:C.hot,border:`1px solid ${C.hot}66`,borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                  style={{flex:"1 1 130px",background:C.card,color:C.hot,border:`1px solid ${C.hot}66`,borderRadius:10,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                   Apagar todos os {l.na_base}</button>}
                 <button onClick={()=>setApagando(null)}
-                  style={{flex:"0 0 auto",background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+                  style={{flex:"0 0 auto",background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
               </div>
             </div>}
           </div>)}
@@ -19149,13 +19149,13 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
                 </div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <button onClick={()=>apagarAntigo(g,false)} disabled={subindo}
-                    style={{flex:"1 1 130px",background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                    style={{flex:"1 1 130px",background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                     {subindo?"Apagando…":g.com_conversa>0?`Apagar ${g.quantos-g.com_conversa} sem conversa`:`Apagar os ${g.quantos}`}</button>
                   {g.com_conversa>0&&<button onClick={()=>apagarAntigo(g,true)} disabled={subindo}
-                    style={{flex:"1 1 130px",background:C.card,color:C.hot,border:`1px solid ${C.hot}66`,borderRadius:9,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+                    style={{flex:"1 1 130px",background:C.card,color:C.hot,border:`1px solid ${C.hot}66`,borderRadius:10,padding:"10px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
                     Apagar todos os {g.quantos}</button>}
                   <button onClick={()=>setApagandoGrupo(null)}
-                    style={{flex:"0 0 auto",background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+                    style={{flex:"0 0 auto",background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
                 </div>
               </div>}
             </div>)}
@@ -19171,10 +19171,10 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
           <div style={{color:C.faint,fontSize:11,marginTop:3}}>Telefone repetido é ignorado de propósito — o cadastro que já existe no CETRO tem histórico e não pode ser sobrescrito por planilha.</div>
         </div>}
       </div>}
-      {(()=>{const cx={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"7px 9px",color:C.ink,outline:"none",maxWidth:"100%"};
+      {(()=>{const cx={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"7px 9px",color:C.ink,outline:"none",maxWidth:"100%"};
         return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:12,marginBottom:10}}>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <button onClick={()=>setFiltrosAbertos(x=>!x)} style={{border:`1px solid ${filtrosLigados?C.green+"66":C.line}`,background:filtrosLigados?C.greenSoft:C.surface,color:filtrosLigados?C.greenDeep:C.sub,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Filtros{filtrosLigados?` (${filtrosLigados})`:""}</button>
+            <button onClick={()=>setFiltrosAbertos(x=>!x)} style={{border:`1px solid ${filtrosLigados?C.green+"66":C.line}`,background:filtrosLigados?C.greenSoft:C.surface,color:filtrosLigados?C.greenDeep:C.sub,borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Filtros{filtrosLigados?` (${filtrosLigados})`:""}</button>
             {filtrosLigados>0&&<button onClick={()=>setFb({donos:"",funil:"",etapa:"",origem:"",prio:"",tag:"",situacao:"",de:"",ate:""})} style={{border:"none",background:"none",color:C.faint,fontSize:11.5,textDecoration:"underline",cursor:"pointer"}}>limpar</button>}
             <span style={{marginLeft:"auto",color:C.faint,fontSize:11.5}}>{filtrados.length} lead(s){filtrosLigados||busca?` de ${(lista||[]).length}`:""}</span>
           </div>
@@ -19193,7 +19193,7 @@ function BaseLeads({acoes,isMobile,pessoas,abrirConversa}){
             <b style={{color:C.greenDeep,fontSize:13}}>{selec.size} selecionado(s)</b>
             {selec.size<filtrados.length&&<button onClick={()=>setSelec(new Set(filtrados.map(l=>l.id)))} style={{border:"none",background:"none",color:C.greenDeep,fontSize:12,textDecoration:"underline",cursor:"pointer"}}>selecionar todos os {filtrados.length} do filtro</button>}
             <button onClick={()=>setSelec(new Set())} style={{border:"none",background:"none",color:C.faint,fontSize:12,textDecoration:"underline",cursor:"pointer"}}>limpar seleção</button>
-            <button onClick={()=>setAcaoAberta(true)} style={{marginLeft:"auto",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Ações</button>
+            <button onClick={()=>setAcaoAberta(true)} style={{marginLeft:"auto",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>Ações</button>
           </div>}
         </div>;})()}
       {acaoAberta&&<AcoesEmLote ids={[...selec]} rotulo={selec.size===filtrados.length&&filtrados.length>limiteBase?`Todos os ${selec.size} leads do filtro (não só os da tela)`:`${selec.size} lead(s) selecionado(s)`}
@@ -19271,7 +19271,7 @@ function PainelRecomendacoes({acoes,openLead,isMobile}){
         <div style={{color:C.sub,fontSize:12,lineHeight:1.5}}>{i.texto}</div>
         <div style={{display:"flex",gap:8,marginTop:8}}>
           {i.sugerido&&<button onClick={async()=>{ await acoes.repassar(i.lead_id,i.sugerido.id); setFeito(f=>({...f,[i.lead_id+i.tipo]:true})); }}
-            style={{background:CORES[i.tipo],color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            style={{background:CORES[i.tipo],color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <Icon n="transfer" size={12}/> {first(i.sugerido.nome)}</button>}
           <button onClick={()=>setFeito(f=>({...f,[i.lead_id+i.tipo]:true}))}
             style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer"}}>dispensar</button>
@@ -19310,7 +19310,7 @@ function ConfigPontuacao({acoes,indicadores,equipe,aoFechar,aoSalvar,isMobile}){
   const marca=(id)=>{const atual=cfg.participantes||equipe.map(m=>m.id); setCfg({...cfg,participantes:atual.includes(id)?atual.filter(x=>x!==id):[...atual,id]});};
   async function salvar(){ setSalvando(true); setErro("");
     try{ await acoes.salvarScorePontos({pesos:cfg.pesos,participantes:cfg.participantes}); aoSalvar(); aoFechar(); }catch(e){setErro(e.message);} finally{setSalvando(false);} }
-  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:8,padding:"7px 8px",color:C.ink,outline:"none"};
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"7px 8px",color:C.ink,outline:"none"};
   return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:90,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center"}}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:isMobile?"100%":600,maxHeight:"88vh",overflowY:"auto",padding:18}}>
       <div style={{display:"flex",alignItems:"center",marginBottom:6}}><b style={{flex:1,color:C.ink,fontSize:15}}>Pontuação da equipe</b>
@@ -19324,7 +19324,7 @@ function ConfigPontuacao({acoes,indicadores,equipe,aoFechar,aoSalvar,isMobile}){
       </div>
       <div style={{fontWeight:700,fontSize:13,color:C.ink,margin:"14px 0 6px"}}>Quem participa</div>
       <label style={{display:"flex",gap:7,fontSize:13,color:C.sub,marginBottom:6}}><input type="checkbox" checked={todos} onChange={()=>setCfg({...cfg,participantes:todos?equipe.map(m=>m.id):null})}/>Toda a equipe (quem entrar depois também)</label>
-      {!todos&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>{equipe.map(m=><label key={m.id} style={{display:"flex",gap:5,fontSize:12.5,color:C.ink,border:`1px solid ${C.line}`,borderRadius:8,padding:"5px 8px"}}>
+      {!todos&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>{equipe.map(m=><label key={m.id} style={{display:"flex",gap:5,fontSize:12.5,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"5px 8px"}}>
         <input type="checkbox" checked={cfg.participantes.includes(m.id)} onChange={()=>marca(m.id)}/>{m.nome}</label>)}</div>}
       {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:10}}>{erro}</div>}
       <button onClick={salvar} disabled={salvando} style={{marginTop:14,width:"100%",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px",fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar pontuação"}</button>
@@ -19358,8 +19358,8 @@ function ScoreEquipe({acoes,isMobile,periodo,tick,aoAbrirDetalhe,soIds,gestor}){
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
       <Icon n="award" size={16} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Score de performance e equipe</span>
-      {d&&<button onClick={()=>setEscolher(x=>!x)} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Colunas ({visiveis.length})</button>}
-      {d&&gestor&&<button onClick={()=>setConfig(true)} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Icon n="gear" size={13}/>Pontuação</button>}
+      {d&&<button onClick={()=>setEscolher(x=>!x)} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Colunas ({visiveis.length})</button>}
+      {d&&gestor&&<button onClick={()=>setConfig(true)} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"5px 10px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}><Icon n="gear" size={13}/>Pontuação</button>}
     </div>
     <div style={{color:C.faint,fontSize:11,marginBottom:10,lineHeight:1.45}}>
       Clique no nome para ver de onde saiu cada ponto do Score.{comPontos?" Clique nos pontos para ver a soma.":""}
@@ -19433,7 +19433,7 @@ function Recomendacao({leadId,acoes,onDirecionar,isMobile}){
     </div>
     <div style={{color:C.ink,fontSize:12.5,lineHeight:1.5}}>{r.explicacao}</div>
     {r.sugerido&&<button onClick={()=>onDirecionar&&onDirecionar(r.sugerido.id)}
-      style={{marginTop:9,width:"100%",background:forte?"#2F80C4":C.green,color:"#fff",border:"none",borderRadius:9,
+      style={{marginTop:9,width:"100%",background:forte?"#2F80C4":C.green,color:"#fff",border:"none",borderRadius:10,
         padding:"9px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
       <Icon n="transfer" size={13}/> Direcionar para {first(r.sugerido.nome)}</button>}
     <div style={{color:C.faint,fontSize:10,marginTop:7,lineHeight:1.4}}>
@@ -19475,7 +19475,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
     }
     catch(e){ setErro(e.message); setEnviando(false); }
   }
-  const marca=(chave,texto,aviso)=><label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",padding:"9px 10px",borderRadius:9,background:opc[chave]?C.greenSoft:C.surface,border:`1px solid ${opc[chave]?C.green+"55":C.line}`}}>
+  const marca=(chave,texto,aviso)=><label style={{display:"flex",alignItems:"flex-start",gap:9,cursor:"pointer",padding:"9px 10px",borderRadius:10,background:opc[chave]?C.greenSoft:C.surface,border:`1px solid ${opc[chave]?C.green+"55":C.line}`}}>
     <input type="checkbox" checked={opc[chave]} onChange={e=>setOpc({...opc,[chave]:e.target.checked})} style={{width:17,height:17,marginTop:1,accentColor:C.green}}/>
     <span style={{fontSize:13,color:C.ink}}>{texto}{aviso&&<span style={{display:"block",color:C.faint,fontSize:11,marginTop:2}}>{aviso}</span>}</span>
   </label>;
@@ -19504,7 +19504,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
         {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto");
           return <button key={p.id} onClick={()=>setSel(p)} style={{width:"100%",textAlign:"left",display:"flex",gap:10,alignItems:"center",padding:9,marginBottom:6,borderRadius:11,cursor:"pointer",
             border:`1px solid ${sel&&sel.id===p.id?C.green:C.line}`,background:sel&&sel.id===p.id?C.greenSoft:C.card}}>
-            <div style={{width:52,height:52,borderRadius:9,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{width:52,height:52,borderRadius:10,background:C.surface,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
               {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<Icon n="pin" size={17} color={C.faint}/>}
             </div>
             <div style={{minWidth:0,flex:1}}>
@@ -19552,7 +19552,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
                           const base=a||fotosDoAnuncio.map(x=>x.id);
                           return base.includes(m.id)?base.filter(x=>x!==m.id):[...base,m.id];})}
                         title={marcada?"Tirar esta foto do envio":"Incluir esta foto"}
-                        style={{position:"relative",width:58,height:58,borderRadius:9,overflow:"hidden",padding:0,cursor:"pointer",
+                        style={{position:"relative",width:58,height:58,borderRadius:10,overflow:"hidden",padding:0,cursor:"pointer",
                           border:`2px solid ${marcada?C.green:C.line}`,background:C.card,opacity:marcada?1:.45}}>
                         <img src={m.miniatura||m.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                         {/* A capa leva a legenda no WhatsApp — quem escolhe
@@ -19570,7 +19570,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
           </React.Fragment>;})()}
         {(sel.midias||[]).some(m=>m.tipo==="video")&&marca("video","Enviar o vídeo")}
         {sel.maps_url&&marca("localizacao","Enviar a localização","Fica desmarcado de propósito — mandar endereço sem querer não tem desfazer.")}
-        {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12,borderRadius:8,padding:"8px 10px"}}>{erro}</div>}
+        {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12,borderRadius:10,padding:"8px 10px"}}>{erro}</div>}
         <button onClick={enviar} disabled={enviando} style={{background:enviando?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:14.5,fontWeight:600,cursor:enviando?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
           <Icon n={enviando?"loader":"send"} size={16} spin={enviando}/>{enviando?"Enviando…":"Enviar pelo WhatsApp"}
         </button>
@@ -19610,7 +19610,7 @@ function UnidadesDoImovel({produtoId,acoes,isMobile,moedaPadrao}){
   const [lista,setLista]=useState(null), [aberta,setAberta]=useState(null);
   const [erro,setErro]=useState(""), [ok,setOk]=useState(""), [salvando,setSalvando]=useState(false), [mudou,setMudou]=useState(false);
   useEffect(()=>{let vivo=true; acoes.unidadesProduto(produtoId).then(r=>{if(vivo)setLista(r.unidades||[]);}).catch(e=>vivo&&setErro(e.message)); return()=>{vivo=false;};},[produtoId]);
-  const ent={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 10px",fontSize:14,color:C.ink,fontFamily:FONT};
+  const ent={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 10px",fontSize:14,color:C.ink,fontFamily:FONT};
   const rot=(t)=><div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:4}}>{t}</div>;
   const mexer=(i,patch)=>{setLista(l=>l.map((u,k)=>k===i?{...u,...patch}:u)); setMudou(true); setOk("");};
   const mexerFluxo=(i,k,v)=>{setLista(l=>l.map((u,n)=>n===i?{...u,fluxo_form:{...(u.fluxo_form||formDoFluxo(u.fluxo)),[k]:v}}:u)); setMudou(true); setOk("");};
@@ -19629,7 +19629,7 @@ function UnidadesDoImovel({produtoId,acoes,isMobile,moedaPadrao}){
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,background:C.surface}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8}}>
       <div style={{fontWeight:700,color:C.ink,fontSize:14}}>Unidades e fluxo de pagamento <span style={{color:C.faint,fontWeight:500}}>· {lista.length}</span></div>
-      <button type="button" onClick={adicionar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"7px 11px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>+ Unidade</button>
+      <button type="button" onClick={adicionar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"7px 11px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>+ Unidade</button>
     </div>
     {!lista.length&&<div style={{color:C.faint,fontSize:12.5,lineHeight:1.5}}>Cada unidade ou lote tem identificação, tipologia, área, preço, moeda e o próprio fluxo (sinal, mensais, reforços, chaves e saldo a financiar). As disponíveis aparecem no site, sem o fluxo.</div>}
     {lista.map((u,i)=>{
@@ -19740,7 +19740,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
 
   const campo=(label,valor,chave,opts)=><select value={valor} onChange={e=>setF({...f,[chave]:e.target.value})}
     style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
-      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:9,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
     <option value="">{label}</option>
     {opts.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
@@ -19785,7 +19785,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
             O contador ao lado do botão avisa quando algum ficou ligado. */}
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={()=>setFiltrosAbertos(a=>!a)}
-            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
             <Icon n="columns" size={13}/>Filtros
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
@@ -19880,13 +19880,13 @@ function CampoMoeda({valor,onChange,placeholder="0,00",isMobile,moeda="BRL"}){
     const digitos=e.target.value.replace(/\D/g,"").slice(0,12);
     onChange(digitos===""?"":Number(digitos)/100);
   }
-  return <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"0 11px"}}>
+  return <div style={{display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px"}}>
     <span style={{color:C.faint,fontSize:14,fontWeight:600,flexShrink:0}}>{moeda==="USD"?"US$":"R$"}</span>
     <input value={texto} onChange={digitou} inputMode="numeric" placeholder={placeholder}
       style={{flex:1,minWidth:0,border:"none",outline:"none",background:"transparent",fontSize:16,padding:"10px 0",color:C.ink,fontFamily:MONO,fontWeight:600}}/>
   </div>;
 }
-const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
+const entrada={width:"100%",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 11px",outline:"none",background:C.surface,color:C.ink,fontFamily:FONT};
 
 /* Tela de Portais (24/09/2026, só gestor): os dois endereços que a
    imobiliária cola no painel de cada portal — o do FEED (o portal lê os
@@ -19907,8 +19907,8 @@ function CopiarEndereco({url,rotulo:rot}){
   return <div>
     {rot&&<div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.4,marginBottom:4}}>{rot}</div>}
     <div style={{display:"flex",gap:6,alignItems:"stretch"}}>
-      <input readOnly value={url} onFocus={e=>e.target.select()} style={{flex:1,minWidth:0,fontFamily:MONO,fontSize:11.5,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",outline:"none"}}/>
-      <button onClick={copiar} style={{flexShrink:0,border:"none",borderRadius:9,background:ok?C.greenDeep:C.green,color:"#fff",fontSize:12.5,fontWeight:600,padding:"0 13px",cursor:"pointer",minHeight:36}}>{ok?"Copiado":"Copiar"}</button>
+      <input readOnly value={url} onFocus={e=>e.target.select()} style={{flex:1,minWidth:0,fontFamily:MONO,fontSize:11.5,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",outline:"none"}}/>
+      <button onClick={copiar} style={{flexShrink:0,border:"none",borderRadius:10,background:ok?C.greenDeep:C.green,color:"#fff",fontSize:12.5,fontWeight:600,padding:"0 13px",cursor:"pointer",minHeight:36}}>{ok?"Copiado":"Copiar"}</button>
     </div>
   </div>;
 }
@@ -20041,24 +20041,24 @@ function TelaPortais({acoes,isMobile,aoFechar,aoAbrirProduto}){
 /* A miniatura de cada modelo no cartão — um esboço, não uma foto: diz de
    relance se o modelo é claro ou escuro e como a página se organiza. */
 function MiniaturaModelo({id}){
-  const base={height:78,borderRadius:8,border:`1px solid ${C.line}`,position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:8,gap:5,boxSizing:"border-box"};
+  const base={height:78,borderRadius:10,border:`1px solid ${C.line}`,position:"relative",overflow:"hidden",display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:8,gap:5,boxSizing:"border-box"};
   if(id==="bairros") return <div aria-hidden="true" style={{...base,background:"#F3F4F6"}}>
     <div style={{height:10,width:"55%",background:"#0D0F12",borderRadius:3}}/>
-    <div style={{height:34,borderRadius:7,background:"#0D0F12",backgroundImage:"radial-gradient(rgba(255,255,255,.2) 1px,transparent 1px)",backgroundSize:"8px 8px",display:"flex",gap:4,alignItems:"center",padding:"0 6px"}}>
-      {[0,1,2].map(k=><span key={k} style={{width:18,height:7,borderRadius:9,background:k===1?C.green:"rgba(255,255,255,.3)"}}/>)}<span style={{marginLeft:"auto",width:26,height:22,borderRadius:5,background:"#fff"}}/></div></div>;
+    <div style={{height:34,borderRadius:9,background:"#0D0F12",backgroundImage:"radial-gradient(rgba(255,255,255,.2) 1px,transparent 1px)",backgroundSize:"8px 8px",display:"flex",gap:4,alignItems:"center",padding:"0 6px"}}>
+      {[0,1,2].map(k=><span key={k} style={{width:18,height:7,borderRadius:10,background:k===1?C.green:"rgba(255,255,255,.3)"}}/>)}<span style={{marginLeft:"auto",width:26,height:22,borderRadius:5,background:"#fff"}}/></div></div>;
   if(id==="editorial") return <div aria-hidden="true" style={{...base,background:"#0A0B0D",backgroundImage:"linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)",backgroundSize:"14px 14px"}}>
     <div style={{height:9,width:"70%",background:"#EDEFF2",borderRadius:3}}/>
     {[0,1,2].map(k=><div key={k} style={{height:1,background:"rgba(255,255,255,.25)",marginTop:6}}/>)}</div>;
   if(id==="institucional") return <div aria-hidden="true" style={{...base,background:"#F4F5F4",padding:0,justifyContent:"flex-start",gap:0}}>
     <div style={{height:13,background:"#fff",display:"flex",alignItems:"center",gap:4,padding:"0 6px",borderBottom:"1px solid #E6E9E7"}}>
-      <span style={{width:14,height:5,borderRadius:2,background:C.greenDeep}}/>{[0,1,2].map(k=><span key={k} style={{width:10,height:3,borderRadius:2,background:"#C9CFCC"}}/>)}<span style={{marginLeft:"auto",width:18,height:6,borderRadius:9,background:C.green}}/></div>
-    <div style={{margin:"5px 6px 0",height:36,borderRadius:7,background:"linear-gradient(180deg,#8A9590,#3B4743)",display:"flex",alignItems:"flex-end",padding:5,gap:3}}>
+      <span style={{width:14,height:5,borderRadius:2,background:C.greenDeep}}/>{[0,1,2].map(k=><span key={k} style={{width:10,height:3,borderRadius:2,background:"#C9CFCC"}}/>)}<span style={{marginLeft:"auto",width:18,height:6,borderRadius:10,background:C.green}}/></div>
+    <div style={{margin:"5px 6px 0",height:36,borderRadius:9,background:"linear-gradient(180deg,#8A9590,#3B4743)",display:"flex",alignItems:"flex-end",padding:5,gap:3}}>
       <span style={{width:"45%",height:5,borderRadius:2,background:"#fff"}}/><span style={{width:14,height:6,borderRadius:2,background:C.green}}/></div>
     <div style={{margin:"-6px 12px 0",height:12,borderRadius:5,background:"#fff",boxShadow:"0 2px 6px rgba(0,0,0,.12)"}}/>
     <div style={{display:"flex",gap:4,margin:"5px 6px 0"}}>{[0,1,2,3].map(k=><span key={k} style={{flex:1,height:9,borderRadius:3,background:"#fff"}}/>)}</div></div>;
   if(id==="lancamento") return <div aria-hidden="true" style={{...base,background:"linear-gradient(180deg,#3A4148,#0A0B0D)"}}>
     <div style={{display:"flex",alignItems:"flex-end",gap:6}}><div style={{height:16,flex:1,background:"#EDEFF2",borderRadius:3}}/>
-      <div style={{width:34,height:26,borderRadius:6,background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.25)"}}/></div></div>;
+      <div style={{width:34,height:26,borderRadius:8,background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.25)"}}/></div></div>;
   return <div aria-hidden="true" style={{...base,background:"#F6F6F3",flexDirection:"row",alignItems:"flex-end"}}>
     {[0,1,2].map(k=><span key={k} style={{flex:1,height:30,borderRadius:5,background:"#E1E3DE"}}/>)}</div>;
 }
@@ -20089,7 +20089,7 @@ function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao,embut
   const linkSite=d.dominio_estado==="ativo"&&d.url_dominio?d.url_dominio:d.url;
   const gratis=d.modelos.filter(m=>!m.premium);
   const premium=d.modelos.filter(m=>m.premium);
-  const botaoVerde={background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38};
+  const botaoVerde={background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer",minHeight:38};
   const linkVerde={color:C.greenMid,fontSize:12.5,fontWeight:600};
 
   const acoesDoModelo=(m)=>{
@@ -20124,9 +20124,9 @@ function ModelosDoSite({d,acoes,aoMudar,aoAtualizar,isMobile,irPara,cartao,embut
       <div style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700}}>Modelo do site</div>
       <span style={{fontSize:11.5,fontWeight:600,color:temCetrolab?C.greenMid:C.faint}}>{temCetrolab?"Cetrolab ativo":"Plano: Clássico"}</span>
     </div>}
-    {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
+    {d.modelo!==d.modelo_no_ar&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:10,padding:"8px 10px",marginBottom:12,lineHeight:1.5}}>
       O modelo escolhido faz parte do Cetrolab, que não está ativo nesta conta. O site continua no ar com o Clássico — volta sozinho ao modelo escolhido quando o Cetrolab for ativado.</div>}
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"8px 10px",marginBottom:12}}>{erro}</div>}
 
     {gratis.map(m=>cartaoModelo(m,true))}
 
@@ -20213,7 +20213,7 @@ function ConteudoDoSite({acoes,isMobile,cartao,embutido,aoResumo}){
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
   if(!f) return erro?<div style={{...cartao,color:C.hot,fontSize:12.5}}>{erro}</div>:null;
-  const entrada={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 12px",fontSize:14,background:C.surface,color:C.ink,fontFamily:"inherit"};
+  const entrada={width:"100%",boxSizing:"border-box",border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 12px",fontSize:14,background:C.surface,color:C.ink,fontFamily:"inherit"};
   const marcado=(id)=>f.equipe.includes(id);
   const alternar=(id)=>setF({...f,equipe:marcado(id)?f.equipe.filter(x=>x!==id):[...f.equipe,id]});
   const mudo=JSON.stringify(f)!==JSON.stringify({sobre:c.sobre,instagram:c.instagram,facebook:c.facebook,youtube:c.youtube,equipe:c.equipe||[],depoimentos:c.depoimentos||[]});
@@ -20247,15 +20247,15 @@ function ConteudoDoSite({acoes,isMobile,cartao,embutido,aoResumo}){
             <div style={{display:"flex",gap:8}}>
               <input value={d.nome} maxLength={60} onChange={e=>setF({...f,depoimentos:f.depoimentos.map((x,k)=>k===n?{...x,nome:e.target.value}:x)})} placeholder="Nome do cliente" style={{...entrada,flex:1}}/>
               <button type="button" onClick={()=>setF({...f,depoimentos:f.depoimentos.filter((_,k)=>k!==n)})} aria-label="Tirar este depoimento"
-                style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,width:42,cursor:"pointer",flexShrink:0}}>×</button></div>
+                style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,width:42,cursor:"pointer",flexShrink:0}}>×</button></div>
             <textarea value={d.texto} maxLength={500} rows={3} onChange={e=>setF({...f,depoimentos:f.depoimentos.map((x,k)=>k===n?{...x,texto:e.target.value}:x)})}
               placeholder="O que o cliente disse, com as palavras dele" style={{...entrada,resize:"vertical"}}/></div>)}
           {f.depoimentos.length<12&&<button type="button" onClick={()=>setF({...f,depoimentos:[...f.depoimentos,{nome:"",texto:""}]})}
-            style={{alignSelf:"flex-start",border:`1px dashed ${C.green}88`,background:C.greenSoft,color:C.greenMid,borderRadius:9,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>+ Adicionar depoimento</button>}
+            style={{alignSelf:"flex-start",border:`1px dashed ${C.green}88`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"9px 13px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>+ Adicionar depoimento</button>}
           <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Use depoimentos de verdade, com a autorização do cliente.</div>
         </div></div>
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:8,padding:"8px 10px",marginTop:12}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"8px 10px",marginTop:12}}>{erro}</div>}
     <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
       <button onClick={salvar} disabled={salvando||!mudo} style={{background:salvando||!mudo?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:salvando||!mudo?"default":"pointer"}}>{salvando?"Salvando…":"Salvar conteúdo"}</button>
       {ok&&<span style={{color:C.greenMid,fontSize:12.5,fontWeight:600}}>{ok}</span>}
@@ -20339,11 +20339,11 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div>
               {rotulo("Endereço do site")}
-              <div style={{display:"flex",alignItems:"center",border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,overflow:"hidden"}}>
+              <div style={{display:"flex",alignItems:"center",border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,overflow:"hidden"}}>
                 <span style={{color:C.faint,fontSize:13,padding:"0 0 0 11px",whiteSpace:"nowrap"}}>{isMobile?"…/imoveis/":base}</span>
                 <input value={f.slug} onChange={e=>setF({...f,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,"")})} style={{...entrada,border:"none",flex:1,minWidth:0,paddingLeft:2}}/>
               </div>
-              {slugMudou&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:8,padding:"8px 10px",marginTop:7,lineHeight:1.5}}>Trocar o endereço faz os links que já foram enviados e os anúncios que apontam para eles pararem de funcionar.</div>}
+              {slugMudou&&<div style={{background:C.amberSoft,color:"#6b561a",fontSize:12,borderRadius:10,padding:"8px 10px",marginTop:7,lineHeight:1.5}}>Trocar o endereço faz os links que já foram enviados e os anúncios que apontam para eles pararem de funcionar.</div>}
             </div>
             <div>
               {rotulo("WhatsApp da imobiliária")}
@@ -20402,7 +20402,7 @@ function TelaSite({acoes,isMobile,aoFechar,irPara}){
                 Depois de criar, pode levar algumas horas para valer. O CETRO confere sozinho a cada 15 minutos.</div>}
               {d.dominio_detalhe&&est!=="ativo"&&<div style={{marginTop:6,opacity:.85}}>{d.dominio_detalhe}</div>}
               {est!=="ativo"&&<button onClick={conferirDominio} disabled={conferindo} style={{marginTop:9,border:`1px solid ${C.line}`,background:C.card,color:C.ink,
-                borderRadius:9,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{conferindo?"Conferindo…":"Conferir agora"}</button>}
+                borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{conferindo?"Conferindo…":"Conferir agora"}</button>}
             </div>;})()}
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:14}}>
             <button onClick={()=>salvar({},f.dominio?"Domínio salvo.":"Domínio removido.")} disabled={salvando} style={{background:salvando?C.faint:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:600,cursor:salvando?"default":"pointer"}}>Salvar domínio</button>
@@ -20509,14 +20509,14 @@ function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
         {[["bairro","Só o bairro"],["rua","Rua, sem número"],["completo","Endereço completo"]].map(([v,t])=>{
           const ativo=(f.exibir_endereco||"bairro")===v;
           return <button key={v} type="button" onClick={()=>setF({...f,exibir_endereco:v})}
-            style={{flex:"1 1 120px",padding:"9px 10px",borderRadius:9,fontSize:12.5,fontWeight:600,cursor:"pointer",
+            style={{flex:"1 1 120px",padding:"9px 10px",borderRadius:10,fontSize:12.5,fontWeight:600,cursor:"pointer",
               border:`1px solid ${ativo?C.green:C.line}`,background:ativo?C.greenSoft:C.card,color:ativo?C.greenDeep:C.sub}}>{t}</button>;})}
       </div>
       <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Só o bairro evita que o cliente vá direto ao proprietário sem passar pela imobiliária.</div>
     </div>
 
     {portal&&salvo&&(portal.bloqueia.length>0||portal.aviso.length>0)
-      ?<div style={{background:portal.bloqueia.length?C.amberSoft:C.card,borderRadius:9,padding:"9px 11px",fontSize:12,lineHeight:1.55,color:"#6b561a"}}>
+      ?<div style={{background:portal.bloqueia.length?C.amberSoft:C.card,borderRadius:10,padding:"9px 11px",fontSize:12,lineHeight:1.55,color:"#6b561a"}}>
           {portal.bloqueia.length>0&&<div><b>Não vai ao portal enquanto faltar:</b> {portal.bloqueia.join(", ")}.</div>}
           {portal.aviso.length>0&&<div style={{color:C.sub,marginTop:portal.bloqueia.length?4:0}}><b>Melhora o anúncio:</b> {portal.aviso.join(", ")}.</div>}
           <div style={{color:C.faint,fontSize:11,marginTop:4}}>Conferido no último salvamento.</div>
@@ -20833,7 +20833,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         {secao("local","Localização",[f.bairro,f.cidade&&(f.cidade+(f.uf?` - ${f.uf}`:""))].filter(Boolean).join(" · "),<React.Fragment>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr auto":"1fr auto 2fr",gap:10,alignItems:"end"}}>
             <div>{rotulo("CEP")}<input value={f.cep||""} onChange={e=>{setCepMsg("");setF({...f,cep:e.target.value.replace(/\D/g,"").slice(0,8)});}} onBlur={()=>{if(String(f.cep||"").length===8&&!f.cidade)buscarCep();}} inputMode="numeric" placeholder="00000000" style={entrada}/></div>
-            <button type="button" onClick={buscarCep} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,padding:"11px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Buscar CEP</button>
+            <button type="button" onClick={buscarCep} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"11px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Buscar CEP</button>
             {!isMobile&&<div style={{color:C.faint,fontSize:11.5,paddingBottom:12}}>{cepMsg||"Preenche rua, bairro e cidade sozinho."}</div>}
           </div>
           {isMobile&&cepMsg&&<div style={{color:C.faint,fontSize:11.5,marginTop:-6}}>{cepMsg}</div>}
@@ -20902,7 +20902,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
               {comAviso.map(({m,i})=><div key={m.id}><b>Foto {i+1}{i===0?" (capa)":""}:</b> {m.avisos.map(a=>a.texto).join(" · ")}</div>)}
               {sug&&<div style={{marginTop:comAviso.length?7:0,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                 <span>A foto {fotos.indexOf(sug)+1} parece uma capa melhor.</span>
-                <button onClick={()=>usarComoCapa(sug)} style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 11px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar como capa</button>
+                <button onClick={()=>usarComoCapa(sug)} style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"6px 11px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar como capa</button>
               </div>}
             </div>;})()}
           <label style={{display:"inline-flex",alignItems:"center",gap:7,border:`1px dashed ${C.green}66`,background:C.greenSoft,color:C.greenMid,borderRadius:10,padding:"10px 14px",fontSize:13,fontWeight:600,cursor:subindo?"default":"pointer"}}>
@@ -20949,14 +20949,14 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
             {num("comissao_pct","6",aluguel?"Comissão do aluguel (%)":"Comissão da venda (%)","decimal")}
             <div>{rotulo("Parte do corretor (%)")}<input value={f.comissao_corretor_pct??""} onChange={set("comissao_corretor_pct")} inputMode="decimal" placeholder={padrao!=null?String(padrao):"Ex.: 50"} style={entrada}/></div>
           </div>
-          {comissao!=null&&<div style={{background:C.surface,borderRadius:9,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.6}}>
+          {comissao!=null&&<div style={{background:C.surface,borderRadius:10,padding:"9px 11px",fontSize:12,color:C.sub,lineHeight:1.6}}>
             Comissão total: <b style={{color:C.ink}}>{fmtMoeda(comissao)}</b>{aluguel&&"/mês"}
             {partCorretor!=null&&partCorretor>=0&&partCorretor<=100&&<React.Fragment><br/>
               Imobiliária ({Math.round((100-partCorretor)*100)/100}%): {fmtMoeda(comissao*(100-partCorretor)/100)} · Corretor ({partCorretor}%): <b style={{color:C.greenDeep}}>{fmtMoeda(comissao*partCorretor/100)}</b></React.Fragment>}
           </div>}
           {supervisor&&partCorretor!=null&&partCorretor!==padrao&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,color:C.sub}}>
             <span>{padrao==null?"A conta ainda não tem uma divisão padrão.":`O padrão da conta é ${padrao}% para o corretor.`}</span>
-            <button type="button" onClick={definirPadrao} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:8,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar {partCorretor}% como padrão</button>
+            <button type="button" onClick={definirPadrao} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar {partCorretor}% como padrão</button>
           </div>}
           {avisoPadrao&&<div style={{color:C.faint,fontSize:11.5}}>{avisoPadrao}</div>}
           <div>{rotulo("Observações internas")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Ex.: dono aceita proposta, visita só com horário marcado" style={{...entrada,resize:"vertical"}}/>
@@ -20967,7 +20967,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
           ?<UnidadesDoImovel produtoId={id} acoes={acoes} isMobile={isMobile} moedaPadrao={f.moeda}/>
           :<div style={{color:C.faint,fontSize:12.5,border:`1px dashed ${C.line}`,borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",background:C.card}}>
             <span style={{flex:"1 1 200px"}}>As unidades e o fluxo de pagamento são cadastrados depois de salvar como {CATEGORIAS_IMOVEL[f.categoria]}.</span>
-            <button type="button" disabled={salvando} onClick={salvar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar e cadastrar as unidades"}</button>
+            <button type="button" disabled={salvando} onClick={salvar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar e cadastrar as unidades"}</button>
           </div>)}
 
         <SecaoPortalDoProduto f={f} setF={setF} portal={portal} supervisor={supervisor} salvo={!!id} isMobile={isMobile}/>
@@ -21141,14 +21141,14 @@ function PainelRemocao({alvo,candidatos,onConfirmar,onCancelar,isMobile}){
         {alvo.leads_abertos} lead(s) em aberto — para onde vão?
       </div>
       <select value={destino} onChange={e=>setDestino(e.target.value)}
-        style={{width:"100%",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",marginBottom:12,background:C.card,color:C.ink,outline:"none"}}>
+        style={{width:"100%",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",marginBottom:12,background:C.card,color:C.ink,outline:"none"}}>
         <option value="">Voltar para a fila da catraca</option>
         {candidatos.map(p=><option key={p.id} value={p.id}>Passar para {p.name}</option>)}
       </select>
     </React.Fragment>}
     <div style={{display:"flex",gap:8}}>
-      <button onClick={()=>onConfirmar(destino)} style={{flex:1,background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Confirmar remoção</button>
-      <button onClick={onCancelar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"10px 16px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+      <button onClick={()=>onConfirmar(destino)} style={{flex:1,background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Confirmar remoção</button>
+      <button onClick={onCancelar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"10px 16px",fontSize:13,cursor:"pointer"}}>Cancelar</button>
     </div>
   </div>;
 }
@@ -21180,14 +21180,14 @@ function LinkNovaSenha({dados,isMobile,aoFechar}){
       Vale por <b>{dados.horas} horas</b> e só pode ser usado uma vez.
     </div>
     <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-      <div style={{flex:1,minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:9,
+      <div style={{flex:1,minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
         padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{dados.link}</div>
       <div style={{display:"flex",gap:7,flexShrink:0}}>
         <button onClick={copiar} style={{flex:isMobile?1:"none",background:copiado?C.card:C.greenDeep,
-          color:copiado?C.greenMid:"#fff",border:copiado?`1px solid ${C.green}55`:"none",borderRadius:9,
+          color:copiado?C.greenMid:"#fff",border:copiado?`1px solid ${C.green}55`:"none",borderRadius:10,
           padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar recado"}</button>
         <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,
-          borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Fechar</button>
+          borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Fechar</button>
       </div>
     </div>
   </div>;
@@ -21226,7 +21226,7 @@ function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
   };
   const candidatos=(users||[]).filter(u=>u.status==="ativo");
   const campo={width:"100%",boxSizing:"border-box",marginTop:5,marginBottom:9,fontSize:isMobile?16:13,
-    border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+    border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"};
 
   return <div style={{background:C.card,border:`1px solid ${C.amber}55`,borderRadius:14,padding:isMobile?13:16}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
@@ -21239,11 +21239,11 @@ function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
     </div>
     {!autonomo&&!aberto&&
       <button onClick={()=>setAberto(true)}
-        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
         Converter para autônomo</button>}
     {autonomo&&
       <button onClick={paraImobiliaria} disabled={enviando}
-        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+        style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
         {enviando?"Convertendo…":"Converter para imobiliária"}</button>}
     {!autonomo&&aberto&&<div style={{marginTop:8}}>
       <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Quem é o corretor titular?</label>
@@ -21256,10 +21256,10 @@ function TipoDaContaCard({acoes,org,users,isMobile,aoMudar}){
       </div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <button onClick={()=>donoId&&converter({tipo:"autonomo",dono_user_id:donoId})} disabled={!donoId||enviando}
-          style={{background:donoId?C.green:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:donoId?"pointer":"default"}}>
+          style={{background:donoId?C.green:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:donoId?"pointer":"default"}}>
           {enviando?"Convertendo…":"Confirmar conversão"}</button>
         <button onClick={()=>{setAberto(false);setDonoId("");setErro("");}}
-          style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          style={{background:"transparent",color:C.faint,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
           Cancelar</button>
       </div>
     </div>}
@@ -21290,8 +21290,8 @@ function PermissoesDoCorretor({u,acoes,aoSalvar,aoFechar}){
       <input type="checkbox" checked={marcadas.has(p.chave)} onChange={()=>alternar(p.chave)} style={{width:16,height:16}}/>{p.nome}</label>)}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
     <div style={{display:"flex",gap:7,marginTop:9}}>
-      <button onClick={salvar} disabled={ocupado||!lista} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{ocupado?"Salvando…":"Salvar"}</button>
-      <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+      <button onClick={salvar} disabled={ocupado||!lista} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{ocupado?"Salvando…":"Salvar"}</button>
+      <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
     </div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:7}}>Vale no próximo clique dele; para o menu mudar, ele recarrega a página.</div>
   </div>;
@@ -21307,13 +21307,13 @@ function EstruturaDaEquipe({isMobile,ehGestor}){
   const fazer=async(fn)=>{setErro(""); try{ const r=await fn(); setD(r); esquecerEstrutura(r); setNovo(null); setEditando(null);}catch(e){setErro(e.message);} };
   if(!d) return null;
   const tipoNome={diretoria:"Diretoria",gerencia:"Gerência",subgerencia:"Subgerência",equipe:"Equipe",outro:"Outro"};
-  const ent={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:8,padding:"7px 9px",color:C.ink,outline:"none"};
+  const ent={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"7px 9px",color:C.ink,outline:"none"};
   const papel={adm:"gestor(a)",sdr:"atendente",corretor:"corretor(a)"};
   const form=(v,set,salvar,cancelar)=><div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",margin:"6px 0"}}>
     <input autoFocus aria-label="Nome do nível" value={v.nome} onChange={e=>set({...v,nome:e.target.value})} placeholder="Ex.: Gerência Petrolina" style={{...ent,flex:"1 1 180px"}}/>
     <select aria-label="Tipo do nível" value={v.tipo||""} onChange={e=>set({...v,tipo:e.target.value})} style={ent}><option value="">Tipo (opcional)</option>{d.tipos.map(t=><option key={t} value={t}>{tipoNome[t]}</option>)}</select>
     <select aria-label="Fica dentro de" value={v.pai_id||""} onChange={e=>set({...v,pai_id:e.target.value})} style={ent}><option value="">No topo</option>{d.niveis.filter(n=>n.id!==v.id).map(n=><option key={n.id} value={n.id}>dentro de {n.nome}</option>)}</select>
-    <button onClick={salvar} style={{background:C.green,color:"#fff",border:"none",borderRadius:8,padding:"8px 12px",fontWeight:700,cursor:"pointer"}}>Salvar</button>
+    <button onClick={salvar} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"8px 12px",fontWeight:700,cursor:"pointer"}}>Salvar</button>
     <button onClick={cancelar} style={{background:"none",border:"none",color:C.faint,cursor:"pointer"}}>cancelar</button></div>;
   const arvore=(pai,nivelProf)=>d.niveis.filter(n=>(n.pai_id||null)===pai).map(n=><div key={n.id} style={{marginLeft:nivelProf?16:0,borderLeft:nivelProf?`2px solid ${C.line}`:"none",paddingLeft:nivelProf?10:0,marginTop:8}}>
     {editando&&editando.id===n.id?form(editando,setEditando,()=>fazer(()=>api(`/estrutura/niveis/${n.id}`,{method:"PATCH",body:editando})),()=>setEditando(null))
@@ -21332,7 +21332,7 @@ function EstruturaDaEquipe({isMobile,ehGestor}){
     {!d.niveis.length&&!novo&&<div style={{color:C.sub,fontSize:12.5}}>Nenhum nível criado.</div>}
     {arvore(null,0)}
     {novo&&form(novo,setNovo,()=>fazer(()=>api("/estrutura/niveis",{method:"POST",body:novo})),()=>setNovo(null))}
-    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:""})} style={{marginTop:10,border:`1px solid ${C.green}66`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{d.niveis.length?"+ Novo nível no topo":"Criar primeiro nível"}</button>}
+    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:""})} style={{marginTop:10,border:`1px solid ${C.green}66`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{d.niveis.length?"+ Novo nível no topo":"Criar primeiro nível"}</button>}
     <div style={{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
       <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:6}}>Pessoas</div>
       {d.pessoas.map(p=><div key={p.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"6px 0",borderTop:`1px solid ${C.line}`}}>
@@ -21412,8 +21412,8 @@ function Equipe({acoes,session,org,isMobile,versao}){
         </div>
       </div>
       {comBotoes&&<div style={{display:"flex",gap:7,flexShrink:0,width:isMobile?"100%":"auto"}}>
-        <button onClick={()=>decidir(u.id,"aprovar")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
-        <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
+        <button onClick={()=>decidir(u.id,"aprovar")} style={{flex:isMobile?1:"none",background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
+        <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
       </div>}
       {comBotoes&&<div style={{width:"100%",color:C.sub,fontSize:11.5,lineHeight:1.4}}>Confira a função antes de aprovar — dá para corrigir no seletor acima.</div>}
       {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:isMobile?1:0,alignItems:"center",flexWrap:"wrap",minWidth:0,width:isMobile?"100%":"auto"}}>
@@ -21421,7 +21421,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
         {/* O banco guarda corretor/sdr/adm; o seletor fala corretor/atendente/gestor.
             Sem essa tradução, quem é sdr aparecia como "Corretor(a)" na caixinha. */}
         {u.status!=="removido"&&<select value={PAPEL_PARA_FORM[u.role]||"corretor"} onChange={e=>trocarFuncao(u.id,e.target.value)} title="Mudar a função"
-          style={{fontSize:isMobile?16:12,fontWeight:600,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 9px",outline:"none",cursor:"pointer"}}>
+          style={{fontSize:isMobile?16:12,fontWeight:600,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 9px",outline:"none",cursor:"pointer"}}>
           <option value="corretor">Corretor(a)</option>
           <option value="atendente">Atendente</option>
           {podeGerir(session)&&<option value="gestor">Gestor(a)</option>}
@@ -21430,18 +21430,18 @@ function Equipe({acoes,session,org,isMobile,versao}){
             conta da pessoa. Enquanto o e-mail não está ligado, é a única saída. */}
         {podeGerir(session)&&u.status!=="removido"&&u.status!=="recusado"&&u.id!==session.id&&
           <button onClick={()=>novaSenha(u)} disabled={gerando===u.id} title="Gerar link para a pessoa criar uma senha nova"
-            style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <Icon n={gerando===u.id?"loader":"link"} size={12} spin={gerando===u.id}/>{gerando===u.id?"Gerando…":"Nova senha"}</button>}
         {podeGerir(session)&&u.role==="corretor"&&u.status==="ativo"&&u.id!==session.id&&
           <button onClick={()=>setPermDe(permDe===u.id?null:u.id)} title="Dar a este corretor uma permissão a mais"
-            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
             <Icon n="key" size={12}/>Permissões{(u.permissoes||[]).length?` (${u.permissoes.length})`:""}</button>}
-        {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
+        {!comBotoes&&u.status==="ativo"&&<button onClick={()=>setRemovendo(removendo===u.id?null:u.id)} style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Remover</button>}
         {!comBotoes&&u.status==="removido"&&<React.Fragment>
-          <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
-          {podeGerir(session)&&<button onClick={()=>apagar(u)} title="Apagar definitivamente" style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar de vez</button>}
+          <button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reativar</button>
+          {podeGerir(session)&&<button onClick={()=>apagar(u)} title="Apagar definitivamente" style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar de vez</button>}
         </React.Fragment>}
-        {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar</button>}
+        {!comBotoes&&u.status==="recusado"&&<button onClick={()=>decidir(u.id,"aprovar")} style={{background:C.surface,color:C.greenMid,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Liberar</button>}
         {/* CONVITE QUE NUNCA VIROU CONTA: sai direto, sem passar por "Remover".
 
             Faltava um caminho aqui, e o buraco não aparecia olhando cada botão
@@ -21455,7 +21455,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
             O que "Remover" protege não existe neste caso. */}
         {!comBotoes&&podeGerir(session)&&(u.status==="pendente"||u.status==="recusado")&&
           <button onClick={()=>apagar(u)} title="Apagar este cadastro — a pessoa nunca confirmou o e-mail"
-            style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,
+            style={{background:C.hotSoft,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,
               padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Apagar cadastro</button>}
       </div>}
     </div>
@@ -21474,8 +21474,8 @@ function Equipe({acoes,session,org,isMobile,versao}){
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><Icon n="link" size={14} color={C.green}/> Link de cadastro da equipe</div>
         <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>Mande este link no grupo. Cada cadastro aparece aqui para você aprovar antes de entrar.</div>
         <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-          <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{CADASTRO_URL}</div>
-          <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:9,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
+          <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{CADASTRO_URL}</div>
+          <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
         </div>
       </div>
 
@@ -21568,7 +21568,7 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
     try{ await acoes.editarEtapa(etapa.id,{sla_minutes:minutos,prazo_acao:acao}); aoSalvo&&aoSalvo(); aoFechar(); }
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
-  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none"};
+  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"};
   return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:80,display:"flex",
     alignItems:isMobile?"flex-end":"center",justifyContent:"center",padding:isMobile?0:20}}>
     <div onClick={e=>e.stopPropagation()} role="dialog" aria-label={"Prazo de "+etapa.name}
@@ -21600,10 +21600,10 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
               <span style={{display:"block",color:C.faint,fontSize:11,lineHeight:1.4,marginTop:1}}>{d}</span></span>
           </button>;})}
       </div>
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:10}}>{erro}</div>}
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",marginTop:10}}>{erro}</div>}
       <div style={{display:"flex",gap:8,marginTop:14,justifyContent:"flex-end"}}>
-        <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
-        <button onClick={salvar} disabled={salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+        <button onClick={aoFechar} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvar} disabled={salvando} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {salvando?"Salvando…":"Salvar"}</button>
       </div>
     </div>
@@ -21633,7 +21633,7 @@ function FormularioDoSite({acoes,isMobile,cartao,titulo,sub,botao}){
   const copiar=(t)=>{try{navigator.clipboard.writeText(t);aviso("Copiado.");}catch{}};
   if(!c) return null;
   const mascara=(t)=>t?t.slice(0,6)+"••••••••••••"+t.slice(-4):"";
-  const caixa={fontFamily:"'IBM Plex Mono',monospace",fontSize:12,background:C.surface,border:`1px solid ${C.line}`,borderRadius:9,padding:"8px 10px",color:C.ink,wordBreak:"break-all",flex:1,minWidth:0};
+  const caixa={fontFamily:"'IBM Plex Mono',monospace",fontSize:12,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 10px",color:C.ink,wordBreak:"break-all",flex:1,minWidth:0};
   const etapas=[];
   for(const p of funis) for(const e of (p.stages||[])) if(e.is_active!==false&&e.is_active!==0) etapas.push({id:e.id,nome:`${p.name} › ${e.name}`});
   return <div style={cartao}>
@@ -21642,7 +21642,7 @@ function FormularioDoSite({acoes,isMobile,cartao,titulo,sub,botao}){
       Para a landing page da imobiliária mandar os leads direto para o CRM. O lead entra como os do anúncio: mesmo telefone vira o mesmo lead (com uma observação nova), e as respostas ficam na ficha.
       {" "}O token diz em qual conta o lead entra. Ele fica visível no código do site, por isso só os sites liberados abaixo conseguem enviar pelo navegador.
     </div>
-    {(erro||ok)&&<div style={{background:erro?C.hotSoft:C.greenSoft,color:erro?C.hot:C.greenDeep,fontSize:12,borderRadius:9,padding:"7px 10px",marginBottom:10}}>{erro||ok}</div>}
+    {(erro||ok)&&<div style={{background:erro?C.hotSoft:C.greenSoft,color:erro?C.hot:C.greenDeep,fontSize:12,borderRadius:10,padding:"7px 10px",marginBottom:10}}>{erro||ok}</div>}
     {!c.existe
       ?<button onClick={gerar} style={botao(true)}>Gerar o token</button>
       :<div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -21724,8 +21724,8 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
   const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?14:16,marginBottom:12};
   const titulo={color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:3};
   const sub={color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:10};
-  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"8px 10px",color:C.ink,outline:"none",width:90};
-  const botao=(ativo)=>({fontSize:12,fontWeight:600,padding:"8px 13px",borderRadius:9,border:"none",cursor:ativo?"pointer":"default",
+  const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none",width:90};
+  const botao=(ativo)=>({fontSize:12,fontWeight:600,padding:"8px 13px",borderRadius:10,border:"none",cursor:ativo?"pointer":"default",
     background:ativo?C.greenDeep:C.surface,color:ativo?"#fff":C.faint});
   const atalhos=[
     ...(autonomo?[]:[["Catraca","transfer","Quem recebe os leads, a ordem da vez e as catracas por produto.",()=>irPara&&irPara("catraca")]]),
@@ -21834,7 +21834,7 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
       {atalhos.map(([t,ic,d,ir])=><button key={t} onClick={ir}
         style={{display:"flex",alignItems:"flex-start",gap:10,textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
           padding:"12px 13px",cursor:"pointer",fontFamily:FONT}}>
-        <span style={{width:30,height:30,borderRadius:9,background:C.greenSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        <span style={{width:30,height:30,borderRadius:10,background:C.greenSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
           <Icon n={ic} size={15} color={C.greenDeep}/></span>
         <span style={{minWidth:0,flex:1}}><span style={{display:"block",color:C.ink,fontSize:13,fontWeight:600}}>{t}</span>
           <span style={{display:"block",color:C.faint,fontSize:11.5,lineHeight:1.45,marginTop:2}}>{d}</span></span>
@@ -21995,7 +21995,7 @@ function AnunciosDoMeta({acoes,isMobile}){
   }
   const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14};
   const botaoFace=(texto)=><button onClick={conectar} disabled={indo||!d.configurado}
-    style={{display:"inline-flex",alignItems:"center",gap:10,border:"none",borderRadius:8,minHeight:44,padding:"0 18px",
+    style={{display:"inline-flex",alignItems:"center",gap:10,border:"none",borderRadius:10,minHeight:44,padding:"0 18px",
       background:d.configurado?AZUL_FACEBOOK:C.faint,color:"#fff",fontFamily:"Helvetica, Arial, sans-serif",fontSize:14.5,fontWeight:700,
       cursor:d.configurado&&!indo?"pointer":"default",width:isMobile?"100%":"auto",justifyContent:"center"}}>
     <LogoFacebook size={22} cor="#fff"/>
@@ -22076,7 +22076,7 @@ function AnunciosDoMeta({acoes,isMobile}){
                   Último problema ({dataHoraCurta(p.ultimo_erro_em)}): {p.ultimo_erro}. Se continuar, clique em Conectar outra página e escolha esta de novo.
                 </div>}
               </div>
-              <button onClick={()=>desconectar(p)} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.sub,fontSize:12.5,cursor:"pointer",flexShrink:0}}>Desconectar</button>
+              <button onClick={()=>desconectar(p)} style={{border:`1px solid ${C.line}`,borderRadius:10,minHeight:36,padding:"0 12px",background:C.card,color:C.sub,fontSize:12.5,cursor:"pointer",flexShrink:0}}>Desconectar</button>
             </div>)}
           </div>
           <AvisosDaMeta avisos={d.avisos} paginas={d.paginas} aoAtualizar={carregar}/>
@@ -22179,7 +22179,7 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara,setPeriodo}){
   if(erro) return <div style={cartao}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
     <div style={{color:C.sub,fontSize:12.5,lineHeight:1.55}}>{erro}</div>
-    {irPara&&<button onClick={irConfig} style={{marginTop:9,border:`1px solid ${C.line}`,borderRadius:9,minHeight:36,padding:"0 12px",background:C.card,color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir Anúncios do Meta</button>}
+    {irPara&&<button onClick={irConfig} style={{marginTop:9,border:`1px solid ${C.line}`,borderRadius:10,minHeight:36,padding:"0 12px",background:C.card,color:C.greenDeep,fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Abrir Anúncios do Meta</button>}
   </div>;
   if(!d) return <div style={{...cartao,color:C.faint,fontSize:12.5}}>Lendo os anúncios na Meta…</div>;
   const t=d.total;
@@ -22190,7 +22190,7 @@ function DesempenhoDosAnuncios({acoes,f,isMobile,irPara,setPeriodo}){
   return <div style={cartao}>
     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:7,flex:"1 1 auto"}}><LogoFacebook size={16}/>Desempenho dos anúncios</div>
-      <button onClick={()=>ler(true)} disabled={lendo} style={{border:`1px solid ${C.line}`,borderRadius:9,minHeight:34,padding:"0 12px",background:C.card,color:C.sub,fontSize:12,cursor:lendo?"default":"pointer"}}>
+      <button onClick={()=>ler(true)} disabled={lendo} style={{border:`1px solid ${C.line}`,borderRadius:10,minHeight:34,padding:"0 12px",background:C.card,color:C.sub,fontSize:12,cursor:lendo?"default":"pointer"}}>
         {lendo?"Lendo…":"Atualizar da Meta"}</button>
     </div>
     <div style={{color:C.faint,fontSize:11.5,marginBottom:12,lineHeight:1.5}}>
@@ -22423,7 +22423,7 @@ function IdentidadeConfig({acoes,isMobile}){
   if(!salvo) return <div style={{color:C.faint,fontSize:12.5}}>{erro||"Carregando…"}</div>;
 
   const cartao={background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:16,marginBottom:14};
-  const botao=(ativo)=>({background:ativo?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
+  const botao=(ativo)=>({background:ativo?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
     padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:ativo?"pointer":"default"});
 
   return <div>
@@ -22451,7 +22451,7 @@ function IdentidadeConfig({acoes,isMobile}){
           <button onClick={()=>arquivo.current&&arquivo.current.click()} disabled={salvando} style={botao(!salvando)}>
             {logoPrevia?"Trocar a logo":"Escolher a logo"}</button>
           {logoPrevia&&<button onClick={()=>{setLogoNova(null);setTirando(true);setFeito("");}} disabled={salvando}
-            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+            style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
               padding:"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Tirar</button>}
         </div>
       </div>
@@ -22472,9 +22472,9 @@ function IdentidadeConfig({acoes,isMobile}){
       </div>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <input type="color" value={cor} onChange={e=>{setCor(e.target.value.toUpperCase());setFeito("");}}
-          style={{width:44,height:38,padding:0,border:`1px solid ${C.line}`,borderRadius:9,background:C.card,cursor:"pointer"}}/>
+          style={{width:44,height:38,padding:0,border:`1px solid ${C.line}`,borderRadius:10,background:C.card,cursor:"pointer"}}/>
         <input value={cor} onChange={e=>{setCor(e.target.value.toUpperCase());setFeito("");}} placeholder="#0A3D30"
-          style={{width:110,fontFamily:MONO,fontSize:12.5,padding:"9px 10px",borderRadius:9,
+          style={{width:110,fontFamily:MONO,fontSize:12.5,padding:"9px 10px",borderRadius:10,
             border:`1px solid ${C.line}`,background:C.card,color:C.ink}}/>
         <span style={{color:C.faint,fontSize:11.5}}>ou cole a cor exata da sua marca</span>
       </div>
@@ -22490,9 +22490,9 @@ function IdentidadeConfig({acoes,isMobile}){
       {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,lineHeight:1.5,borderRadius:10,padding:"10px 12px",marginBottom:11}}>
         {erro}
         {sugestao&&<div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{width:26,height:26,borderRadius:8,background:sugestao,border:`1px solid ${C.line}`,flexShrink:0}}/>
+          <span style={{width:26,height:26,borderRadius:10,background:sugestao,border:`1px solid ${C.line}`,flexShrink:0}}/>
           <button onClick={()=>{setCor(sugestao);setErro("");setSugestao("");}}
-            style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,
+            style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,
               padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
             Usar {sugestao}, que é a sua cor mais escura</button>
         </div>}
@@ -22503,7 +22503,7 @@ function IdentidadeConfig({acoes,isMobile}){
         <button onClick={salvarTudo} disabled={!mudou||salvando} style={{...botao(mudou&&!salvando),padding:"11px 20px",fontSize:13.5}}>
           {salvando?"Salvando…":"Salvar alterações"}</button>
         {mudou&&!salvando&&<button onClick={desfazer}
-          style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+          style={{background:"transparent",color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
             padding:"11px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Descartar</button>}
         <span style={{color:mudou?C.amber:C.faint,fontSize:11.5,fontWeight:mudou?600:400}}>
           {mudou?"Você tem alterações não salvas.":"Nada mudou desde a última vez que você salvou."}</span>
@@ -22552,7 +22552,7 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,
   useEffect(()=>{ fim.current&&fim.current.scrollIntoView({block:"nearest",behavior:"smooth"}); },[]);
   const rotulo={color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5};
   const campo={width:"100%",boxSizing:"border-box",marginTop:4,fontSize:isMobile?16:13,
-    border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+    border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"};
   return <React.Fragment>
     <div style={{color:C.greenDeep,fontSize:13,fontWeight:700,marginBottom:9}}>
       {novo?"Nova mensagem":"Editando a mensagem"}</div>
@@ -22564,13 +22564,13 @@ function FormMensagem({novo,titulo,setTitulo,corpo,setCorpo,etapas=[],setEtapas,
       placeholder="Oi {nome}, tudo bem?" style={{...campo,marginBottom:4,resize:"vertical",fontFamily:FONT}}/>
     <div style={{color:C.faint,fontSize:10.5,marginBottom:10}}>{corpo.length}/1200</div>
     {setEtapas&&<EscolherEtapas pipelines={pipelines} etapas={etapas} setEtapas={setEtapas} rotulo={rotulo}/>}
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:10}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",marginBottom:10}}>{erro}</div>}
     <div ref={fim} style={{display:"flex",gap:7,flexWrap:"wrap"}}>
       <button onClick={aoSalvar} disabled={salvando||!titulo.trim()||!corpo.trim()}
-        style={{background:titulo.trim()&&corpo.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,
+        style={{background:titulo.trim()&&corpo.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,
           padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
       <button onClick={aoCancelar} disabled={salvando}
-        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
     </div>
   </React.Fragment>;
 }
@@ -22621,9 +22621,9 @@ function CreditoDeIA({acoes,isMobile,cartao}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Crédito de IA</span>
       <span style={{color:cor,fontSize:18,fontWeight:700,fontFamily:DISPLAY,letterSpacing:-.3}}>{fmtReais2(d.saldo)}</span>
     </div>
-    {d.acabou&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
+    {d.acabou&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
       O crédito acabou: a IA parou de responder os clientes. Compre um pacote para ela voltar.</div>}
-    {d.baixo&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,borderRadius:9,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
+    {d.baixo&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:12,borderRadius:10,padding:"8px 10px",margin:"6px 0 8px",lineHeight:1.5}}>
       O crédito está acabando. Quando chegar a zero, a IA para de responder.</div>}
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:10}}>
       Cada resposta da IA aos clientes gasta um pouco do saldo. Nos últimos 30 dias: <b>{fmtReais2(d.gasto_30d)}</b> em {fmtNum(d.respostas_30d)} uso(s) da IA
@@ -22646,19 +22646,19 @@ function CreditoDeIA({acoes,isMobile,cartao}){
         </div>
         {d.provedor!=="pagarme"&&d.pede_cpf&&<input value={doc} onChange={e=>setDoc(e.target.value)} placeholder="CPF ou CNPJ de quem paga"
           inputMode="numeric" style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
-            background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",marginBottom:8}}/>}
+            background:C.card,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",marginBottom:8}}/>}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {(d.provedor!=="pagarme"||d.cartao)&&<button onClick={()=>comprar(confirmar)} disabled={!!comprando}
-            style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:isMobile?"12px 16px":"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:isMobile?"12px 16px":"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
             {comprando?"Cobrando…":d.provedor==="pagarme"?"Confirmar e cobrar":"Gerar a fatura"}</button>}
           <button onClick={()=>setConfirmar(null)} disabled={!!comprando}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:isMobile?"12px 16px":"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:isMobile?"12px 16px":"9px 15px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
         </div>
       </div>}
     </React.Fragment>
     :<div style={{color:C.faint,fontSize:11.5}}>Quem compra crédito é o titular da conta.</div>}
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:9}}>{erro}</div>}
-    {ok&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,borderRadius:9,padding:"8px 10px",marginTop:9}}>{ok}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",marginTop:9}}>{erro}</div>}
+    {ok&&<div style={{background:C.greenSoft,color:C.greenDeep,fontSize:12,borderRadius:10,padding:"8px 10px",marginTop:9}}>{ok}</div>}
     {d.movimentos&&d.movimentos.length>0&&<div style={{marginTop:11}}>
       <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:4}}>ÚLTIMAS ENTRADAS</div>
       {d.movimentos.map(m=><div key={m.id} style={{display:"flex",gap:8,fontSize:11.5,color:C.sub,padding:"4px 0",borderTop:`1px solid ${C.line}`}}>
@@ -22741,7 +22741,7 @@ function RoboConfig({acoes,session,isMobile}){
     {cfg.ferramenta&&cfg.ferramenta.origem!=="retirado"&&<FerramentasDaConta acoes={acoes} isMobile={isMobile} so="autoatendimento" aoMudar={carregar}/>}
   </div>;
   const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,
-    borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none",width:92};
+    borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none",width:92};
   const cartao=(filhos,extra)=><div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,
     padding:isMobile?13:16,marginBottom:14,...extra}}>{filhos}</div>;
 
@@ -22772,7 +22772,7 @@ function RoboConfig({acoes,session,isMobile}){
         Sem nenhuma orientação, ela só acolhe, entende o que a pessoa procura e diz que a equipe dá continuidade.
       </div>
 
-      {!cfg.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,
+      {!cfg.configurada&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,
         padding:"8px 10px",marginBottom:10,lineHeight:1.5}}>
         A IA não está ligada nesta instalação — sem ela o robô não atende, mesmo ligado aqui.</div>}
 
@@ -22910,7 +22910,7 @@ function RoboConfig({acoes,session,isMobile}){
                 setErro(""); setSalvando(true);
                 try{ setEnsino((await acoes.roboEnsinar(t)).linhas); }catch(e){ setErro(e.message); } finally{ setSalvando(false); }
               }}
-              style={{textAlign:"left",background:C.card,border:`1px dashed ${C.line}`,borderRadius:9,
+              style={{textAlign:"left",background:C.card,border:`1px dashed ${C.line}`,borderRadius:10,
                 padding:isMobile?"10px 11px":"7px 10px",fontSize:11.5,color:C.sub,cursor:"pointer",lineHeight:1.45}}>
               <b style={{color:C.greenDeep}}>+</b> {t}</button>)}
           </div>
@@ -22924,12 +22924,12 @@ function RoboConfig({acoes,session,isMobile}){
         <textarea value={novaLinha} onChange={e=>setNovaLinha(e.target.value)} rows={2}
           placeholder="Ex.: Nunca fale o valor do condomínio — diga que o corretor confirma."
           style={{flex:1,minWidth:220,boxSizing:"border-box",fontSize:isMobile?16:12.5,fontFamily:FONT,
-            border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",
+            border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:"9px 11px",
             color:C.ink,outline:"none",resize:"vertical"}}/>
         {vozOrient.ligado&&<div style={{alignSelf:"flex-start"}}><BotaoDitado voz={vozOrient} ocupado={salvando}/></div>}
         <button onClick={ensinar} disabled={!novaLinha.trim()||salvando}
           style={{alignSelf:"flex-start",background:novaLinha.trim()?C.greenDeep:C.faint,color:"#fff",
-            border:"none",borderRadius:9,padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,
+            border:"none",borderRadius:10,padding:isMobile?"12px 16px":"10px 16px",fontSize:12.5,
             fontWeight:700,cursor:novaLinha.trim()?"pointer":"default"}}>Ensinar</button>
         {vozOrient.erro&&<div style={{width:"100%",fontSize:11.5,color:C.hot}}>{vozOrient.erro} Escreva a orientação no campo.</div>}
         {vozOrient.ligado&&<div style={{width:"100%",fontSize:11,color:C.faint}}>Pode falar a orientação no microfone: ela vira texto aqui para você revisar antes de Ensinar.</div>}
@@ -22947,11 +22947,11 @@ function RoboConfig({acoes,session,isMobile}){
         {/* Desligar guarda o texto. A atendente testa uma orientação num fim de
             semana, não gosta, desliga — e não perde o que escreveu. */}
         <button onClick={()=>editarEnsino(e.id,{ativo:!e.ativo})} title={e.ativo?"Desligar":"Ligar"}
-          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,
             padding:isMobile?"8px 11px":"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>
           {e.ativo?"desligar":"ligar"}</button>
         <button onClick={()=>apagarEnsino(e.id)} title="Apagar"
-          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:10,
             padding:isMobile?"8px 11px":"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>×</button>
       </div>)}
     </React.Fragment>)}
@@ -22981,11 +22981,11 @@ function RoboConfig({acoes,session,isMobile}){
           <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>aprendida em {fmtData(e.created_at)}{!e.ativo?" · desligada":""}</div>
         </div>
         <button onClick={()=>editarEnsino(e.id,{ativo:!e.ativo})} title={e.ativo?"Desligar":"Ligar"}
-          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,
             padding:isMobile?"8px 11px":"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>
           {e.ativo?"desligar":"ligar"}</button>
         <button onClick={()=>apagarEnsino(e.id)} title="Apagar"
-          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,
+          style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:10,
             padding:isMobile?"8px 11px":"5px 9px",fontSize:11,fontWeight:600,cursor:"pointer",flexShrink:0}}>×</button>
       </div>)}
     </React.Fragment>)}
@@ -23027,7 +23027,7 @@ function RoboConfig({acoes,session,isMobile}){
             <div key={k}><b style={{color:C.ink}}>{ROTULO_SIMULACAO[k]||k}:</b> {v}</div>)}
         </div>}
         <button onClick={()=>conferido(l.id)}
-          style={{marginTop:8,background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,
+          style={{marginTop:8,background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,
             padding:isMobile?"10px 14px":"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
           Conferi — jogar para a ficha</button>
       </div>)}
@@ -23066,7 +23066,7 @@ function AcoesDaIA({cfg,aoSalvar,acoes,isMobile,cartao}){
       <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:12,color:C.ink,lineHeight:1.45,cursor:"pointer",marginTop:6}}>
         <input type="checkbox" checked={f.abre_formulario} onChange={e=>mexe({abre_formulario:e.target.checked})} style={{marginTop:3}}/>
         <span><b>Mandar a primeira mensagem a quem preenche um formulário</b> <span style={{color:C.faint}}>— site, anúncio da Meta ou portal. Ela escreve na hora, a qualquer hora, dizendo que recebeu o cadastro, e segue a qualificação. Só se ninguém da equipe falou com o cliente ainda, e não com lead que já está com um corretor.</span></span></label>
-      {avisoSite&&<div style={{background:"#FFF6DD",color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginTop:6,lineHeight:1.5}}>O formulário do seu site entregava o lead direto ao corretor da vez. Ele passou a seguir a regra de sempre (atendente da vez ou fila), senão a IA não poderia falar com esses leads.</div>}
+      {avisoSite&&<div style={{background:"#FFF6DD",color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"8px 10px",marginTop:6,lineHeight:1.5}}>O formulário do seu site entregava o lead direto ao corretor da vez. Ele passou a seguir a regra de sempre (atendente da vez ou fila), senão a IA não poderia falar com esses leads.</div>}
       <div style={sub}>EM QUAIS FUNIS OU ETAPAS ELA ATENDE</div>
       <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:6}}>{nada?"Nada marcado: ela atende em todos os funis.":"Ela só fala com leads dos funis marcados ou das etapas marcadas."}</div>
       {pipes.map(p=><div key={p.id} style={{marginBottom:8}}>
@@ -23085,7 +23085,7 @@ function AcoesDaIA({cfg,aoSalvar,acoes,isMobile,cartao}){
         <input type="checkbox" checked={f.observacao} onChange={e=>mexe({observacao:e.target.checked})} style={{marginTop:3}}/>
         <span>Ao se despedir, escrever o resumo do atendimento como observação do lead <span style={{color:C.faint}}>— no formato que as orientações abaixo pedirem.</span></span></label>
       <div style={sub}>QUANDO ELA TERMINA E O CLIENTE QUER SEGUIR, MOVER PARA</div>
-      <select value={f.etapa_final} onChange={e=>mexe({etapa_final:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,width:"100%",maxWidth:420}}>
+      <select value={f.etapa_final} onChange={e=>mexe({etapa_final:e.target.value})} style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,width:"100%",maxWidth:420}}>
         <option value="">Não mover (a equipe move)</option>
         {[...new Set(todasEtapas.map(e=>e.funil))].map(fn=><optgroup key={fn} label={fn}>{todasEtapas.filter(e=>e.funil===fn).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>)}
       </select>
@@ -23118,17 +23118,17 @@ function FichasDeProduto({acoes,isMobile,cartao}){
       else await acoes.criarFichaIA({nome:edit.nome,texto:edit.texto,produto_id:edit.produto_id||null});
       setEdit(null); carregar(); }catch(e){ setErro(e.message); }
   }
-  const campo={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,width:"100%",boxSizing:"border-box",fontFamily:FONT};
+  const campo={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,width:"100%",boxSizing:"border-box",fontFamily:FONT};
   return cartao(<React.Fragment>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
       <Icon n="pin" size={15} color={C.greenMid}/>
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Fichas de produto</span>
-      {!edit&&<button onClick={()=>setEdit({nome:"",texto:"",produto_id:""})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova ficha</button>}
+      {!edit&&<button onClick={()=>setEdit({nome:"",texto:"",produto_id:""})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Nova ficha</button>}
     </div>
     <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6,marginBottom:9}}>
       Uma ficha por empreendimento: localização, diferenciais, o que explicar. A IA conhece todas as fichas ligadas: quando o cliente fala de um produto, ela usa a ficha dele. Ligada a um formulário do anúncio (Marketing → Formulários) ou a uma catraca, a ficha vira o produto principal de quem chega por ali. O que ela pode ou não falar continua sendo o que as orientações dizem.
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"8px 10px",marginBottom:8}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"8px 10px",marginBottom:8}}>{erro}</div>}
     {edit&&<div style={{background:C.surface,borderRadius:11,padding:11,marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>
       <input value={edit.nome} onChange={e=>setEdit({...edit,nome:e.target.value})} maxLength={80} placeholder="Nome (ex.: Residencial Jardins)" style={campo}/>
       <textarea value={edit.texto} onChange={e=>setEdit({...edit,texto:e.target.value})} rows={6} maxLength={4000} placeholder="O que a IA precisa saber: bairro, tipologias, lazer, prazo de entrega, programa de financiamento…" style={{...campo,resize:"vertical",lineHeight:1.5}}/>
@@ -23138,17 +23138,17 @@ function FichasDeProduto({acoes,isMobile,cartao}){
       </select>
       <div style={{color:C.faint,fontSize:10.5}}>Do catálogo vai só o que é público (local, cômodos, áreas, descrição do anúncio) — nunca observações internas, construtora ou valor.</div>
       <div style={{display:"flex",gap:8}}>
-        <button onClick={salvar} disabled={!edit.nome.trim()} style={{background:edit.nome.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar ficha</button>
-        <button onClick={()=>setEdit(null)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvar} disabled={!edit.nome.trim()} style={{background:edit.nome.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Salvar ficha</button>
+        <button onClick={()=>setEdit(null)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
       </div>
     </div>}
     {!lista?<div style={{color:C.faint,fontSize:12}}>Carregando…</div>:!lista.length&&!edit?<div style={{color:C.faint,fontSize:12}}>Nenhuma ficha ainda.</div>:
     lista.map(fc=><div key={fc.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",marginBottom:6,opacity:fc.ativo?1:.55}}>
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1,minWidth:0}}>{fc.nome}{!fc.ativo&&<span style={{color:C.faint,fontSize:10.5}}> · desligada</span>}</span>
-        <button onClick={()=>setEdit({id:fc.id,nome:fc.nome,texto:fc.texto,produto_id:fc.produto_id||""})} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>editar</button>
-        <button onClick={()=>acoes.editarFichaIA(fc.id,{ativo:!fc.ativo}).then(carregar).catch(e=>setErro(e.message))} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>{fc.ativo?"desligar":"ligar"}</button>
-        <button onClick={()=>{ if(window.confirm(`Apagar a ficha “${fc.nome}”? Ela sai dos formulários e catracas em que está.`)) acoes.apagarFichaIA(fc.id).then(carregar).catch(e=>setErro(e.message)); }} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:8,padding:"5px 9px",fontSize:11,cursor:"pointer"}}>×</button>
+        <button onClick={()=>setEdit({id:fc.id,nome:fc.nome,texto:fc.texto,produto_id:fc.produto_id||""})} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>editar</button>
+        <button onClick={()=>acoes.editarFichaIA(fc.id,{ativo:!fc.ativo}).then(carregar).catch(e=>setErro(e.message))} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"5px 10px",fontSize:11,cursor:"pointer"}}>{fc.ativo?"desligar":"ligar"}</button>
+        <button onClick={()=>{ if(window.confirm(`Apagar a ficha “${fc.nome}”? Ela sai dos formulários e catracas em que está.`)) acoes.apagarFichaIA(fc.id).then(carregar).catch(e=>setErro(e.message)); }} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.hot,borderRadius:10,padding:"5px 9px",fontSize:11,cursor:"pointer"}}>×</button>
       </div>
       <div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.5}}>
         {[...fc.formularios.map(x=>"Formulário "+x.nome),...fc.catracas.map(x=>"Catraca "+x.nome)].join(" · ")||"Ainda não está ligada a nenhum formulário nem catraca."}
@@ -23314,7 +23314,7 @@ function RoscaDoFunil({etapas,total,isMobile,escolhida,aoEscolher,vazioTexto}){
         const ativa=sel&&sel.id===f.id;
         return <button key={f.id} onClick={()=>aoEscolher(ativa?null:f.id)}
           style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",cursor:"pointer",
-            background:ativa?C.surface:"transparent",border:"none",borderRadius:8,padding:"5px 7px",
+            background:ativa?C.surface:"transparent",border:"none",borderRadius:10,padding:"5px 7px",
             opacity:sel&&!ativa?.55:1,transition:suave?"opacity .18s ease,background .18s ease":"none"}}>
           <span style={{width:10,height:10,borderRadius:3,background:f.cor,flexShrink:0}}/>
           <span style={{color:C.ink,fontSize:11.5,fontWeight:ativa?700:500,flex:1,minWidth:0,
@@ -23436,7 +23436,7 @@ function BlocoDeTaxa({rotulo,taxa,base,meta,conteudo,estreito}){
   const estado=semBase?"neutro":!temMeta?"neutro":taxa+1e-9>=meta?"ok":"abaixo";
   const cor=estado==="ok"?C.greenDeep:estado==="abaixo"?C.hot:C.ink;
   const fundo=estado==="ok"?C.greenSoft:estado==="abaixo"?C.hotSoft:C.surface;
-  return <div style={{background:estado==="abaixo"?"#fff4ef":"#eef3e8",border:`1px solid ${estado==="abaixo"?"#f2d6cb":"#dce6d6"}`,borderRadius:8,padding:estreito?"6px 8px":"11px 13px",minWidth:0}}>
+  return <div style={{background:estado==="abaixo"?"#fff4ef":"#eef3e8",border:`1px solid ${estado==="abaixo"?"#f2d6cb":"#dce6d6"}`,borderRadius:10,padding:estreito?"6px 8px":"11px 13px",minWidth:0}}>
     {rotulo&&<div style={{color:C.faint,fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.4}}>{rotulo}</div>}
     <div style={{fontFamily:DISPLAY,fontSize:estreito?15:24,fontWeight:700,color:estado==="ok"?"#1f9a5b":estado==="abaixo"?"#d0533f":C.ink,lineHeight:1.2,letterSpacing:-.3}}>{conteudo||fmtTaxa(taxa)}</div>
     {base&&<div style={{color:C.sub,fontSize:10.5}}>{base}</div>}
@@ -23456,7 +23456,7 @@ function MetasDeConversao({pipelineId,linhas,acoes,aoFechar,aoSalvar,isMobile}){
   async function salvar(){ setSalvando(true); setErro("");
     try{ await acoes.salvarMetasConversao(pipelineId,{user_id:quem||"",metas:linhas.map(l=>({stage_id:l.id,anterior:v[l.id]?.anterior===""?null:v[l.id]?.anterior,acumulada:v[l.id]?.acumulada===""?null:v[l.id]?.acumulada}))});
       setOk("Metas salvas."); aoSalvar&&aoSalvar(); }catch(e){setErro(e.message);} finally{setSalvando(false);} }
-  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:8,padding:"7px 8px",color:C.ink,outline:"none"};
+  const ent={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"7px 8px",color:C.ink,outline:"none"};
   return <div onClick={aoFechar} style={{position:"fixed",inset:0,background:"rgba(10,30,24,.45)",zIndex:90,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center"}}>
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,width:isMobile?"100%":560,maxHeight:"88vh",overflowY:"auto",padding:18}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><b style={{flex:1,color:C.ink,fontSize:15}}>Metas de conversão</b>
@@ -23676,7 +23676,7 @@ function ConferenciaDoFunil({acoes,pipelineId,filtros,conf,isMobile,abrirConvers
           <div style={{color:C.faint,fontSize:11.5}}>{d?`${d.total} lead(s)`:"Carregando…"}</div>
         </div>
         <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
-          width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:17}}>×</button>
+          width:34,height:34,borderRadius:10,cursor:"pointer",fontSize:17}}>×</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"8px 14px",minHeight:120}}>
         {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px"}}>{erro}</div>}
@@ -23693,15 +23693,15 @@ function ConferenciaDoFunil({acoes,pipelineId,filtros,conf,isMobile,abrirConvers
             </div>
           </div>
           {it.pode_abrir&&abrirConversa&&<button onClick={()=>{aoFechar();abrirConversa(it.id);}}
-            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"6px 10px",
+            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"6px 10px",
               fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Abrir</button>}
         </div>)}
       </div>
       {d&&paginas>1&&<div style={{padding:"9px 14px",borderTop:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
-        <button disabled={pagina<=1} onClick={()=>setPagina(p=>p-1)} style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:8,
+        <button disabled={pagina<=1} onClick={()=>setPagina(p=>p-1)} style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:10,
           padding:"7px 12px",fontSize:12,cursor:pagina<=1?"default":"pointer",color:pagina<=1?C.faint:C.ink}}>Anterior</button>
         <span style={{color:C.sub,fontSize:12}}>{pagina} de {paginas}</span>
-        <button disabled={pagina>=paginas} onClick={()=>setPagina(p=>p+1)} style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:8,
+        <button disabled={pagina>=paginas} onClick={()=>setPagina(p=>p+1)} style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:10,
           padding:"7px 12px",fontSize:12,cursor:pagina>=paginas?"default":"pointer",color:pagina>=paginas?C.faint:C.ink}}>Próxima</button>
       </div>}
     </div>
@@ -23754,7 +23754,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
 
   const set=(k,v)=>setF(a=>({...a,[k]:v||undefined}));
   const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
-    borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
+    borderRadius:10,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
 
   const Metric=({rot,v,sub,cor})=><div style={{background:C.card,border:`1px solid ${C.line}`,boxShadow:SOMBRA,
     borderRadius:10,padding:isMobile?"14px 15px":"19px 20px",flex:"1 1 160px",minWidth:0}}>
@@ -23953,11 +23953,11 @@ function AbasDeNivel({abas,ativa,aoMudar}){
    olharem datas diferentes. */
 function FiltroDeNivel({linhas,nivel,campanha,setCampanha,conjunto,setConjunto,isMobile,f,setPeriodo}){
   const periodo=f&&setPeriodo?<SeletorPeriodo f={f} set={setPeriodo} isMobile={isMobile}
-    estilo={{minHeight:36,borderRadius:9,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,width:isMobile?"100%":"auto"}}/>:null;
+    estilo={{minHeight:36,borderRadius:10,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,width:isMobile?"100%":"auto"}}/>:null;
   if(nivel==="campanhas") return periodo?<div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{periodo}</div>:null;
   const camps=[...new Map(linhas.filter(l=>l.campanha).map(l=>[l.campaign_id||l.campanha,l.campanha])).entries()];
   const conjs=nivel==="anuncios"?[...new Map(linhas.filter(l=>l.conjunto&&(!campanha||(l.campaign_id||l.campanha)===campanha)).map(l=>[l.adset_id||l.conjunto,l.conjunto])).entries()]:[];
-  const sel={minHeight:36,borderRadius:9,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:isMobile?"100%":300,width:isMobile?"100%":"auto"};
+  const sel={minHeight:36,borderRadius:10,border:`1px solid ${C.line}`,padding:"0 9px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:isMobile?"100%":300,width:isMobile?"100%":"auto"};
   if(camps.length<2&&conjs.length<2&&!periodo) return null;
   return <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
     {periodo}
@@ -24096,7 +24096,7 @@ function QuemEntraOndeFunis({acoes,isMobile}){
       responsável</b> quando ele é repassado.
     </div>
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
 
     {(d.pessoas||[]).map(u=><div key={u.id} style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap",
       background:C.surface,borderRadius:10,padding:"8px 11px",marginBottom:6}}>
@@ -24107,7 +24107,7 @@ function QuemEntraOndeFunis({acoes,isMobile}){
       <select value={u.pipeline_entrada||""} disabled={ocupado===u.id}
         onChange={e=>trocar(u.id,e.target.value)}
         style={{flex:"1 1 170px",fontSize:isMobile?16:12.5,border:`1px solid ${u.pipeline_entrada?C.green+"66":C.line}`,
-          background:u.pipeline_entrada?C.greenSoft:C.card,borderRadius:9,padding:"8px 10px",
+          background:u.pipeline_entrada?C.greenSoft:C.card,borderRadius:10,padding:"8px 10px",
           color:u.pipeline_entrada?C.greenDeep:C.sub,outline:"none",cursor:"pointer"}}>
         <option value="">Funil padrão{padrao?` (${padrao.name})`:""}</option>
         {(d.pipelines||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
@@ -24143,7 +24143,7 @@ function FunisConfig({acoes,session,isMobile}){
 
   const caixa={background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16};
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,
-    background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+    background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"};
   const rot=(t)=><div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{t}</div>;
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -24224,15 +24224,15 @@ function FunisConfig({acoes,session,isMobile}){
           style={{...entrada,flex:1,minWidth:150,fontWeight:700,fontSize:isMobile?16:14}}/>
         {!pipe.is_default&&<button onClick={roda("padrao",()=>acoes.editarPipeline(pipe.id,{is_default:true}))}
           title="Lead novo passa a cair neste funil"
-          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,
+          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,
             padding:"8px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Tornar padrão</button>}
         <button onClick={roda("dup",()=>acoes.duplicarPipeline(pipe.id))}
           title="Copiar este funil para experimentar sem mexer no que a equipe usa"
-          style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+          style={{background:C.surface,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
             padding:"8px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Duplicar</button>
         <button onClick={roda("ativo",()=>acoes.editarPipeline(pipe.id,{is_active:!pipe.is_active}))}
           style={{background:C.surface,color:pipe.is_active?C.hot:C.greenDeep,
-            border:`1px solid ${pipe.is_active?C.hot+"44":C.green+"55"}`,borderRadius:9,
+            border:`1px solid ${pipe.is_active?C.hot+"44":C.green+"55"}`,borderRadius:10,
             padding:"8px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
           {pipe.is_active?"Desligar":"Religar"}</button>
       </div>
@@ -24307,7 +24307,7 @@ function TagsConfig({acoes,session,isMobile}){
       ficha e filtra por elas no funil; criar e apagar é da gestão, para a casa não acabar com
       três jeitos de escrever a mesma coisa.
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
 
     <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:11}}>
       {!tags.length&&<div style={{color:C.faint,fontSize:11.5}}>Nenhuma tag criada ainda.</div>}
@@ -24330,10 +24330,10 @@ function TagsConfig({acoes,session,isMobile}){
       <div style={{display:"flex",gap:7}}>
         <button onClick={()=>acoes.apagarTag(confirmar.id,true).then(()=>{setConfirmar(null);rever();})
             .catch(e=>{setErro(e.message);setConfirmar(null);})}
-          style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",
+          style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"9px 14px",
             fontSize:12,fontWeight:700,cursor:"pointer"}}>Apagar mesmo assim</button>
         <button onClick={()=>setConfirmar(null)}
-          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+          style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
             padding:"9px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
       </div>
     </div>}
@@ -24346,7 +24346,7 @@ function TagsConfig({acoes,session,isMobile}){
             onKeyDown={e=>{if(e.key==="Enter"&&novo.nome.trim())criar();}} autoFocus={!isMobile}
             placeholder="ex.: Investidor" style={{width:"100%",boxSizing:"border-box",
               fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,
-              borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/></div>
+              borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"}}/></div>
         {/* PALETA FECHADA, e não um seletor de cor livre: a tag existe para ser
             lida de relance, e cor escolhida a esmo produz amarelo ilegível e
             dois azuis que ninguém distingue. Estas passaram no teste de
@@ -24355,7 +24355,7 @@ function TagsConfig({acoes,session,isMobile}){
           <div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:5}}>Cor</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
             {paleta.map(c=><button key={c} onClick={()=>setNovo({...novo,cor:c})} aria-label={`Cor ${c}`}
-              style={{width:26,height:26,borderRadius:8,background:c,cursor:"pointer",
+              style={{width:26,height:26,borderRadius:10,background:c,cursor:"pointer",
                 border:corEscolhida===c?`2px solid ${C.ink}`:`1px solid ${C.line}`}}/>)}
           </div>
         </div>
@@ -24447,7 +24447,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
   // ficaria mostrando uma escolha que não valeu.
   const salvar=(mudanca)=>acoes.editarEtapa(etapa.id,mudanca).then(aoMudar).catch(e=>{aoErro(e.message);setF(etapa);});
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
-    background:C.surface,borderRadius:8,padding:"8px 10px",color:C.ink,outline:"none"};
+    background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"};
   const rot=(t,ajuda)=><div style={{marginBottom:3}}>
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{t}</div>
     {ajuda&&<div style={{color:C.faint,fontSize:10,lineHeight:1.4,marginTop:1}}>{ajuda}</div>}</div>;
@@ -24651,7 +24651,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
       <div style={{display:"flex",gap:8,flexWrap:"wrap",borderTop:`1px solid ${C.line}`,paddingTop:10}}>
         <button onClick={()=>salvar({is_active:!etapa.is_active})}
           style={{background:C.card,color:etapa.is_active?C.hot:C.greenDeep,
-            border:`1px solid ${etapa.is_active?C.hot+"44":C.green+"55"}`,borderRadius:9,
+            border:`1px solid ${etapa.is_active?C.hot+"44":C.green+"55"}`,borderRadius:10,
             padding:"8px 13px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
           {etapa.is_active?"Desativar etapa":"Reativar etapa"}</button>
         <button onClick={()=>setConfirmar(true)}
@@ -24672,10 +24672,10 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
         <div style={{display:"flex",gap:7}}>
           <button onClick={()=>acoes.apagarEtapa(etapa.id).then(()=>{setConfirmar(false);aoMudar();})
               .catch(e=>{aoErro(e.message);setConfirmar(false);})}
-            style={{background:C.hot,color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",
+            style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"9px 14px",
               fontSize:12,fontWeight:700,cursor:"pointer"}}>Apagar</button>
           <button onClick={()=>setConfirmar(false)}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,
               padding:"9px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
         </div>
       </div>}
@@ -24701,7 +24701,7 @@ function CadenciaDaEtapa({etapaId,acoes,isMobile}){
   const ler=()=>acoes.cadencia(etapaId).then(r=>{setPassos(r.passos);setGravado(JSON.stringify(r.passos));}).catch(e=>setEstado("erro:"+e.message));
   useEffect(()=>{setPassos(null);if(aberta)ler();},[etapaId,aberta]);
   const mudou=passos&&JSON.stringify(passos)!==gravado;
-  const campo={boxSizing:"border-box",fontSize:isMobile?16:12,border:`1px solid ${C.line}`,background:C.card,borderRadius:8,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0};
+  const campo={boxSizing:"border-box",fontSize:isMobile?16:12,border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:"6px 8px",color:C.ink,outline:"none",minWidth:0};
   const mudar=(i,k,v)=>setPassos(ps=>ps.map((p,j)=>j===i?{...p,[k]:v}:p));
   async function salvar(){
     setEstado("salvando");
@@ -24733,7 +24733,7 @@ function CadenciaDaEtapa({etapaId,acoes,isMobile}){
       <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>Ao entrar nesta etapa, cada passo vira uma tarefa do lead. Dia 1 é o dia da entrada. A tarefa conclui sozinha com a ação certa; "conversa efetiva" só com ligação atendida ou resposta do cliente. Sair da etapa tira o que ficou em aberto. Não segura o prazo da etapa.</div>
       {!passos&&<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>}
       {passos&&passos.length===0&&!importando&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum passo ainda.</div>}
-      {passos&&passos.map((p,i)=><div key={p.id||"n"+i} style={{border:`1px solid ${C.line}`,borderRadius:9,padding:8,background:p.ativo===false?C.surface:C.card,display:"flex",flexDirection:"column",gap:6,opacity:p.ativo===false?.6:1}}>
+      {passos&&passos.map((p,i)=><div key={p.id||"n"+i} style={{border:`1px solid ${C.line}`,borderRadius:10,padding:8,background:p.ativo===false?C.surface:C.card,display:"flex",flexDirection:"column",gap:6,opacity:p.ativo===false?.6:1}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
           <label style={{display:"flex",alignItems:"center",gap:4,color:C.faint,fontSize:11}}>Dia
             <input type="number" min={1} max={90} value={p.dia} onChange={e=>mudar(i,"dia",e.target.value)} style={{...campo,width:58}}/></label>
@@ -24748,26 +24748,26 @@ function CadenciaDaEtapa({etapaId,acoes,isMobile}){
         <input value={p.acao} maxLength={120} onChange={e=>mudar(i,"acao",e.target.value)} placeholder="Ação (ex.: Ligar para o cliente)" style={{...campo,width:"100%"}}/>
         <textarea value={p.instrucao||""} maxLength={600} rows={2} onChange={e=>mudar(i,"instrucao",e.target.value)} placeholder="Instrução para o corretor (opcional)" style={{...campo,width:"100%",resize:"vertical",fontFamily:FONT}}/>
       </div>)}
-      {importando&&<div style={{border:`1px dashed ${C.green}66`,borderRadius:9,padding:9,display:"flex",flexDirection:"column",gap:6}}>
+      {importando&&<div style={{border:`1px dashed ${C.green}66`,borderRadius:10,padding:9,display:"flex",flexDirection:"column",gap:6}}>
         <div style={{color:C.ink,fontSize:11.5,fontWeight:700}}>Importar de um documento</div>
         <div style={{color:C.faint,fontSize:10.5,lineHeight:1.4}}>Um passo por linha, começando com "Dia 1", "Dia 2"… (o horário, se houver, na mesma linha). As linhas seguintes viram a instrução. Aceita .docx, .txt, .csv e .xlsx — PDF: copie o texto e cole.</div>
         <textarea value={texto} onChange={e=>setTexto(e.target.value)} rows={5} placeholder={"Dia 1 - Ligar para o cliente às 10h\nApresente-se e confirme o interesse.\nDia 2 - Enviar a apresentação"} style={{...campo,width:"100%",fontFamily:FONT,resize:"vertical"}}/>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          <button type="button" disabled={estado==="lendo"} onClick={()=>extrair({texto})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{estado==="lendo"?"Lendo…":"Ler o texto"}</button>
+          <button type="button" disabled={estado==="lendo"} onClick={()=>extrair({texto})} style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{estado==="lendo"?"Lendo…":"Ler o texto"}</button>
           <input ref={arq} type="file" accept=".docx,.txt,.md,.csv,.xlsx" onChange={escolher} style={{display:"none"}}/>
-          <button type="button" onClick={()=>arq.current&&arq.current.click()} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Escolher arquivo</button>
+          <button type="button" onClick={()=>arq.current&&arq.current.click()} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Escolher arquivo</button>
           <button type="button" onClick={()=>{setImportando(false);setTexto("");}} style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer"}}>cancelar</button>
         </div>
       </div>}
-      {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11,borderRadius:8,padding:"6px 9px"}}>{aviso}</div>}
+      {aviso&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11,borderRadius:10,padding:"6px 9px"}}>{aviso}</div>}
       {passos&&<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <button type="button" onClick={()=>setPassos(ps=>[...ps,{id:null,dia:(ps.length?Math.max(...ps.map(x=>Number(x.dia)||1))+1:1),hora:null,acao:"",instrucao:"",criterio:"manual",ativo:true}])}
-          style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Passo</button>
-        {!importando&&<button type="button" onClick={()=>setImportando(true)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Importar de documento</button>}
+          style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Passo</button>
+        {!importando&&<button type="button" onClick={()=>setImportando(true)} style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Importar de documento</button>}
         <span style={{flex:1}}/>
         {mudou&&<button type="button" onClick={()=>{setPassos(JSON.parse(gravado));setAviso("");}} style={{border:"none",background:"transparent",color:C.faint,fontSize:12,cursor:"pointer"}}>Descartar</button>}
         <button type="button" disabled={!mudou||estado==="salvando"} onClick={salvar}
-          style={{background:mudou?C.green:C.line,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:mudou?"pointer":"default"}}>{estado==="salvando"?"Salvando…":"Salvar cadência"}</button>
+          style={{background:mudou?C.green:C.line,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:mudou?"pointer":"default"}}>{estado==="salvando"?"Salvando…":"Salvar cadência"}</button>
       </div>}
       {estado==="salvo"&&<div style={{color:C.greenDeep,fontSize:11.5,fontWeight:600}}>Salvo. Vale para quem entrar na etapa daqui em diante.</div>}
       {estado.startsWith("erro:")&&<div style={{color:C.hot,fontSize:11.5}}>{estado.slice(5)}</div>}
@@ -24782,7 +24782,7 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
   const [novo,setNovo]=useState({name:"",type:"text",options:""});
   const [erro,setErro]=useState("");
   const entrada={width:"100%",boxSizing:"border-box",fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,
-    background:C.surface,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"};
+    background:C.surface,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"};
   const TIPOS=[["text","Texto"],["number","Número"],["currency","Valor em R$"],["select","Escolha única"],
     ["multiselect","Escolha múltipla"],["date","Data"],["boolean","Sim/Não"],["phone","Telefone"],["email","E-mail"]];
 
@@ -24792,7 +24792,7 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
       O que a sua operação precisa saber de cada atendimento. Depois de criado, o campo
       pode ser exigido em qualquer etapa — é assim que o funil para de andar com lead pela metade.
     </div>
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
 
     <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:11}}>
       {campos.length===0&&<div style={{color:C.faint,fontSize:11.5}}>Nenhum campo criado ainda.</div>}
@@ -24887,7 +24887,7 @@ function ArquivoDaMensagem({m,acoes,aoMudar,aoErro}){
           style={{border:"none",background:"none",color:C.faint,cursor:"pointer",padding:0,fontSize:11.5}}>tirar</button>
       </React.Fragment>
       :<button onClick={()=>ref.current&&ref.current.click()} disabled={subindo}
-        style={{border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:8,padding:"5px 10px",fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+        style={{border:`1px dashed ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"5px 10px",fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
         <Icon n="clip" size={12}/> {subindo?"Enviando…":"Anexar foto, vídeo, áudio ou documento"}</button>}
   </div>;
 }
@@ -24930,7 +24930,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
         <Icon n="zap" size={15} color={C.greenMid}/>
         <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Mensagens automáticas</span>
         <button onClick={()=>abrir(null)}
-          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
+          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
           + Nova mensagem</button>
       </div>
       <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55}}>
@@ -24974,25 +24974,25 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
             :"Geral — aparece em todas as etapas"}</div>
         <ArquivoDaMensagem m={m} acoes={acoes} aoMudar={aplicar} aoErro={setErro}/>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
+          <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
           <button onClick={()=>acao(()=>acoes.editarMensagem2(m.id,{ativo:!m.ativo}))}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
             {m.ativo?"Desligar":"Ligar"}</button>
           <button onClick={()=>acao(()=>acoes.moverMensagem(m.id,"cima"))} disabled={i===0} title="Subir"
-            style={{background:C.card,color:i===0?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===0?"default":"pointer"}}>↑</button>
+            style={{background:C.card,color:i===0?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===0?"default":"pointer"}}>↑</button>
           <button onClick={()=>acao(()=>acoes.moverMensagem(m.id,"baixo"))} disabled={i===lista.length-1} title="Descer"
-            style={{background:C.card,color:i===lista.length-1?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===lista.length-1?"default":"pointer"}}>↓</button>
+            style={{background:C.card,color:i===lista.length-1?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===lista.length-1?"default":"pointer"}}>↓</button>
           <span style={{flex:1}}/>
           {apagando===m.id
             ?<React.Fragment>
               <span style={{color:C.hot,fontSize:11.5,alignSelf:"center"}}>apagar de vez?</span>
               <button onClick={()=>{setApagando(null);acao(()=>acoes.apagarMensagem(m.id));}}
-                style={{background:C.hot,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>Sim</button>
+                style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>Sim</button>
               <button onClick={()=>setApagando(null)}
-                style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Não</button>
+                style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Não</button>
             </React.Fragment>
             :<button onClick={()=>setApagando(m.id)}
-              style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}33`,borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Apagar</button>}
+              style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}33`,borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Apagar</button>}
         </div>
       </div>)}
     </div>
@@ -25226,7 +25226,7 @@ function ConexaoConfig({acoes,session,isMobile}){
     <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label}</label>
     <input value={valor} onChange={onChange} type={tipo} placeholder="cole aqui"
       style={{width:"100%",boxSizing:"border-box",marginTop:4,marginBottom:9,fontSize:isMobile?16:13,fontFamily:MONO,
-        border:`1px solid ${C.line}`,background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+        border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"}}/>
   </React.Fragment>;
 
   return <React.Fragment>
@@ -25248,7 +25248,7 @@ function ConexaoConfig({acoes,session,isMobile}){
           </div>
         </div>
         {ehGestor&&w.configurado&&<button onClick={()=>{setConfirmando(c=>!c);setPalavra("");}}
-          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:9,padding:"8px 14px",
+          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,padding:"8px 14px",
             fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Desconectar</button>}
       </div>
 
@@ -25261,9 +25261,9 @@ function ConexaoConfig({acoes,session,isMobile}){
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           <input value={palavra} onChange={e=>setPalavra(e.target.value.toUpperCase())} placeholder="DESCONECTAR"
             style={{flex:"1 1 140px",minWidth:0,fontSize:isMobile?16:13,fontFamily:MONO,border:`1px solid ${C.line}`,
-              background:C.card,borderRadius:9,padding:"9px 11px",color:C.ink,outline:"none"}}/>
+              background:C.card,borderRadius:10,padding:"9px 11px",color:C.ink,outline:"none"}}/>
           <button onClick={desconectar} disabled={saindo||palavra!=="DESCONECTAR"}
-            style={{background:palavra==="DESCONECTAR"?C.hot:C.faint,color:"#fff",border:"none",borderRadius:9,
+            style={{background:palavra==="DESCONECTAR"?C.hot:C.faint,color:"#fff",border:"none",borderRadius:10,
               padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{saindo?"Desconectando…":"Desconectar"}</button>
         </div>
       </div>}
@@ -25272,7 +25272,7 @@ function ConexaoConfig({acoes,session,isMobile}){
           de volta é parear de novo, e agora ele mora aqui dentro. */}
       {podeQr&&!qr&&(!ligado||falhouDesc)&&<div style={{marginTop:12,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <button onClick={()=>{setConfirmando(false);setPalavra("");gerarQr(falhouDesc||ligado);}} disabled={gerandoQr}
-          style={{background:C.green,color:"#fff",border:"none",borderRadius:9,padding:"10px 16px",
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",
             fontSize:13,fontWeight:700,cursor:"pointer"}}>
           {gerandoQr?"Gerando QR Code…":falhouDesc?"Forçar reconexão com novo QR Code":"Conectar com QR Code"}</button>
         {falhouDesc&&<span style={{color:C.sub,fontSize:11.5,lineHeight:1.4,flex:"1 1 200px"}}>
@@ -25282,9 +25282,9 @@ function ConexaoConfig({acoes,session,isMobile}){
       {qr&&<div style={{marginTop:14,border:`1px solid ${C.line}`,borderRadius:12,padding:14,
         display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
         {qr.img
-          ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,background:"#fff",borderRadius:8,padding:6,boxSizing:"border-box"}}/>
+          ?<img src={qr.img} alt="QR Code do WhatsApp" style={{width:220,height:220,background:"#fff",borderRadius:10,padding:6,boxSizing:"border-box"}}/>
           :<div style={{width:220,height:220,display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:12,
-            textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:8}}>Gerando o código…</div>}
+            textAlign:"center",border:`1px dashed ${C.line}`,borderRadius:10}}>Gerando o código…</div>}
         <div style={{flex:"1 1 200px",minWidth:0}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:6}}>Leia com o celular do número</div>
           <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
@@ -25293,7 +25293,7 @@ function ConexaoConfig({acoes,session,isMobile}){
           {qr.codigo&&<div style={{marginTop:8,color:C.sub,fontSize:12}}>Ou use o código de pareamento: <b style={{fontFamily:MONO,color:C.ink}}>{qr.codigo}</b></div>}
           <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
             <button onClick={()=>gerarQr(false)} disabled={gerandoQr}
-              style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
+              style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>
               {gerandoQr?"Gerando…":"Gerar outro código"}</button>
             <button onClick={()=>{setQr(null);setFechouQr(true);}}
               style={{background:"none",color:C.faint,border:"none",padding:"7px 4px",fontSize:12,cursor:"pointer"}}>Fechar</button>
@@ -25344,13 +25344,13 @@ function ConexaoConfig({acoes,session,isMobile}){
       </div>}
       <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
         <button onClick={()=>setTutorial(t=>t===p.id?false:p.id)}
-          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:9,
+          style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,
             padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
           <span style={{display:"inline-flex",transform:tutorial===p.id?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           Como contratar e conectar a {p.nome}</button>
         {ehGestor&&<button onClick={()=>{setLigando(l=>l===p.id?false:p.id);setAvisoCred("");}}
           style={{background:d.ativo===p.id?C.card:C.greenDeep,color:d.ativo===p.id?C.greenDeep:"#fff",
-            border:d.ativo===p.id?`1px solid ${C.green}55`:"none",borderRadius:9,padding:"8px 14px",
+            border:d.ativo===p.id?`1px solid ${C.green}55`:"none",borderRadius:10,padding:"8px 14px",
             fontSize:12.5,fontWeight:600,cursor:"pointer"}}>{d.ativo===p.id?"Trocar as credenciais":"Conectar esta opção"}</button>}
       </div>
 
@@ -25372,10 +25372,10 @@ function ConexaoConfig({acoes,session,isMobile}){
         <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
           <button onClick={conectar} disabled={salvandoCred||!cred.host.trim()||!cred.token.trim()}
             style={{background:cred.host.trim()&&cred.token.trim()?C.greenDeep:C.faint,color:"#fff",border:"none",
-              borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+              borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
             {salvandoCred?"Conectando…":"Salvar e conectar"}</button>
           <button onClick={()=>{setLigando(false);setCred({host:"",token:""});}} disabled={salvandoCred}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
         </div>
       </div>}
 
@@ -25393,10 +25393,10 @@ function ConexaoConfig({acoes,session,isMobile}){
           <button onClick={conectarMeta}
             disabled={salvandoCred||!credMeta.phone_number_id.trim()||!credMeta.waba_id.trim()||!credMeta.token.trim()||!credMeta.app_secret.trim()}
             style={{background:(credMeta.phone_number_id.trim()&&credMeta.waba_id.trim()&&credMeta.token.trim()&&credMeta.app_secret.trim())?C.greenDeep:C.faint,
-              color:"#fff",border:"none",borderRadius:9,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+              color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
             {salvandoCred?"Conectando…":"Salvar e conectar"}</button>
           <button onClick={()=>{setLigando(false);setCredMeta({phone_number_id:"",waba_id:"",token:"",app_secret:""});}} disabled={salvandoCred}
-            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+            style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
         </div>
       </div>}
     </div>)}
@@ -25440,7 +25440,7 @@ function RecebimentoDasLinhas({acoes,isMobile,automatico}){
       <span style={{color:faltando.length?C.hot:C.ink,fontSize:13,fontWeight:700,flex:1}}>
         {linhas==null?"Conferindo se as mensagens chegam…":faltando.length?`${faltando.length} número(s) não estão recebendo as mensagens`:"Recebimento das mensagens"}</span>
       <button onClick={conferir} disabled={conferindo}
-        style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 12px",
+        style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 12px",
           fontSize:12,fontWeight:600,cursor:"pointer",minHeight:34}}>{conferindo?"Conferindo…":"Conferir de novo"}</button>
     </div>
     {erro&&<div style={{color:C.hot,fontSize:12,marginBottom:6}}>{erro}</div>}
@@ -25503,7 +25503,7 @@ function NumerosDaEquipe({acoes,isMobile}){
       em Minha conta → Meu WhatsApp.
     </div>
 
-    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:9,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
+    {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
 
     <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:11}}>
       {caixa("números ligados",`${lim.usados||0} de ${lim.limite||0}`)}
@@ -25524,7 +25524,7 @@ function NumerosDaEquipe({acoes,isMobile}){
         {c.conectado&&c.recebimento&&c.recebimento.estado!=="ok"&&<span title={c.recebimento.detalhe||""}
           style={{color:C.hot,fontSize:11,fontWeight:700}}>não recebe</span>}
         <button disabled={!!ocupado} onClick={()=>mexer(()=>acoes.desligarCanalDe(c.id),c.id)}
-          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:8,
+          style={{background:C.card,color:C.hot,border:`1px solid ${C.hot}44`,borderRadius:10,
             padding:"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
           {ocupado===c.id?"…":"Desligar"}</button>
       </div>)}
@@ -25568,10 +25568,10 @@ function TutorialUazapi({webhook,site,copiar,copiado,isMobile}){
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55}}>{texto}</div>
         {i===5&&<React.Fragment>
           <div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
-            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
               padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
             <button onClick={()=>copiar(webhook.url)}
-              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",
                 fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar"}</button>
           </div>
           <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.5}}>
@@ -25604,18 +25604,18 @@ function TutorialMeta({webhook,site,copiar,copiado,isMobile}){
         <div style={{color:C.sub,fontSize:11.5,lineHeight:1.55}}>{texto}</div>
         {i===4&&<React.Fragment>
           <div style={{display:"flex",gap:7,marginTop:7,flexWrap:"wrap"}}>
-            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
               padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.url}</div>
             <button onClick={()=>copiar(webhook.url)}
-              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",
                 fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar URL"}</button>
           </div>
           <div style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5,marginTop:9,marginBottom:4}}>Verify Token</div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:8,
+            <div style={{flex:"1 1 180px",minWidth:0,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,
               padding:"7px 9px",fontSize:11,color:C.greenMid,wordBreak:"break-all",fontFamily:MONO}}>{webhook.verify_token}</div>
             <button onClick={()=>copiar(webhook.verify_token)}
-              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",
+              style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",
                 fontSize:11.5,fontWeight:600,cursor:"pointer"}}>{copiado?"Copiado!":"Copiar token"}</button>
           </div>
         </React.Fragment>}
@@ -25731,7 +25731,7 @@ function LeadsPorDia({linha,isMobile}){
       <span style={{color:C.faint,fontSize:11.5,fontWeight:600}}>Dia</span>
       <input type="date" value={escolhido} onChange={e=>{setEscolhido(e.target.value);setTudo(false);}}
         style={{fontSize:isMobile?16:12.5,fontFamily:MONO,border:`1px solid ${C.line}`,background:C.surface,
-          borderRadius:9,padding:"6px 9px",color:C.ink,outline:"none"}}/>
+          borderRadius:10,padding:"6px 9px",color:C.ink,outline:"none"}}/>
       <button onClick={()=>setTudo(t=>!t)}
         style={{background:"transparent",border:"none",padding:0,cursor:"pointer",color:C.greenMid,fontSize:11.5,fontWeight:600,marginLeft:"auto"}}>
         {tudo?"ver só o dia escolhido":`ver o período todo (${comMovimento} dia(s) com lead)`}</button>
@@ -25985,13 +25985,13 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
   return <div className="folha tela-cheia" style={{zIndex:80,background:C.surface,overflowY:"auto"}}>
     <div className="nao-imprimir" style={{position:"sticky",top:0,zIndex:2,background:C.card,borderBottom:`1px solid ${C.line}`,
       padding:isMobile?"10px 14px":"10px 20px",display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
-      <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:9,
+      <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,
         padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Voltar</button>
       <span style={{color:C.faint,fontSize:11.5,flex:1,minWidth:120}}>
         Imprimir → <b style={{color:C.sub}}>Salvar como PDF</b> para levar à reunião.
       </span>
       <button onClick={()=>window.print()} disabled={!pronto}
-        style={{background:pronto?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",
+        style={{background:pronto?C.greenDeep:C.faint,color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",
           fontSize:12.5,fontWeight:700,cursor:pronto?"pointer":"default",display:"flex",alignItems:"center",gap:6}}>
         <Icon n="download" size={13}/>Imprimir / PDF</button>
     </div>
@@ -26085,7 +26085,7 @@ function RelatorioParaReuniao({acoes,linha,dados,periodo,funil,org,isMobile,aoFe
       {linha.por_dia&&linha.por_dia.length>0&&<React.Fragment>
         {titulo("Leads recebidos, dia a dia")}
         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-          {linha.por_dia.map(d=><span key={d.dia} style={{background:C.surface,borderRadius:8,padding:"5px 10px",
+          {linha.por_dia.map(d=><span key={d.dia} style={{background:C.surface,borderRadius:10,padding:"5px 10px",
             fontSize:11,color:C.sub}}>{fmtData(d.dia)} · <b style={{fontFamily:MONO,color:C.ink}}>{d.recebidos}</b></span>)}
         </div>
       </React.Fragment>}
@@ -26170,7 +26170,7 @@ function DetalheDaNota({m,componentes,periodo,aoFechar,isMobile}){
             <div style={{color:C.faint,fontSize:10.5,marginTop:2}}>de 100</div>
           </div>
           <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
-            width:32,height:32,borderRadius:9,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
+            width:32,height:32,borderRadius:10,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
         </div>
 
         <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,margin:"10px 0 12px"}}>
@@ -26239,7 +26239,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
       O pré-atendimento, antes do corretor: quem chegou, quem foi contatado e quem foi pré-qualificado (passou ao comercial). "Qualificados", no resto do sistema, é a etapa de qualificação do comercial.</div>
-    {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+    {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"8px 10px",marginBottom:10}}>
       Não há como medir a qualificação do SDR: crie um funil de SDR, ou uma etapa com "qualific" no nome (ex.: "Lead qualificado"), em Configurações → Funis e etapas.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:7,display:"flex",alignItems:"center",gap:6}}>{a.ia&&<Icon n="sparkles" size={14} color={C.greenMid}/>}{a.nome}</div>
@@ -26305,7 +26305,7 @@ function SdrConsolidado({d,c,isMobile,abrirConversa}){
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
       Os leads que entraram no funil de SDR no período, contatados por gente ou pela IA, contados até {fmtData(c.corte)}. Toque num número para ver os leads.</div>
-    {!c.tem_funil_sdr&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:9,padding:"8px 10px",marginBottom:10}}>
+    {!c.tem_funil_sdr&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"8px 10px",marginBottom:10}}>
       Esta conta não tem funil de SDR, então não há como medir o pré-atendimento por ele. Crie um em Configurações → Funis e etapas.</div>}
     <div style={grade}>
       {caixa("chegaram","chegaram no período",c.chegaram,null,"Leads que entraram no funil de SDR no período: nasceram nele ou foram movidos para ele")}
@@ -26359,7 +26359,7 @@ function ListaDoSdr({titulo,itens,aguardando,isMobile,abrirConversa,aoFechar}){
           <div style={{color:C.faint,fontSize:11.5}}>{itens.length} lead(s)</div>
         </div>
         <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:C.surface,color:C.sub,
-          width:34,height:34,borderRadius:9,cursor:"pointer",fontSize:17}}>×</button>
+          width:34,height:34,borderRadius:10,cursor:"pointer",fontSize:17}}>×</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"8px 14px",minHeight:120}}>
         {!itens.length&&<div style={{color:C.faint,fontSize:12.5,padding:14,textAlign:"center"}}>Ninguém neste número.</div>}
@@ -26369,7 +26369,7 @@ function ListaDoSdr({titulo,itens,aguardando,isMobile,abrirConversa,aoFechar}){
             <div style={{color:C.faint,fontSize:10.5,lineHeight:1.45}}>{it.origem} · {aguardando?"na etapa desde":"em"} {fmtData(it.quando)} {fmtClock(it.quando)}{it.quem?` · ${it.quem}`:""}</div>
           </div>
           {abrirConversa&&<button onClick={()=>{aoFechar();abrirConversa(it.id);}}
-            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:8,padding:"6px 10px",
+            style={{border:`1px solid ${C.line}`,background:C.surface,color:C.sub,borderRadius:10,padding:"6px 10px",
               fontSize:11.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>Abrir</button>}
         </div>)}
         {itens.length>lim&&<button onClick={()=>setLim(l=>l+60)} style={{width:"100%",border:"none",background:"none",color:C.greenDeep,fontSize:12,fontWeight:600,padding:10,cursor:"pointer"}}>Mostrar mais ({itens.length-lim})</button>}
@@ -26436,7 +26436,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
   },[chavePeriodo,tick]);
 
   const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
-    borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
+    borderRadius:10,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
   const mudarPeriodo=(k,v)=>setPer(a=>({...a,[k]:v||undefined}));
 
   if(carregando&&!dados) return <div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:C.faint,fontSize:13,gap:8}}><Icon n="loader" size={16} spin/> Calculando…</div>;
@@ -26491,7 +26491,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
           </div>
           {/* O relatório de reunião sai do lado do nome de quem ele descreve. */}
           <button className="nao-imprimir" onClick={()=>setParaReuniao(true)}
-            style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:9,
+            style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,
               padding:isMobile?"12px 13px":"7px 13px",fontSize:isMobile?13.5:12,fontWeight:700,cursor:"pointer",
               display:"flex",alignItems:"center",justifyContent:"center",gap:6,order:isMobile?2:0,width:isMobile?"100%":"auto"}}>
             <Icon n="download" size={13}/>Relatório para reunião</button>
@@ -26547,7 +26547,7 @@ function Relatorios({acoes,session,pickable,isMobile,abrirConversa,org,embutido}
           padding:16,marginBottom:16}}>
           {variosFunis&&papelSel!=="sdr"&&<div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
             <select value={funilEscolhido} onChange={e=>setFunilEscolhido(e.target.value)} aria-label="Funil"
-              style={{border:`1px solid ${C.line}`,borderRadius:9,padding:"7px 10px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:"100%"}}>
+              style={{border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 10px",fontSize:12.5,background:C.card,color:C.ink,maxWidth:"100%"}}>
               <option value="">Funil principal</option>
               {todosFunis.filter(p=>p.is_active!==false&&p.type!=="sdr").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
             </select></div>}
@@ -26703,7 +26703,7 @@ function BotaoFicha({lead,aberta,aoClicar}){
 function TopoDaGavetaFicha({aoFechar}){
   return <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
     <span style={{fontSize:11,fontWeight:700,letterSpacing:".06em",color:C.faint,textTransform:"uppercase"}}>Ficha do lead</span>
-    <button onClick={aoFechar} aria-label="Fechar a ficha" title="Fechar a ficha" style={{width:30,height:30,borderRadius:9,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="x" size={15}/></button>
+    <button onClick={aoFechar} aria-label="Fechar a ficha" title="Fechar a ficha" style={{width:30,height:30,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="x" size={15}/></button>
   </div>;
 }
 function MolduraAtender({isMobile,corretor,children}){
@@ -26724,9 +26724,9 @@ function CabecalhoTela({acoes,isMobile}){
   if(!acoes) return null;
   return <div style={{display:"flex",justifyContent:isMobile?"stretch":"flex-end",gap:8,flexWrap:"wrap",marginBottom:isMobile?12:16}}>{acoes}</div>;
 }
-const BOTAO_PRIMARIO={border:"none",background:`linear-gradient(180deg,${C.green},#06663f)`,color:"#fff",borderRadius:8,padding:"10px 16px",
-  fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:"0 3px 0 #0a4a30, 0 6px 14px rgba(8,122,80,.18)",display:"inline-flex",alignItems:"center",gap:6};
-const BOTAO_SECUNDARIO={border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:8,padding:"9px 14px",
+const BOTAO_PRIMARIO={border:"none",background:`linear-gradient(180deg,${C.green},#06663f)`,color:"#fff",borderRadius:11,padding:"10px 16px",
+  fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 12px rgba(8,122,80,.20)",display:"inline-flex",alignItems:"center",gap:6};
+const BOTAO_SECUNDARIO={border:`1px solid ${C.line}`,background:C.card,color:C.ink,borderRadius:11,padding:"9px 14px",
   fontSize:12,fontWeight:600,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6};
 function AbasLinha({abas,ativa,aoMudar}){
   /* No celular as abas QUEBRAM de linha: rolando de lado, metade delas ficava
@@ -26740,7 +26740,7 @@ function AbasLinha({abas,ativa,aoMudar}){
 }
 function FaixaAviso({texto,detalhe,acao,aoClicar,quente}){
   return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",
-    border:`1px solid ${quente?C.hot+"40":"#dce6d6"}`,background:quente?C.hotSoft:"#eef3e8",borderRadius:9,padding:"11px 15px",marginBottom:22,color:"#56724d",fontSize:12}}>
+    border:`1px solid ${quente?C.hot+"40":"#dce6d6"}`,background:quente?C.hotSoft:"#eef3e8",borderRadius:10,padding:"11px 15px",marginBottom:22,color:"#56724d",fontSize:12}}>
     <span><b style={{color:quente?C.hot:"#254f32"}}>{texto}</b>{detalhe?<> · {detalhe}</>:null}</span>
     {acao&&<button onClick={aoClicar} style={{...BOTAO_SECUNDARIO,padding:"6px 11px",fontSize:11.5}}>{acao} <Icon n="chevron" size={12}/></button>}
   </div>;
@@ -26808,8 +26808,8 @@ function EscolherIndicadores({escolha,aoSalvar,aoFechar,isMobile}){
       {erro&&<div style={{color:C.hot,fontSize:12,padding:"0 16px 8px"}}>{erro}</div>}
       <div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",gap:8,justifyContent:"flex-end"}}>
         <button onClick={()=>setSel(KPIS_PADRAO)} style={{marginRight:"auto",border:"none",background:"transparent",color:C.sub,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>Voltar ao padrão</button>
-        <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:9,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
-        <button onClick={salvar} disabled={salvando} style={{border:"none",background:C.green,color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
+        <button onClick={aoFechar} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+        <button onClick={salvar} disabled={salvando} style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar"}</button>
       </div>
     </div>
   </div>;
@@ -26847,7 +26847,7 @@ function ProximosPassos({d,openLead,isMobile}){
       {d.itens.length>6&&<button onClick={()=>setTodos(v=>!v)} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:700,cursor:"pointer",padding:"6px 0 0"}}>
         {todos?"Mostrar menos":`Ver todos (${d.total})`}</button>}
     </React.Fragment>}
-    <div style={{background:"#eef3e8",border:"1px solid #dce6d6",borderRadius:8,padding:"12px 14px",color:"#56724d",fontSize:11.5,lineHeight:1.5,marginTop:16}}>
+    <div style={{background:"#eef3e8",border:"1px solid #dce6d6",borderRadius:10,padding:"12px 14px",color:"#56724d",fontSize:11.5,lineHeight:1.5,marginTop:16}}>
       Cada próximo passo tem um responsável e uma data. Nenhum lead fica para trás.</div>
   </PainelCartao>;
 }
@@ -26872,7 +26872,7 @@ function MetaCard({item}){
   const fmt=(v)=>ehDinheiro?fmtMoeda(Math.round(v||0)):v==null?naoDisp(v):Number(v).toLocaleString("pt-BR",{maximumFractionDigits:1});
   const cor=pct==null?C.faint:pct>=100?C.green:pct>=60?C.amber:C.hot;
   const falta=meta==null?null:Math.max(Math.round((meta-realizado)*10)/10,0);
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:8,padding:"15px 17px",minWidth:0}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"15px 17px",minWidth:0}}>
     <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:"#7c8b7d",gap:6}}>
       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{nome}</span>
       <span style={{color:pct!=null&&pct>=100?C.gold:cor,fontWeight:700,flexShrink:0}}>{pct==null?"":Math.round(pct)+"%"}</span>
@@ -27011,7 +27011,7 @@ function FunilAtividadeViz({passos,isMobile}){
         return <div key={p.id} style={{display:"flex",alignItems:"center",gap:isMobile?6:10}}>
           <div style={{width:isMobile?78:124,flexShrink:0,fontSize:11.5,color:C.ink,lineHeight:1.2}}>{p.nome}</div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{height:isMobile?22:26,borderRadius:7,background:PALETA_FUNIL[i%PALETA_FUNIL.length],opacity:.88,
+            <div style={{height:isMobile?22:26,borderRadius:9,background:PALETA_FUNIL[i%PALETA_FUNIL.length],opacity:.88,
               width:largura+"%",minWidth:30,display:"flex",alignItems:"center",justifyContent:"flex-end",padding:"0 8px"}}>
               <span style={{color:"#fff",fontFamily:MONO,fontSize:12,fontWeight:700}}>{p.valor}</span>
             </div>
@@ -27104,7 +27104,7 @@ function SeletorDePessoas({valor,mudar,pessoas,comFila=true,estilo,isMobile,rotu
     {aberto&&<div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:60,background:C.card,
       border:`1px solid ${C.line}`,borderRadius:12,boxShadow:"0 12px 32px rgba(10,45,36,.16)",
       width:isMobile?"min(86vw,300px)":260,maxHeight:340,overflowY:"auto",padding:6}}>
-      <label style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:8,cursor:"pointer",
+      <label style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:10,cursor:"pointer",
         fontSize:isMobile?14.5:12.5,color:C.ink,fontWeight:600,borderBottom:`1px solid ${C.line}`,marginBottom:4}}>
         <input type="checkbox" checked={!sel.length} onChange={()=>mudar(undefined)} style={{accentColor:C.green,width:16,height:16}}/>
         {rotuloTodos}
@@ -27113,17 +27113,17 @@ function SeletorDePessoas({valor,mudar,pessoas,comFila=true,estilo,isMobile,rotu
       {est&&est.niveis&&est.niveis.length>0&&<div style={{borderBottom:`1px solid ${C.line}`,marginBottom:4,paddingBottom:4}}>
         {est.niveis.map(n=>{const ms=membrosDoNivel(est,n.id).filter(id=>pessoas.some(p=>p.id===id)); if(!ms.length) return null;
           const todos=ms.every(id=>sel.includes(id));
-          return <label key={n.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 9px",borderRadius:8,cursor:"pointer",fontSize:isMobile?14:12,color:C.sub}}>
+          return <label key={n.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 9px",borderRadius:10,cursor:"pointer",fontSize:isMobile?14:12,color:C.sub}}>
             <input type="checkbox" checked={todos} onChange={()=>{const n2=todos?sel.filter(x=>!ms.includes(x)):[...new Set([...sel,...ms])]; mudar(n2.join(",")||undefined);}} style={{accentColor:C.green,width:16,height:16}}/>
             <span style={{flex:1}}><b style={{color:C.ink}}>{n.nome}</b> · {ms.length} pessoa(s)</span></label>;})}
       </div>}
-      {opcoes.map(p=><label key={p.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:8,
+      {opcoes.map(p=><label key={p.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 9px",borderRadius:10,
         cursor:"pointer",fontSize:isMobile?14.5:12.5,color:C.ink,background:sel.includes(p.id)?C.greenSoft:"transparent"}}>
         <input type="checkbox" checked={sel.includes(p.id)} onChange={()=>alternar(p.id)} style={{accentColor:C.green,width:16,height:16}}/>
         <span style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
       </label>)}
       {sel.length>0&&<button type="button" onClick={()=>setAberto(false)} style={{width:"100%",marginTop:4,border:"none",
-        background:C.green,color:"#fff",borderRadius:8,padding:"8px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Pronto</button>}
+        background:C.green,color:"#fff",borderRadius:10,padding:"8px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Pronto</button>}
     </div>}
   </div>;
 }
@@ -27136,7 +27136,7 @@ function SeletorDePessoas({valor,mudar,pessoas,comFila=true,estilo,isMobile,rotu
 function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
   const set=(k,v)=>setF(a=>({...a,[k]:v||undefined}));
   const entrada={fontSize:isMobile?15:12.5,border:`1px solid ${C.line}`,background:C.card,
-    borderRadius:9,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
+    borderRadius:10,padding:isMobile?"9px 10px":"7px 10px",color:C.ink,outline:"none",cursor:"pointer"};
   return <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
     <SeletorPeriodo f={f} set={set} isMobile={isMobile} estilo={entrada}/>
     {supervisor&&op&&op.origens.length>0&&<select value={f.origem||""} onChange={e=>set("origem",e.target.value)} style={entrada}>
@@ -27192,14 +27192,14 @@ function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
 const soDigitosMeta=(t)=>String(t??"").replace(/\D/g,"");
 
 function LinhaMeta({alvo,nome,valores,status,onCampo,onSalvar,isMobile}){
-  const inputStyle={width:isMobile?68:76,fontSize:13,border:`1px solid ${C.line}`,borderRadius:7,
+  const inputStyle={width:isMobile?68:76,fontSize:13,border:`1px solid ${C.line}`,borderRadius:9,
     padding:"7px 8px",color:C.ink,outline:"none",textAlign:"right"};
   const inputStyleVgv={...inputStyle,width:isMobile?100:112};
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9,gap:8}}>
       <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
       <button onClick={()=>onSalvar(alvo)} disabled={status==="salvando"}
-        style={{border:"none",background:C.green,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+        style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
         {status==="salvando"?"Salvando…":"Salvar"}
       </button>
     </div>
@@ -27441,7 +27441,7 @@ function AvisoVersao(){
     paddingBottom:"calc(env(safe-area-inset-bottom, 0px) + 11px)",boxShadow:"0 -6px 24px rgba(0,0,0,.2)"}}>
     <Icon n="zap" size={15}/>
     <span style={{flex:1,fontSize:13,fontWeight:600,minWidth:140}}>Tem uma versão nova do CETRO.</span>
-    <button onClick={atualizarConHub} style={{background:"#fff",color:C.greenDeep,border:"none",borderRadius:9,
+    <button onClick={atualizarConHub} style={{background:"#fff",color:C.greenDeep,border:"none",borderRadius:10,
       padding:"8px 16px",fontSize:13,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Atualizar agora</button>
   </div>;
 }
@@ -27591,14 +27591,14 @@ function FolhaDoLote({lote:l,cfg,acoes,session,isMobile,leads,supervisiona,abrir
     {l.lead_id&&abrirConversa&&<button onClick={()=>{aoFechar();abrirConversa(l.lead_id);}}
       style={{marginTop:10,border:"none",background:"transparent",color:C.green,fontWeight:700,fontSize:13.5,cursor:"pointer",padding:0,fontFamily:FONT}}>Abrir a conversa de {l.lead_nome||l.cliente} →</button>}
 
-    {ok&&<div style={{marginTop:12,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"9px 11px",fontSize:13}}>{ok}</div>}
-    {erro&&<div style={{marginTop:12,background:C.hotSoft,color:C.hot,borderRadius:9,padding:"9px 11px",fontSize:13}}>{erro}</div>}
+    {ok&&<div style={{marginTop:12,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"9px 11px",fontSize:13}}>{ok}</div>}
+    {erro&&<div style={{marginTop:12,background:C.hotSoft,color:C.hot,borderRadius:10,padding:"9px 11px",fontSize:13}}>{erro}</div>}
 
     {modo==="reservar"&&<div style={{marginTop:14,display:"flex",flexDirection:"column",gap:9}}>
       <div style={{color:C.ink,fontWeight:700,fontSize:14}}>Para qual cliente?</div>
       <input value={busca} onChange={e=>{setBusca(e.target.value);setLeadId("");}} placeholder={supervisiona?"Buscar lead pelo nome ou telefone":"Buscar entre os seus leads"} style={campo}/>
       {achados.map(x=><button key={x.id} onClick={()=>{setLeadId(x.id);setBusca(x.name||"");setCliente("");}}
-        style={{textAlign:"left",border:`1px solid ${leadId===x.id?C.green:C.line}`,background:leadId===x.id?C.greenSoft:C.card,borderRadius:9,padding:"8px 11px",cursor:"pointer",fontFamily:FONT,fontSize:13.5,color:C.ink}}>
+        style={{textAlign:"left",border:`1px solid ${leadId===x.id?C.green:C.line}`,background:leadId===x.id?C.greenSoft:C.card,borderRadius:10,padding:"8px 11px",cursor:"pointer",fontFamily:FONT,fontSize:13.5,color:C.ink}}>
         {x.name||fmtTel(x.tel)}<span style={{color:C.faint}}> · {fmtTel(x.tel)}</span></button>)}
       {!leadId&&<input value={cliente} onChange={e=>setCliente(e.target.value)} placeholder="Ou escreva o nome do cliente" style={campo}/>}
       <input value={obs} onChange={e=>setObs(e.target.value)} placeholder="Observação (opcional)" style={campo}/>
@@ -27704,7 +27704,7 @@ function AjustesDosLotes({cfg,acoes,isMobile,aoFechar,aoMudar}){
           <div style={{marginTop:9,display:"flex",gap:8,flexWrap:"wrap"}}>{btn(`Aplicar ${previa.total} lotes`,importar,true)}{btn("Cancelar",()=>{setPrevia(null);setTexto("");})}</div>
         </div>}
       </div>
-      {msg&&<div style={{fontSize:13,borderRadius:9,padding:"9px 11px",color:msg.ok?C.greenDeep:C.hot,background:msg.ok?C.greenSoft:C.hotSoft}}>{msg.txt}</div>}
+      {msg&&<div style={{fontSize:13,borderRadius:10,padding:"9px 11px",color:msg.ok?C.greenDeep:C.hot,background:msg.ok?C.greenSoft:C.hotSoft}}>{msg.txt}</div>}
     </div>
   </JanelaLote>;
 }
@@ -27739,19 +27739,19 @@ function QuadroSoFormulario({conta,acoes,aoMudar,ocupado,setOcupado}){
       {[[false,"Desligado"],[true,"Ligar"]].map(([v,t])=>{const sel=ligado===v;
         return <button key={t} disabled={!!ocupado} onClick={()=>definir(v)}
           style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
-            border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+            border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
           {ocupado==="sof"+v?"…":t}</button>;})}
     </div>
     {ligado&&previa&&<div style={{marginTop:9,fontSize:11.5,color:C.sub,lineHeight:1.5}}>
       {previa.total
         ?<>Já estão na conta <b style={{color:C.ink}}>{previa.total}</b> contato(s) que entraram espontaneamente ({previa.mensagens} mensagens){previa.exemplos?.length?`: ${previa.exemplos.map(x=>`${x.nome} (…${x.telefone_final})`).join(", ")}${previa.total>previa.exemplos.length?" e outros":""}`:""}. As mensagens deles já não entram.
           <button disabled={!!ocupado} onClick={retirar}
-            style={{width:"100%",marginTop:7,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:700,cursor:ocupado?"default":"pointer"}}>
+            style={{width:"100%",marginTop:7,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:700,cursor:ocupado?"default":"pointer"}}>
             {ocupado==="ret"?"Retirando…":`Retirar os ${previa.total} contatos espontâneos`}</button></>
         :"Nenhum contato espontâneo na conta."}
       {previa.com_venda_ficam?<div style={{marginTop:4}}>{previa.com_venda_ficam} com venda registrada ficam (já são clientes).</div>:null}
     </div>}
-    {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 10px",fontSize:11.5}}>
+    {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"8px 10px",fontSize:11.5}}>
       {feito.retirados} contato(s) retirado(s). A cópia de cada um ficou guardada.</div>}
   </div>;
 }
@@ -27778,14 +27778,14 @@ function QuadroEmpreendimento({conta,acoes,aoMudar,ocupado,setOcupado}){
       {[[false,"Imobiliária"],[true,"Ligar modo empreendimento"]].map(([v,t])=>{const sel=ligado===v;
         return <button key={t} disabled={!!ocupado} onClick={()=>definir(v)}
           style={{flex:"1 1 auto",background:sel?C.greenSoft:C.surface,color:sel?C.greenDeep:C.sub,
-            border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
+            border:`1px solid ${sel?C.green+"55":C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:600,cursor:sel?"default":"pointer"}}>
           {ocupado==="emp"+v?"…":t}</button>;})}
     </div>
     <button disabled={!!ocupado} onClick={kit}
-      style={{width:"100%",marginTop:8,background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:9,padding:"9px 10px",fontSize:12,fontWeight:700,cursor:ocupado?"default":"pointer"}}>
+      style={{width:"100%",marginTop:8,background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",fontSize:12,fontWeight:700,cursor:ocupado?"default":"pointer"}}>
       {ocupado==="kit"?"Aplicando…":"Aplicar o pacote do Reserva Real do Rio"}</button>
     <div style={{color:C.faint,fontSize:11,marginTop:5,lineHeight:1.45}}>Liga o modo e monta funil, ficha de produto, orientações da IA, mensagens prontas, tags, o fluxo de boas-vindas (desligado) e os lotes da planilha. Aplicar de novo não duplica.</div>
-    {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:9,padding:"8px 10px",fontSize:11.5,lineHeight:1.5}}>
+    {feito&&<div style={{marginTop:8,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"8px 10px",fontSize:11.5,lineHeight:1.5}}>
       Pacote aplicado. {["lotes","mensagens","orientacoes","orientacoes_desligadas","campos","tags"].filter(k=>feito[k]!=null).map(k=>`${({lotes:"Lotes",mensagens:"Mensagens",orientacoes:"Orientações novas",orientacoes_desligadas:"Orientações antigas desligadas",campos:"Campos",tags:"Tags"})[k]}: ${n(feito[k])}`).join(" · ")}
       {(feito.qualificacao||[]).length?<div style={{marginTop:4}}>{feito.qualificacao.join(" · ")}.</div>:null}
       {(feito.avisos||[]).length?<div style={{color:C.hot,marginTop:4}}>{feito.avisos.join(" ")}</div>:null}
