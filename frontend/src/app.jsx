@@ -15235,6 +15235,10 @@ function FichaLateral({lead,acoes,session,isMobile,aoFechar,aoVoltar,mudarEtapa,
   const [robo,setRobo]=usarRoboDoLead(lead);
   const [roboOcupado,setRoboOcupado]=useState(false);
   const supervisor=podeSupervisionar(session);
+  // A catraca do lead, ao lado da origem — só para quem supervisiona e só com catraca de produto.
+  const catD=usarCatracas(acoes,supervisor);
+  const catrNome=(()=>{const cs=(catD&&catD.catracas)||[]; if(!supervisor||!cs.length) return null;
+    const c=lead.catracaId&&cs.find(x=>x.id===lead.catracaId); return c?c.nome:"principal";})();
   const podeRepassarProprio=temPerm(session,"repassar_leads")&&lead.assignedTo===session.id;
   const podeTrocar=supervisor||podeRepassarProprio;
   useEffect(()=>{ setResumoAberto(false); setTarefa(null); setErroDono(""); },[lead.id]);
@@ -15271,10 +15275,16 @@ function FichaLateral({lead,acoes,session,isMobile,aoFechar,aoVoltar,mudarEtapa,
   return <div style={{padding:"18px 14px"}}>
     {aoFechar&&<TopoDaGavetaFicha aoFechar={aoFechar}/>}
     {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",marginBottom:10}}><Icon n="chevron" size={17}/></button>}
-    <div style={{display:"flex",alignItems:"center",gap:8}}>
-      <span style={{width:32,height:32,flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"#e8f3ea",color:"#17704a",borderRadius:"50%",fontSize:11,fontWeight:800}}>{initials(lead.nome||"?")}</span>
-      <strong style={{color:C.ink,fontSize:13,minWidth:0,overflowWrap:"anywhere"}}>{lead.nome}</strong>
-    </div>
+    {/* VOLTARAM PARA A LATERAL (27/11/2026, reclamação de cliente: "não
+        aparece mais de onde veio, nem opção de editar nome"): nome com o lápis,
+        telefone e e-mail editáveis, de onde veio (com a catraca) e a
+        temperatura — o que quem atende usa toda hora não pode morar só na
+        ficha completa. */}
+    <NomeDoLead lead={lead} acoes={acoes}/>
+    <TelefoneDoLead lead={lead} acoes={acoes}/>
+    <EmailDoLead lead={lead} acoes={acoes}/>
+    <OrigemDoLead lead={lead} catraca={catrNome}/>
+    <TemperaturaDoLead lead={lead} acoes={acoes}/>
     <PossivelDuplicado lead={lead} acoes={acoes} podeUnir={supervisor}/>
 
     <label style={rot}>Etapa do funil</label>
