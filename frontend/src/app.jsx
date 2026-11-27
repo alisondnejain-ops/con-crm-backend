@@ -21558,6 +21558,8 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
   const ini=prazoEmPartes(etapa.sla_minutes);
   const [n,setN]=useState(ini.n); const [u,setU]=useState(ini.u);
   const [acao,setAcao]=useState(etapa.prazo_acao||"");
+  const [nome,setNome]=useState(etapa.name||"");
+  const [cor,setCor]=useState(etapa.color||"#64748B");
   const [erro,setErro]=useState(""); const [salvando,setSalvando]=useState(false);
   const [padrao,setPadrao]=useState(null);
   useEffect(()=>{ acoes.prazoVencido().then(p=>setPadrao(p.acao)).catch(()=>{}); },[]);
@@ -21567,7 +21569,9 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
     const mult=(UNIDADES_PRAZO.find(x=>x[0]===u)||[0,1])[1];
     const minutos=n.trim()===""?null:Number(n)*mult;
     if(minutos!==null&&(!Number.isFinite(minutos)||minutos<=0)){ setSalvando(false); return setErro("Digite um número maior que zero, ou deixe em branco."); }
-    try{ await acoes.editarEtapa(etapa.id,{sla_minutes:minutos,prazo_acao:acao}); aoSalvo&&aoSalvo(); aoFechar(); }
+    if(!nome.trim()){ setSalvando(false); return setErro("Escreva o nome da etapa."); }
+    const mudou={}; if(nome.trim()!==etapa.name) mudou.name=nome.trim(); if(cor!==(etapa.color||"#64748B")) mudou.color=cor;
+    try{ await acoes.editarEtapa(etapa.id,{sla_minutes:minutos,prazo_acao:acao,...mudou}); aoSalvo&&aoSalvo(); aoFechar(); }
     catch(e){ setErro(e.message); } finally{ setSalvando(false); }
   }
   const campo={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"};
@@ -21581,7 +21585,13 @@ function PrazoDaEtapaModal({etapa,acoes,aoFechar,aoSalvo,isMobile}){
         <span style={{color:C.ink,fontSize:15,fontWeight:700,flex:1}}>{etapa.name}</span>
         <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"none",cursor:"pointer",color:C.faint,fontSize:18}}>×</button>
       </div>
-      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:14}}>Só o gestor vê esta engrenagem. Vale para os leads de corretor nesta etapa.</div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",margin:"10px 0 14px"}}>
+        <label style={{flex:1}}><div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Nome</div>
+          <input value={nome} onChange={e=>setNome(e.target.value)} maxLength={60} style={{...campo,width:"100%",boxSizing:"border-box"}}/></label>
+        <label title="Cor da etapa" style={{flexShrink:0}}><div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Cor</div>
+          <input type="color" value={cor} onChange={e=>setCor(e.target.value)} aria-label="Cor da etapa"
+            style={{width:44,height:36,border:`1px solid ${C.line}`,borderRadius:10,padding:3,background:C.surface,cursor:"pointer"}}/></label>
+      </div>
       <div style={{color:C.sub,fontSize:12,fontWeight:600,marginBottom:5}}>Prazo sem falar com o cliente</div>
       <div style={{display:"flex",gap:8,marginBottom:4}}>
         <input value={n} onChange={e=>setN(e.target.value.replace(/[^\d]/g,""))} inputMode="numeric" placeholder="sem prazo" style={{...campo,width:110}} aria-label="Prazo"/>
