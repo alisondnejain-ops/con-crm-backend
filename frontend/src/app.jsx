@@ -16757,10 +16757,7 @@ function MeuWhatsapp({acoes,session,isMobile,canais,aoMudar}){
     </div>
 
     <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6,marginBottom:11}}>
-      Atenda pelo <b>seu número</b> sem sair do CRM. A conversa continua acontecendo aqui —
-      o histórico, o funil e o seu relatório seguem iguais; só muda o número de onde a
-      mensagem sai. Nas mensagens que saem pelo seu número <b>não vai a assinatura</b>{" "}
-      “{first(session.name)}:”, porque o cliente já sabe com quem está falando.
+      Atenda pelo <b>seu número</b> sem sair do CRM. Por ele, a mensagem sai sem a assinatura “{first(session.name)}:”.
     </div>
 
     {aviso&&<div style={{fontSize:12.5,borderRadius:10,padding:"9px 11px",marginBottom:10,lineHeight:1.45,
@@ -16936,9 +16933,12 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
     color:a.ok?C.greenDeep:C.hot,background:a.ok?C.greenSoft:C.hotSoft}}>{a.txt}</div>;
 
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
-    <div style={{maxWidth:820,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
-      <CabecalhoTela isMobile={isMobile} eyebrow={"MEU WORKSPACE"} titulo="Minha conta" sub="Perfil, segurança e suas conexões pessoais."/>
+    {/* Duas colunas no computador (como o protótipo): numa coluna só de 820px
+        sobrava metade da tela vazia e a página ficava longa. */}
+    <div style={isMobile?{display:"flex",flexDirection:"column",gap:14}
+      :{maxWidth:1180,margin:"0 auto",display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:14,alignItems:"start"}}>
 
+      <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {(CONTAS||[]).length>1&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:16}}>
         <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:15,fontWeight:700,marginBottom:4}}>Suas contas no CETRO</div>
         <div style={{color:C.sub,fontSize:12.5,marginBottom:10}}>Você tem acesso a {CONTAS.length} contas com o mesmo e-mail e a mesma senha. Cada uma tem os próprios leads e a sua função nela.</div>
@@ -16993,6 +16993,7 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
           {trocando?"Alterando…":"Alterar senha"}
         </button>
       </div>
+      </div><div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
       {/* MEU WHATSAPP fica aqui, e não em Configurações, porque o número é
           dele: quem pareia o aparelho é quem tem o aparelho na mão. E fica
           acima das notificações porque é o que muda o dia dele. */}
@@ -17001,10 +17002,11 @@ function MinhaConta({session,acoes,isMobile,aoAtualizar,org,canais,reverCanais})
       {!contaEmpreendimento()&&<MeuWhatsapp acoes={acoes} session={session} isMobile={isMobile} canais={canais} aoMudar={reverCanais}/>}
       <GoogleAgenda acoes={acoes} session={session} isMobile={isMobile}/>
       <Notificacoes acoes={acoes} isMobile={isMobile}/>
+      </div>
       {/* O ambiente interno do CETRO não tem mensalidade. */}
-      {podeGerir(session)&&!contaInterna()&&<PainelAssinatura acoes={acoes} isMobile={isMobile}
-        autonomo={!!org&&org.tipo==="autonomo"}/>}
-      <VersaoDoApp/>
+      {podeGerir(session)&&!contaInterna()&&<div style={{gridColumn:"1/-1"}}><PainelAssinatura acoes={acoes} isMobile={isMobile}
+        autonomo={!!org&&org.tipo==="autonomo"}/></div>}
+      <div style={{gridColumn:"1/-1"}}><VersaoDoApp/></div>
     </div>
   </div>;
 }
@@ -26256,7 +26258,7 @@ function IndicadoresSdr({acoes,periodo,tick,isMobile,abrirConversa}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Indicadores do SDR</span>
     </div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      O pré-atendimento, antes do corretor: quem chegou, quem foi contatado e quem foi pré-qualificado (passou ao comercial). "Qualificados", no resto do sistema, é a etapa de qualificação do comercial.</div>
+      Pré-qualificado = passou do pré-atendimento ao comercial.</div>
     {d.sem_etapa_de_qualificacao&&<div style={{background:C.amberSoft,color:"#8a6d1f",fontSize:11.5,borderRadius:10,padding:"8px 10px",marginBottom:10}}>
       Não há como medir a qualificação do SDR: crie um funil de SDR, ou uma etapa com "qualific" no nome (ex.: "Lead qualificado"), em Configurações → Funis e etapas.</div>}
     {d.por_pessoa.map(a=><div key={a.id} style={{marginBottom:12}}>
