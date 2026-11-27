@@ -27540,13 +27540,14 @@ function FiltrosPainelGeral({f,setF,op,supervisor,isMobile}){
    mesmo depois do conserto principal. */
 const soDigitosMeta=(t)=>String(t??"").replace(/\D/g,"");
 
-function LinhaMeta({alvo,nome,valores,status,onCampo,onSalvar,isMobile}){
+function LinhaMeta({alvo,nome,valores,status,onCampo,onSalvar,isMobile,dica}){
   const inputStyle={width:isMobile?68:76,fontSize:13,border:`1px solid ${C.line}`,borderRadius:9,
     padding:"7px 8px",color:C.ink,outline:"none",textAlign:"right"};
   const inputStyleVgv={...inputStyle,width:isMobile?100:112};
   return <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:10}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9,gap:8}}>
-      <div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
+      <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:13,fontWeight:700}}>{nome}</div>
+        {dica&&<div style={{color:C.faint,fontSize:11,marginTop:1}}>{dica}</div>}</div>
       <button onClick={()=>onSalvar(alvo)} disabled={status==="salvando"}
         style={{border:"none",background:C.green,color:"#fff",borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
         {status==="salvando"?"Salvando…":"Salvar"}
@@ -27577,6 +27578,7 @@ function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
       setD(r);
       const linhas={"":r.operacao.itens};
       for(const c of r.corretores) linhas[c.id]=c.itens;
+      for(const n of (r.niveis||[])) linhas[n.id]=n.itens;
       const f={};
       for(const alvo in linhas) f[alvo]=Object.fromEntries(linhas[alvo].map(i=>[i.campo,i.meta??""]));
       setForm(f);
@@ -27608,6 +27610,11 @@ function ConfigurarMetasModal({acoes,isMobile,aoFechar}){
         {d&&<React.Fragment>
           <LinhaMeta alvo="" nome="Operação inteira (gestor e atendente)" valores={form[""]} status={status[""]}
             onCampo={mudar} onSalvar={salvar} isMobile={isMobile}/>
+          {/* Metas por diretoria/gerência (27/11/2026): valem no Painel quando o
+              filtro marca o nível. Vazio = a soma das metas de quem está nele. */}
+          {(d.niveis||[]).map(n=><LinhaMeta key={n.id} alvo={n.id} nome={`${n.nome} · ${n.pessoas} pessoa(s)`} valores={form[n.id]} status={status[n.id]}
+            onCampo={mudar} onSalvar={salvar} isMobile={isMobile}
+            dica={(n.itens||[]).some(i=>i.soma!=null)?"Vazio = soma das metas de quem está no nível":"Vale no Painel quando o filtro marca este nível"}/>)}
           {d.corretores.map(c=><LinhaMeta key={c.id} alvo={c.id} nome={c.nome} valores={form[c.id]} status={status[c.id]}
             onCampo={mudar} onSalvar={salvar} isMobile={isMobile}/>)}
           {d.corretores.length===0&&<div style={{color:C.faint,fontSize:12.5,textAlign:"center",padding:"10px 0"}}>Nenhum corretor na equipe ainda.</div>}
