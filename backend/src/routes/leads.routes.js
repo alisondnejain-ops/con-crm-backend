@@ -1775,7 +1775,7 @@ r.delete("/:id/simulacao/:simId", (req, res) => {
 /* Qualificação do lead editável na mão. Os campos existiam na ficha mas eram
    só leitura: vinham do formulário da Meta e, se o cliente contasse a renda na
    conversa, não havia onde anotar. */
-const FICHA_CAMPOS = ["estado_civil", "profissao", "filhos", "cidade_atual", "objetivo", "finalidade", "tipo_imovel",
+const FICHA_CAMPOS = ["estado_civil", "profissao", "filhos", "cidade_atual", "pais_residencia", "idioma", "objetivo", "finalidade", "tipo_imovel",
   "motivacao", "quartos", "vagas", "bairros", "area", "caracteristicas", "parcela", "fgts", "financiamento", "valor_max"];
 r.patch("/:id/qualificacao", (req, res) => {
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);

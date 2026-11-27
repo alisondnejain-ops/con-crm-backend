@@ -15935,7 +15935,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,aoFechar,l
    prazo são os MESMOS campos da simulação (não uma cópia). Cada seção abre
    e fecha; fechada, diz quantos campos já estão preenchidos. */
 const FICHA_SECOES=[
-  ["Dados pessoais","user",[["Estado civil","estado_civil"],["Profissão","profissao"],["Filhos","filhos"],["Cidade onde mora","cidade_atual"]]],
+  ["Dados pessoais","user",[["Estado civil","estado_civil"],["Profissão","profissao"],["Filhos","filhos"],["Cidade onde mora","cidade_atual"],["País onde mora","pais_residencia"],["Idioma","idioma"]]],
   ["Interesse","target",[["Comprar ou alugar","objetivo"],["Para morar ou investir","finalidade"],["Tipo de imóvel","tipo_imovel"]]],
   ["Motivação","spark",[["Por que está procurando","motivacao"]]],
   ["Imóvel desejado","pin",[["Quartos","quartos"],["Vagas","vagas"],["Bairros","bairros"],["Área","area"],["O que não pode faltar","caracteristicas"]]],
@@ -18205,6 +18205,24 @@ function PassarLeads({acoes,isMobile,cartao,aoAplicar}){
   </React.Fragment>);
 }
 
+/* Cada ferramenta de "Arrumar a base" fecha numa linha com o título e
+   "Abrir" (como os cartões do protótipo): abertas todas de uma vez, a tela
+   virava um formulário de várias páginas. Fechar só esconde — o que estava
+   escolhido continua lá. */
+function CartaoGaveta({children,isMobile}){
+  const [aberto,setAberto]=useState(false);
+  const partes=React.Children.toArray(children&&children.type===React.Fragment?children.props.children:children);
+  const titulo=partes[0], resto=partes.slice(1);
+  return <div style={{background:C.surface,borderRadius:12,padding:isMobile?"10px 12px":"11px 14px",marginTop:10}}>
+    <button onClick={()=>setAberto(a=>!a)} aria-expanded={aberto}
+      style={{width:"100%",display:"flex",alignItems:"center",gap:10,border:"none",background:"transparent",padding:0,cursor:"pointer",textAlign:"left",fontFamily:FONT}}>
+      <span style={{flex:1,minWidth:0}}>{titulo}</span>
+      <span style={{flexShrink:0,color:C.green,fontSize:12,fontWeight:700,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"4px 11px"}}>{aberto?"Fechar":"Abrir"}</span>
+    </button>
+    <div style={{display:aberto?"block":"none",marginTop:6}}>{resto}</div>
+  </div>;
+}
+
 function ArrumarBase({acoes,isMobile,aoAplicar}){
   const [t,setT]=useState(null);          // prévia da temperatura
   const [ia,setIa]=useState(null);        // prévia da IA
@@ -18298,7 +18316,7 @@ function ArrumarBase({acoes,isMobile,aoAplicar}){
     }catch(e){ setErro(e.message); } finally{ setRodando(""); }
   }
 
-  const cartao=(filhos)=><div style={{background:C.surface,borderRadius:12,padding:isMobile?12:14,marginTop:10}}>{filhos}</div>;
+  const cartao=(filhos)=><CartaoGaveta isMobile={isMobile}>{filhos}</CartaoGaveta>;
 
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14}}>
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
@@ -26722,7 +26740,10 @@ function MolduraAtender({isMobile,corretor,children}){
    à direita; sem botões, não desenha nada. */
 function CabecalhoTela({acoes,isMobile}){
   if(!acoes) return null;
-  return <div style={{display:"flex",justifyContent:isMobile?"stretch":"flex-end",gap:8,flexWrap:"wrap",marginBottom:isMobile?12:16}}>{acoes}</div>;
+  /* No computador os botões flutuam à direita e as abas (ou o primeiro bloco)
+     sobem para a mesma linha — sozinhos, eles gastavam uma faixa inteira. */
+  if(isMobile) return <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>{acoes}</div>;
+  return <div style={{float:"right",display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-end",marginLeft:12,marginBottom:10,position:"relative",zIndex:1}}>{acoes}</div>;
 }
 const BOTAO_PRIMARIO={border:"none",background:`linear-gradient(180deg,${C.green},#06663f)`,color:"#fff",borderRadius:11,padding:"10px 16px",
   fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 12px rgba(8,122,80,.20)",display:"inline-flex",alignItems:"center",gap:6};
