@@ -2775,6 +2775,12 @@ CREATE TABLE IF NOT EXISTS lead_propostas (
 );
 CREATE INDEX IF NOT EXISTS idx_lead_imoveis_lead ON lead_imoveis(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_propostas_lead ON lead_propostas(lead_id);
+-- Anexos da ficha do lead (routes/lead-anexos.routes.js): internos, não vão ao cliente.
+CREATE TABLE IF NOT EXISTS lead_anexos (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, lead_id TEXT NOT NULL, nome TEXT NOT NULL,
+  mime TEXT, tamanho INTEGER, url TEXT NOT NULL, user_id TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lead_anexos_lead ON lead_anexos(lead_id);
 `);
 
 export default db;
