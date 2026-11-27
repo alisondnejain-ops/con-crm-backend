@@ -43,6 +43,8 @@ const MIME_POR_EXT = {
 };
 const mimeDaUrl = (url) => MIME_POR_EXT[String(url || "").split(".").pop().toLowerCase()] || "application/octet-stream";
 import { inferStage } from "../services/stages.js";
+import { unidadesDo } from "../services/unidades.js";
+import { caminhoDoImovel } from "../services/site.js";
 import { ROTULO_CARACTERISTICA, ROTULO_PAGAMENTO, ROTULO_GARANTIA } from "../services/ficha-imovel.js";
 
 const r = Router();
@@ -672,11 +674,45 @@ export function textoDoProduto(p) {
   return linhas.join("\n");
 }
 
+/* O FORMATO DO ENVIO (27/11/2026, protótipo CETRO). "resumido" manda só o
+   nome, o lugar, o essencial e o valor — para quem já conhece o imóvel. O
+   link do site vai quando o site está ligado e o corretor marca. A unidade
+   (empreendimento/loteamento) leva a identificação, o preço e o FLUXO DE
+   PAGAMENTO calculado no servidor — só da unidade disponível. */
+export function textoResumido(p) {
+  const moeda = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: p.moeda === "USD" ? "USD" : "BRL", maximumFractionDigits: 0 });
+  const l = [`*${p.titulo}*`];
+  const local = [p.bairro, p.cidade].filter(Boolean).join(" · ");
+  if (local) l.push(`📍 ${local}`);
+  const ess = [p.tipo === "casa" && p.quartos && `${p.quartos} quarto(s)`, p.area_util ? `${Number(p.area_util).toLocaleString("pt-BR")} m²` : p.metragem ? `${Number(p.metragem).toLocaleString("pt-BR")} m²` : null].filter(Boolean);
+  if (ess.length) l.push(`🏠 ${ess.join(" · ")}`);
+  if (p.valor) l.push(`💰 ${moeda(p.valor)}${p.finalidade === "aluguel" ? "/mês" : ""}`);
+  if (p.finalidade !== "aluguel" && p.valor_aluguel > 0) l.push(`🔑 Também para alugar: ${moeda(p.valor_aluguel)}/mês`);
+  return l.join("\n");
+}
+export function textoDaUnidade(u) {
+  const moeda = (v) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: u.moeda === "USD" ? "USD" : "BRL", maximumFractionDigits: 0 });
+  const nome = [u.bloco, u.identificacao].filter(Boolean).join(" · ");
+  const l = [`🏢 Unidade ${nome}${u.tipologia ? ` (${u.tipologia})` : ""}${u.area ? ` · ${Number(u.area).toLocaleString("pt-BR")} m²` : ""}`];
+  if (u.preco) l.push(`💰 ${moeda(u.preco)}`);
+  const f = u.fluxo || {};
+  const parte = (k, nomeP) => {
+    const x = f[k]; if (!x || !x.pct) return;
+    const pct = String(x.pct).replace(".", ",") + "%";
+    l.push(x.qtd ? `• ${nomeP}: ${pct} em ${x.qtd}x${x.parcela ? ` de ${moeda(x.parcela)}` : ""}` : `• ${nomeP}: ${pct}${x.valor ? ` (${moeda(x.valor)})` : ""}`);
+  };
+  if (Object.keys(f).length) {
+    l.push("Fluxo de pagamento:");
+    parte("sinal", "Sinal"); parte("mensais", "Mensais"); parte("reforcos", "Reforços"); parte("chaves", "Chaves"); parte("financiar", "Saldo a financiar");
+  }
+  return l.join("\n");
+}
+
 // Envia o imóvel para o lead: texto + fotos + vídeo, conforme o corretor marcar.
 // A localização é opcional DE PROPÓSITO — mandar endereço sem querer é o tipo de
 // erro que não dá para desfazer no WhatsApp.
 r.post("/:id/produto", async (req, res) => {
-  const { produto_id, fotos = true, video = false, localizacao = false, fotos_ids } = req.body || {};
+  const { produto_id, fotos = true, video = false, localizacao = false, fotos_ids, formato = "completo", link_site = false, unidade_id } = req.body || {};
   const lead = db.prepare("SELECT * FROM leads WHERE id = ?").get(req.params.id);
   if (!lead) return res.status(404).json({ error: "Lead não encontrado" });
   if (!podeVerLead(req.user, lead))
@@ -701,7 +737,22 @@ r.post("/:id/produto", async (req, res) => {
   const escolhidas = Array.isArray(fotos_ids) ? new Set(fotos_ids.map(String)) : null;
   const fotosParaEnviar = midias.filter(m => m.tipo === "foto" &&
     (!escolhidas || escolhidas.has(String(m.id))));
-  let texto = textoDoProduto(p);
+  let texto = formato === "resumido" ? textoResumido(p) : textoDoProduto(p);
+  let unidade = null;
+  if (unidade_id) {
+    unidade = unidadesDo(p.id).find(u => u.id === String(unidade_id));
+    if (!unidade) return res.status(404).json({ error: "Unidade não encontrada neste imóvel." });
+    if (unidade.status !== "disponivel") return res.status(409).json({ error: "Esta unidade não está disponível." });
+    texto += "\n\n" + textoDaUnidade(unidade);
+  }
+  if (link_site) {
+    const caminho = caminhoDoImovel(lead.org_id, p);
+    if (caminho && p.publicar_site !== 0 && p.status === "ativo") {
+      const base = String(process.env.APP_URL || "").replace(/\/+$/, "");
+      const url = /^https?:/.test(caminho) ? caminho : base ? base + caminho : null;
+      if (url) texto += `\n\n🌐 Veja no site: ${url}`;
+    }
+  }
   if (localizacao && p.maps_url) texto += `\n\n📍 Localização: ${p.maps_url}`;
 
   try {
@@ -727,6 +778,8 @@ r.post("/:id/produto", async (req, res) => {
   const todasAsFotos = midias.filter(m => m.tipo === "foto").length;
   const parcial = fotos && fotosParaEnviar.length > 0 && fotosParaEnviar.length < todasAsFotos;
   const registro = `[Imóvel enviado] ${p.titulo}`
+    + (unidade ? ` · unidade ${[unidade.bloco, unidade.identificacao].filter(Boolean).join(" ")}` : "")
+    + (formato === "resumido" ? " (resumido)" : "")
     + (parcial ? ` (${fotosParaEnviar.length} de ${todasAsFotos} fotos)` : "")
     + (localizacao && p.maps_url ? " (com localização)" : "");
   db.prepare(`INSERT INTO messages (id,lead_id,direction,from_user_id,from_name,body,created_at,canal_id)
