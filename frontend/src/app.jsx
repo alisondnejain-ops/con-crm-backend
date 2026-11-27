@@ -12016,15 +12016,26 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
   const canal=doAnuncio?`Anúncio${plat?` · ${plat}`:""}`:(l.fonte==="portal"?"Portal":l.origem||"WhatsApp");
   const passo=Math.min(4,36/Math.max(1,etapas.length));
 
-  const esquerda=<div style={{padding:isMobile?"14px 15px 4px":"16px 18px"}}>
-    <NomeDoLead lead={l} acoes={acoes}/>
-    {ocultar?<div style={{color:C.faint,fontSize:12,marginBottom:10}}>Telefone e e-mail escondidos (o olho do Funil está fechado).</div>
-      :<React.Fragment><EmailDoLead lead={l} acoes={acoes}/><div style={{marginTop:8}}><TelefoneDoLead lead={l} acoes={acoes}/></div></React.Fragment>}
+  /* O DESENHO DO PROTÓTIPO CETRO (27/11/2026, pedido do Ali: "a ficha do
+     exemplo está muito mais bonita"): só aparência. À esquerda, um cartão
+     verde-claro com as iniciais, quem é o lead e os campos com rótulo
+     pequeno; Vendi/Não vendi no pé dele. Todas as funções continuam. */
+  const rotuloP=(t)=><div style={{color:C.sub,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.6,margin:"14px 0 7px"}}>{t}</div>;
+  const etapaKey=etapaAtual?(etapaAtual.id||etapaAtual.name):"";
+  const esquerda=<div style={{padding:isMobile?"14px 15px 4px":"20px 0 20px 22px"}}>
+    <div style={{background:"#F5F8F1",border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?"16px 15px":"20px 18px"}}>
+      <div style={{width:44,height:44,borderRadius:999,background:C.greenSoft,color:C.greenDeep,display:"flex",alignItems:"center",justifyContent:"center",
+        fontSize:13,fontWeight:800,marginBottom:12}}>{initials(l.nome||"?")}</div>
+      <NomeDoLead lead={l} acoes={acoes}/>
+      {ocultar?<div style={{color:C.faint,fontSize:12,marginBottom:6}}>Telefone e e-mail escondidos (o olho do Funil está fechado).</div>
+        :<React.Fragment><EmailDoLead lead={l} acoes={acoes}/><div style={{marginTop:6}}><TelefoneDoLead lead={l} acoes={acoes}/></div></React.Fragment>}
 
-    <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14,background:C.card}}>
-      <div style={{color:C.faint,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Responsável pelo lead</div>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
-        <Avatar ini={l.assignedName?initials(l.assignedName):"—"} color={l.assignedTo?C.greenMid:C.amber} size={36}/>
+      {rotuloP("Temperatura")}
+      <TemperaturaDoLead lead={l} acoes={acoes}/>
+
+      {rotuloP("Responsável")}
+      <div style={{display:"flex",alignItems:"center",gap:10,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px"}}>
+        <Avatar ini={l.assignedName?initials(l.assignedName):"—"} color={l.assignedTo?C.greenMid:C.amber} size={28}/>
         <div style={{minWidth:0,flex:1}}>
           <div style={{color:C.ink,fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {l.assignedTo&&l.assignedTo===session.id?"Você":l.assignedName||"Na fila, sem responsável"}</div>
@@ -12032,58 +12043,52 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
         </div>
       </div>
       {podeTransferir&&!transferindo&&<button onClick={()=>setTransferindo(true)}
-        style={{width:"100%",marginTop:10,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"9px",fontSize:12.5,fontWeight:700,
-          cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-        <Icon n="transfer" size={14}/> Transferir lead</button>}
+        style={{marginTop:9,background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:700,
+          cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
+        <Icon n="transfer" size={13}/> Transferir lead</button>}
       {podeTransferir&&transferindo&&<div style={{marginTop:10,marginBottom:-14}}><RepasseDoCorretor lead={l} acoes={acoes} session={session}/></div>}
+
+      {rotuloP("Funil")}
+      <div style={{color:C.ink,fontSize:13,fontWeight:600,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px"}}>{pipe?pipe.name:"—"}</div>
+      <MoverParaOutroFunil lead={l} acoes={acoes} session={session}/>
+
+      {rotuloP("Etapa")}
+      <select value={etapaKey} onChange={e=>{const alvo=etapas.find(x=>(x.id||x.name)===e.target.value); if(alvo) acoes.mudarEtapa(l.id,alvo.name,alvo.id?{stage_id:alvo.id}:undefined);}}
+        aria-label="Etapa do lead"
+        style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,color:C.ink,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",cursor:"pointer"}}>
+        {!etapaAtual&&<option value="">{l.status||"—"}</option>}
+        {etapas.map(e=><option key={e.id||e.name} value={e.id||e.name}>{e.name}</option>)}
+      </select>
+
+      {!lead_semImovel()&&<div style={{marginTop:14}}><QualificacaoValorNegociacao lead={l} acoes={acoes}/></div>}
+
+      {!l.venda&&<div style={{display:"flex",gap:7,marginTop:14,flexWrap:"wrap"}}>
+        <button onClick={()=>{setAba("imoveis");setSimulando(false);setPerdendo(false);}}
+          style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:SOMBRA}}>Vendi</button>
+        {etapaPerda&&!(etapaAtual&&etapaAtual.id===etapaPerda.id)&&<button onClick={()=>setPerdendo(true)}
+          style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Não vendi</button>}
+      </div>}
     </div>
 
-    {titulo("Temperatura do lead")}
-    <div style={{marginTop:-8,marginBottom:12}}><TemperaturaDoLead lead={l} acoes={acoes}/></div>
-
-    {!lead_semImovel()&&<QualificacaoValorNegociacao lead={l} acoes={acoes}/>}
-
-    <div style={{color:C.ink,fontSize:12.5,fontWeight:700}}>Funil: <span style={{fontWeight:600}}>{pipe?pipe.name:"—"}</span></div>
-    <div style={{color:C.ink,fontSize:12.5,fontWeight:700,margin:"4px 0 6px"}}>Etapa</div>
-    {/* O cone: a etapa em que o lead está fica acesa; tocar em outra move. */}
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,marginBottom:6}}>
-      {etapas.map((e,i)=>{const on=etapaAtual&&(e.id?e.id===etapaAtual.id:e.name===etapaAtual.name);
-        return <button key={e.id||e.name} disabled={on} title={on?"Etapa atual":`Mover para ${e.name}`}
-          onClick={()=>acoes.mudarEtapa(l.id,e.name,e.id?{stage_id:e.id}:undefined)}
-          style={{width:`${100-i*passo}%`,border:"none",cursor:on?"default":"pointer",padding:"9px 14px",
-            clipPath:"polygon(0 0,100% 0,calc(100% - 9px) 100%,9px 100%)",borderRadius:8,
-            background:on?C.greenSoft:C.surface,color:on?C.greenDeep:C.faint,
-            fontSize:10.5,fontWeight:on?800:600,letterSpacing:.6,textTransform:"uppercase",
-            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.name}</button>;})}
-    </div>
-    <MoverParaOutroFunil lead={l} acoes={acoes} session={session}/>
-
-    <div style={{marginTop:14}}>{titulo("Origem do lead")}</div>
-    {caixa("Canal",canal)}
-    {caixa("Campanha",l.campanha)}
-    {caixa("Mídia",l.anuncio||l.formulario)}
-    <div style={{fontSize:11.5,lineHeight:1.6,color:C.sub,marginBottom:8}}>
-      <div><span style={{color:C.faint}}>Criado em: </span>{l.createdAt?fmtData(l.createdAt):"—"}</div>
-      <div><span style={{color:C.faint}}>Entrada na etapa: </span>{l.etapaDesde?fmtData(l.etapaDesde):"—"}</div>
+    <div style={{padding:"16px 4px 0"}}>
+      <div style={{color:C.sub,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Origem do lead</div>
+      {[["Canal",canal],["Campanha",l.campanha],["Mídia",l.anuncio||l.formulario],["Criado em",l.createdAt?fmtData(l.createdAt):null],["Entrada na etapa",l.etapaDesde?fmtData(l.etapaDesde):null]]
+        .map(([r,v])=><div key={r} style={{display:"flex",gap:10,fontSize:12,padding:"5px 0",borderBottom:`1px solid ${C.line}`}}>
+          <span style={{color:C.faint,width:110,flexShrink:0}}>{r}</span>
+          <span style={{color:v?C.ink:C.faint,minWidth:0,overflowWrap:"anywhere"}}>{v||"—"}</span></div>)}
     </div>
   </div>;
 
-  const abasBarra=<div style={{display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${C.line}`,padding:isMobile?"0 10px":"0 14px",flexShrink:0,flexWrap:"wrap"}}>
-    <div role="tablist" style={{display:"flex",gap:2,flex:1,minWidth:0,flexWrap:"wrap"}}>
+  const abasBarra=<div style={{display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${C.line}`,padding:isMobile?"0 10px":"0 4px",margin:isMobile?0:"0 22px",flexShrink:0,flexWrap:"wrap"}}>
+    <div role="tablist" style={{display:"flex",gap:isMobile?2:10,flex:1,minWidth:0,flexWrap:"wrap"}}>
       {ABAS_FICHA.map(([k,t])=><button key={k} role="tab" aria-selected={aba===k} onClick={()=>{setAba(k);setSimulando(false);}}
-        style={{border:"none",background:"transparent",padding:isMobile?"11px 9px":"12px 10px",cursor:"pointer",whiteSpace:"nowrap",
-          fontSize:12.5,fontWeight:aba===k?700:500,color:aba===k?C.greenDeep:C.sub,
+        style={{border:"none",background:"transparent",padding:isMobile?"11px 9px":"14px 12px",cursor:"pointer",whiteSpace:"nowrap",
+          fontSize:13,fontWeight:aba===k?700:500,color:aba===k?C.greenDeep:C.sub,
           borderBottom:`2px solid ${aba===k?C.green:"transparent"}`,marginBottom:-1}}>{t}</button>)}
     </div>
-    {!l.venda&&<div style={{display:"flex",gap:6,padding:"6px 0"}}>
-      <button onClick={()=>{setAba("imoveis");setSimulando(false);setPerdendo(false);}}
-        style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:11.5,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>VENDI</button>
-      {etapaPerda&&!(etapaAtual&&etapaAtual.id===etapaPerda.id)&&<button onClick={()=>setPerdendo(true)}
-        style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:11.5,fontWeight:700,cursor:"pointer",letterSpacing:.3}}>NÃO VENDI</button>}
-    </div>}
   </div>;
 
-  const conteudo=<div style={{padding:isMobile?"12px 15px":"14px 18px"}}>
+  const conteudo=<div style={{padding:isMobile?"12px 15px":"18px 22px"}}>
     {perdendo&&etapaPerda&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:"10px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
       <span style={{flex:1,minWidth:160,color:C.ink,fontSize:12.5}}>Mover este lead para <b>{etapaPerda.name}</b>?</span>
       <button onClick={async()=>{setPerdendo(false);await acoes.mudarEtapa(l.id,etapaPerda.name,{stage_id:etapaPerda.id});}}
@@ -12096,8 +12101,10 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
       <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
       <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
       <Observacoes lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
-      <AnexosDoLead lead={l} acoes={acoes} session={session}/>
-      <TagsDoLead lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
+      <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:"12px 12px 0",marginBottom:12}}>
+        <AnexosDoLead lead={l} acoes={acoes} session={session}/>
+        <TagsDoLead lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
+      </div>
       {!contaInterna()&&<FichaDoCliente lead={l} acoes={acoes} secoes={["Dados pessoais"]} titulo="Dados pessoais" todasAbertas/>}
       <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
         <CamposPersonalizadosDoLead lead={l} acoes={acoes} session={session}/>
@@ -12135,31 +12142,26 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
     <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,overflow:"hidden",
       width:"100%",maxWidth:1180,maxHeight:"100%",height:isMobile?"100%":"min(880px,100%)",display:"flex",flexDirection:"column",minHeight:0}}>
 
-      <div style={{background:C.greenDeep,padding:isMobile?"12px 15px":"14px 18px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-        <button onClick={aoFechar} aria-label="Fechar" style={{border:"none",background:"rgba(255,255,255,.12)",color:"#fff",
-          width:32,height:32,borderRadius:10,cursor:"pointer",fontSize:17,flexShrink:0}}>×</button>
-        <div style={{flex:1,textAlign:"center",color:"#fff",fontFamily:DISPLAY,fontSize:isMobile?15:17,fontWeight:700,marginRight:32}}>
-          Informações do <span style={{color:"#7BE0B4"}}>lead</span></div>
+      <div style={{padding:isMobile?"12px 15px":"16px 22px",display:"flex",alignItems:"center",gap:10,flexShrink:0,borderBottom:`1px solid ${C.line}`,background:C.card}}>
+        <div style={{flex:1,color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700,letterSpacing:-.2}}>Ficha do lead</div>
+        <button onClick={()=>{aoFechar();abrirConversa(l.id);}}
+          style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"7px 12px",
+            fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <Icon n="whatsapp" size={15}/>{isMobile?"Conversa":"Abrir a conversa"}</button>
+        <button onClick={aoFechar} aria-label="Fechar" style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,
+          width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>
       </div>
 
       {isMobile
         ?<div style={{flex:1,overflowY:"auto",minHeight:0}}>{esquerda}{abasBarra}{conteudo}</div>
         :<div style={{flex:1,display:"flex",minHeight:0}}>
-          <div style={{width:380,flexShrink:0,overflowY:"auto",borderRight:`1px solid ${C.line}`,background:C.card}}>{esquerda}</div>
+          <div style={{width:400,flexShrink:0,overflowY:"auto",background:C.card}}>{esquerda}</div>
           <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",minHeight:0}}>
             {abasBarra}
             <div style={{flex:1,overflowY:"auto",minHeight:0}}>{conteudo}</div>
           </div>
         </div>}
 
-      <div style={{padding:isMobile?"10px 15px calc(env(safe-area-inset-bottom, 0px) + 12px)":"12px 18px",
-        borderTop:`1px solid ${C.line}`,flexShrink:0}}>
-        <button onClick={()=>{aoFechar();abrirConversa(l.id);}}
-          style={{width:"100%",background:"#25D366",color:"#fff",border:"none",borderRadius:11,padding:"12px",
-            fontSize:14,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-          <Icon n="whatsapp" size={17}/> Abrir a conversa
-        </button>
-      </div>
     </div>
   </div>;
 }
@@ -15222,15 +15224,15 @@ function Observacoes({lead,acoes,session,isMobile}){
   async function salvar(){ if(await o.anotar(texto)){ setTexto(""); setEscrevendo(false); } }
   const podeApagar=(obs)=>obs.autor_id===session.id||podeSupervisionar(session);
 
-  return <div style={{background:"#FFF8E6",border:`1px solid #E8D9A8`,borderRadius:12,padding:12,marginBottom:12}}>
+  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12}}>
     <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
-      <Icon n="star" size={13} color="#8a6d1f"/>
-      <span style={{color:"#8a6d1f",fontSize:12,fontWeight:700,flex:1}}>Observações</span>
+      <Icon n="star" size={13} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1}}>Observações</span>
       {!escrevendo&&<button onClick={()=>setEscrevendo(true)}
-        style={{border:"none",background:"transparent",color:"#8a6d1f",fontSize:11.5,fontWeight:700,cursor:"pointer",padding:0}}>+ anotar</button>}
+        style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:0}}>+ anotar</button>}
     </div>
 
-    {!o.lista.length&&!escrevendo&&<div style={{color:"#9a8550",fontSize:11.5,lineHeight:1.5}}>
+    {!o.lista.length&&!escrevendo&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
       Nenhuma ainda.
     </div>}
 
@@ -15253,7 +15255,7 @@ function Observacoes({lead,acoes,session,isMobile}){
 
     {o.erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginBottom:8}}>{o.erro}</div>}
 
-    {o.lista.map(obs=><div key={obs.id} style={{background:C.card,borderRadius:10,padding:"8px 10px",marginTop:6}}>
+    {o.lista.map(obs=><div key={obs.id} style={{background:C.surface,borderRadius:10,padding:"8px 10px",marginTop:6}}>
       <div style={{color:C.ink,fontSize:12.5,lineHeight:1.45,whiteSpace:"pre-wrap"}}>{obs.texto}</div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
         <span style={{color:C.faint,fontSize:10.5,flex:1}}>{obs.autor||"alguém"} · {fmtQuando(obs.created_at)}</span>
