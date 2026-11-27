@@ -21937,8 +21937,13 @@ function PermissoesDoCorretor({u,acoes,aoSalvar,aoFechar}){
 /* A ESTRUTURA DA EQUIPE (CETRO 23): começa vazia; a operação cria os níveis
    que tem. Cada pessoa fica num nível e escolhe-se se ela entra nos
    indicadores. Nível não dá permissão: é agrupamento e filtro. */
-function EstruturaDaEquipe({isMobile,ehGestor}){
+function EstruturaDaEquipe({isMobile,ehGestor,parte,pedirNovo}){
+  /* `parte` (27/11/2026, layout do protótipo): a tela Equipe mostra os níveis
+     numa aba (Estrutura) e o nível/indicadores de cada pessoa noutra
+     (Permissões). Sem `parte`, os dois juntos, como antes. `pedirNovo` muda
+     quando o botão "+ Criar nível / equipe" do alto é tocado. */
   const [d,setD]=useState(null), [erro,setErro]=useState(""), [novo,setNovo]=useState(null), [editando,setEditando]=useState(null);
+  useEffect(()=>{if(pedirNovo) setNovo({nome:"",tipo:"",pai_id:""});},[pedirNovo]);
   const carregar=()=>api("/estrutura").then(r=>{setD(r);esquecerEstrutura(r);}).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
   const fazer=async(fn)=>{setErro(""); try{ const r=await fn(); setD(r); esquecerEstrutura(r); setNovo(null); setEditando(null);}catch(e){setErro(e.message);} };
@@ -21962,16 +21967,20 @@ function EstruturaDaEquipe({isMobile,ehGestor}){
           <button onClick={()=>{if(window.confirm(`Apagar o nível "${n.nome}"? Quem está nele fica sem nível.`)) fazer(()=>api(`/estrutura/niveis/${n.id}`,{method:"DELETE"}));}} style={{border:"none",background:"none",color:C.hot,fontSize:12,cursor:"pointer"}}>apagar</button></span>}</div>}
     {arvore(n.id,nivelProf+1)}
   </div>);
-  return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
-    <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><Icon n="users" size={14} color={C.green}/> Estrutura da equipe</div>
-    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>O nível agrupa e filtra as pessoas; não dá permissão.</div>
+  const verNiveis=parte!=="pessoas", verPessoas=parte!=="niveis";
+  return <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:18,marginBottom:16}}>
+    {verNiveis&&<React.Fragment>
+    <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:4,fontFamily:DISPLAY}}>{d.niveis.length?"Estrutura da equipe":"Crie a estrutura da sua operação"}</div>
+    <div style={{color:"#85937b",fontSize:11.5,lineHeight:1.5,marginBottom:8}}>O nível agrupa e filtra as pessoas; não dá permissão.</div>
     {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:6}}>{erro}</div>}
     {!d.niveis.length&&!novo&&<div style={{color:C.sub,fontSize:12.5}}>Nenhum nível criado.</div>}
     {arvore(null,0)}
     {novo&&form(novo,setNovo,()=>fazer(()=>api("/estrutura/niveis",{method:"POST",body:novo})),()=>setNovo(null))}
-    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:""})} style={{marginTop:10,border:`1px solid ${C.green}66`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{d.niveis.length?"+ Novo nível no topo":"Criar primeiro nível"}</button>}
-    <div style={{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:10}}>
-      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:6}}>Pessoas</div>
+    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:""})} style={{...BOTAO_SECUNDARIO,marginTop:12}}>{d.niveis.length?"+ Adicionar nível":"Criar primeiro nível"}</button>}
+    </React.Fragment>}
+    {verPessoas&&<div style={verNiveis?{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:10}:{}}>
+      {!verNiveis&&erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:6}}>{erro}</div>}
+      <div style={{color:C.ink,fontSize:verNiveis?12.5:14,fontWeight:700,marginBottom:6,fontFamily:verNiveis?undefined:DISPLAY}}>{verNiveis?"Pessoas":"Nível e participação nos indicadores"}</div>
       {d.pessoas.map(p=><div key={p.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"6px 0",borderTop:`1px solid ${C.line}`}}>
         <span style={{flex:"1 1 160px",fontSize:13,color:C.ink}}>{p.name} <span style={{color:C.faint,fontSize:11.5}}>· {papel[p.role]||p.role}</span></span>
         <select aria-label={`Nível de ${p.name}`} disabled={!ehGestor} value={p.nivel_id||""} onChange={e=>fazer(()=>api(`/estrutura/pessoas/${p.id}`,{method:"PATCH",body:{nivel_id:e.target.value||null}}))} style={ent}>
@@ -21980,7 +21989,7 @@ function EstruturaDaEquipe({isMobile,ehGestor}){
           <option value="">Indicadores: automático</option><option value="1">Sempre nos indicadores</option><option value="0">Fora dos indicadores</option></select>
       </div>)}
       <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.45}}>Automático: corretor entra; gestor entra quando atendeu no período. "Sempre" serve para quem dirige e também produz. Entrar nos indicadores não dá acesso aos dados de ninguém.</div>
-    </div>
+    </div>}
   </div>;
 }
 
@@ -21992,6 +22001,9 @@ function Equipe({acoes,session,org,isMobile,versao}){
   const [gerando,setGerando]=useState(null);     // id de quem está tendo o link gerado
   const [senha,setSenha]=useState(null);         // {id, nome, link, ...} do link recém-criado
   const [permDe,setPermDe]=useState(null);       // id do corretor com o painel de permissões aberto
+  // Abas do protótipo (27/11/2026). "Pessoas" primeiro: é onde se aprova cadastro.
+  const [aba,setAba]=useState("pessoas");
+  const [pedirNivel,setPedirNivel]=useState(0);
 
   useEffect(()=>{let vivo=true;
     acoes.equipe().then(u=>vivo&&setUsers(u)).catch(e=>vivo&&setErro(e.message));
@@ -22035,7 +22047,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
   const podeMexer=(u)=>u.id!==session.id&&(u.role!=="adm"||podeGerir(session));
   const candidatos=(u)=>users.filter(p=>p.status==="ativo"&&p.id!==u.id&&(p.role==="corretor"||p.role==="sdr"));
 
-  const cartao=(u,comBotoes)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":C.line}`,borderRadius:14,padding:13}}>
+  const cartao=(u,comBotoes,grade)=><div key={u.id} style={{background:C.card,border:`1px solid ${comBotoes?C.amber+"55":"#e0e7db"}`,borderRadius:14,padding:14,boxShadow:grade?SOMBRA:undefined,minWidth:0}}>
     <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
       <Avatar ini={initials(u.name)} color={u.role==="adm"?C.greenDeep:corDe(u.id)} size={38} foto={u.avatar_url}/>
       <div style={{flex:1,minWidth:150}}>
@@ -22053,7 +22065,8 @@ function Equipe({acoes,session,org,isMobile,versao}){
         <button onClick={()=>decidir(u.id,"recusar")} style={{flex:isMobile?1:"none",background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Recusar</button>
       </div>}
       {comBotoes&&<div style={{width:"100%",color:C.sub,fontSize:11.5,lineHeight:1.4}}>Confira a função antes de aprovar — dá para corrigir no seletor acima.</div>}
-      {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:isMobile?1:0,alignItems:"center",flexWrap:"wrap",minWidth:0,width:isMobile?"100%":"auto"}}>
+      {podeMexer(u)&&<div style={{display:"flex",gap:7,flexShrink:isMobile?1:0,alignItems:"center",flexWrap:"wrap",minWidth:0,width:(isMobile||grade)?"100%":"auto",
+        borderTop:grade?"1px solid #edf1e6":undefined,paddingTop:grade?10:0}}>
         {/* Trocar a função vale em qualquer estado — inclusive antes de aprovar. */}
         {/* O banco guarda corretor/sdr/adm; o seletor fala corretor/atendente/gestor.
             Sem essa tradução, quem é sdr aparecia como "Corretor(a)" na caixinha. */}
@@ -22102,21 +22115,24 @@ function Equipe({acoes,session,org,isMobile,versao}){
     {permDe===u.id&&<PermissoesDoCorretor u={u} acoes={acoes} aoSalvar={async()=>{setPermDe(null);setUsers(await acoes.equipe());}} aoFechar={()=>setPermDe(null)}/>}
   </div>;
 
+  const comEstrutura=!!(org&&org.tipo!=="autonomo");
+  const abas=[["pessoas","Pessoas"+(aguardando.length?` (${aguardando.length})`:"")],...(comEstrutura?[["estrutura","Estrutura"],["permissoes","Permissões"]]:[]),["disp","Disponibilidade"]];
   return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
-    <div style={{maxWidth:1100,margin:"0 auto"}}>
-      <CabecalhoTela isMobile={isMobile} titulo="Pessoas alinhadas. Estrutura flexível." sub="Hierarquia, funções, permissões e participação nos indicadores são independentes."/>
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erro}</div>}
+    <div style={{maxWidth:1200,margin:"0 auto"}}>
+      <CabecalhoTela isMobile={isMobile} acoes={<React.Fragment>
+        <button onClick={copiar} style={BOTAO_SECUNDARIO}><Icon n="link" size={13}/>{copiado?"Link copiado!":"Convidar usuário"}</button>
+        {comEstrutura&&podeGerir(session)&&<button onClick={()=>{setAba("estrutura");setPedirNivel(n=>n+1);}} style={BOTAO_PRIMARIO}>+ Criar nível / equipe</button>}
+      </React.Fragment>}/>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14,clear:isMobile?undefined:"left"}}>{erro}</div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
-        <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:6,display:"flex",alignItems:"center",gap:7}}><Icon n="link" size={14} color={C.green}/> Link de cadastro da equipe</div>
-        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:9}}>Mande este link no grupo. Cada cadastro aparece aqui para você aprovar antes de entrar.</div>
+      <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:18,marginBottom:16}}>
+        <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:4,fontFamily:DISPLAY}}>Link de cadastro da equipe</div>
+        <div style={{color:"#85937b",fontSize:11.5,lineHeight:1.5,marginBottom:10}}>Mande este link no grupo. Cada cadastro aparece aqui para você aprovar antes de entrar.</div>
         <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-          <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",fontSize:11.5,color:C.greenMid,wordBreak:"break-all"}}>{CADASTRO_URL}</div>
-          <button onClick={copiar} style={{background:copiado?C.greenSoft:C.greenDeep,color:copiado?C.greenMid:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontSize:12.5,fontWeight:600,cursor:"pointer",flexShrink:0}}>{copiado?"Copiado!":"Copiar"}</button>
+          <div style={{flex:1,minWidth:0,background:"#f3f8f1",border:"1px solid #dce4db",borderRadius:10,padding:"10px 12px",fontSize:12,color:C.greenMid,wordBreak:"break-all",fontFamily:"ui-monospace,monospace"}}>{CADASTRO_URL}</div>
+          <button onClick={copiar} style={{...BOTAO_PRIMARIO,justifyContent:"center",flexShrink:0}}>{copiado?"Copiado!":"Copiar convite"}</button>
         </div>
       </div>
-
-      {org&&org.tipo!=="autonomo"&&<EstruturaDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)}/>}
 
       {/* Corrigir o TIPO da conta (só master) — pedido do Ali: cliente se
           cadastrou como imobiliária sendo corretor autônomo, ou vice-versa. */}
@@ -22125,12 +22141,16 @@ function Equipe({acoes,session,org,isMobile,versao}){
           aoMudar={async()=>{setUsers(await acoes.equipe());}}/>
       </div>}
 
+      <AbasLinha abas={abas} ativa={aba} aoMudar={setAba}/>
+
+      {aba==="estrutura"&&comEstrutura&&<EstruturaDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)} parte="niveis" pedirNovo={pedirNivel}/>}
+      {aba==="permissoes"&&comEstrutura&&<EstruturaDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)} parte="pessoas"/>}
+
       {/* Disponibilidade da equipe: é aqui que o gestor cobra quem não se
           prontificou e ajusta o horário em que a prontidão é encerrada. */}
-      <div style={{marginBottom:18}}>
-        <HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={podeGerir(session)}/>
-      </div>
+      {aba==="disp"&&<HistoricoDisponibilidade acoes={acoes} isMobile={isMobile} podeConfigurar={podeGerir(session)}/>}
 
+      {aba==="pessoas"&&<React.Fragment>
       {aguardando.length>0&&<div style={{marginBottom:18}}>
         <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10,display:"flex",alignItems:"center",gap:7}}>
           <span style={{minWidth:20,height:20,padding:"0 6px",borderRadius:999,background:C.hot,color:"#fff",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{aguardando.length}</span>
@@ -22140,10 +22160,11 @@ function Equipe({acoes,session,org,isMobile,versao}){
       </div>}
 
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:10}}>Equipe ({resto.length})</div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {resto.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:24}}>Ninguém cadastrado ainda.</div>}
-        {resto.map(u=>cartao(u,false))}
+      {resto.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:24}}>Ninguém cadastrado ainda.</div>}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(340px,1fr))",gap:12,alignItems:"start"}}>
+        {resto.map(u=>cartao(u,false,true))}
       </div>
+      </React.Fragment>}
     </div>
   </div>;
 }
