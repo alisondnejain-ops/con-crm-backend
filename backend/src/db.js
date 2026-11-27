@@ -2781,6 +2781,13 @@ CREATE TABLE IF NOT EXISTS lead_anexos (
   mime TEXT, tamanho INTEGER, url TEXT NOT NULL, user_id TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lead_anexos_lead ON lead_anexos(lead_id);
+-- Documentos internos do imóvel (matrícula, registro, autorização): só a
+-- gestão, quem cadastrou e quem captou veem. Não vão ao site nem aos portais.
+CREATE TABLE IF NOT EXISTS produto_documentos (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, produto_id TEXT NOT NULL, nome TEXT NOT NULL,
+  mime TEXT, tamanho INTEGER, url TEXT NOT NULL, user_id TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_produto_docs ON produto_documentos(produto_id);
 `);
 
 export default db;
@@ -3057,4 +3064,15 @@ CREATE INDEX IF NOT EXISTS idx_niveis_org ON estrutura_niveis(org_id);`);
   const u = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
   if (!u.includes("nivel_id")) db.exec("ALTER TABLE users ADD COLUMN nivel_id TEXT");
   if (!u.includes("participa_indicadores")) db.exec("ALTER TABLE users ADD COLUMN participa_indicadores INTEGER");
+}
+
+/* Imóvel, protótipo CETRO (27/11/2026): "Publicar no site" (nulo = sim, como
+   sempre foi), título próprio para os portais, e legenda/planta em cada foto. */
+{
+  const p = db.prepare("PRAGMA table_info(produtos)").all().map(c => c.name);
+  if (!p.includes("publicar_site")) db.exec("ALTER TABLE produtos ADD COLUMN publicar_site INTEGER");
+  if (!p.includes("titulo_portal")) db.exec("ALTER TABLE produtos ADD COLUMN titulo_portal TEXT");
+  const m = db.prepare("PRAGMA table_info(produto_midias)").all().map(c => c.name);
+  if (!m.includes("legenda")) db.exec("ALTER TABLE produto_midias ADD COLUMN legenda TEXT");
+  if (!m.includes("planta")) db.exec("ALTER TABLE produto_midias ADD COLUMN planta INTEGER");
 }

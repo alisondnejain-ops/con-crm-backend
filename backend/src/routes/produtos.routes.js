@@ -2,7 +2,7 @@ import express, { Router } from "express";
 import { randomUUID } from "crypto";
 import db from "../db.js";
 import { authRequired, roles, supervisiona } from "../auth.js";
-import { salvar, apagar, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
+import { salvar, apagar, chaveDaUrl, bytesParaBaixar, ehDocumento, tipoPermitido, ehVideo, limiteBytes, modoArmazenamento, LIMITE_VIDEO_MB, limiteVideoBinario } from "../services/storage.js";
 import { garantirH264 } from "../services/video.js";
 import { pendencias } from "../services/portais.js";
 import { guardarFotoTratada, apagarArquivosDaMidia } from "../services/fotos-imovel.js";
@@ -80,12 +80,12 @@ function modalidadeTexto(pagamentos, programa) {
    versão pequena para a miniatura (a lista do catálogo deixava de baixar a
    foto inteira), os avisos ("escura", "em pé"…) e a nota que escolhe a capa
    sugerida. Foto ainda não tratada vem sem nada disso, e a tela usa a original. */
-const midiasDe = (id) => db.prepare(`SELECT id,tipo,url,ordem,variantes,avisos,nota,tratada_em,tratamento_erro
+const midiasDe = (id) => db.prepare(`SELECT id,tipo,url,ordem,variantes,avisos,nota,tratada_em,tratamento_erro,legenda,planta
   FROM produto_midias WHERE produto_id=? ORDER BY tipo DESC, ordem, created_at`).all(id).map(m => {
   let variantes = [], avisos = [];
   try { variantes = JSON.parse(m.variantes || "[]"); } catch {}
   try { avisos = JSON.parse(m.avisos || "[]"); } catch {}
-  return { id: m.id, tipo: m.tipo, url: m.url, ordem: m.ordem,
+  return { id: m.id, tipo: m.tipo, url: m.url, ordem: m.ordem, legenda: m.legenda || null, planta: !!m.planta,
     miniatura: variantes[0]?.url || null, avisos, nota: m.nota,
     tratada: !!m.tratada_em && !m.tratamento_erro };
 });
@@ -110,6 +110,7 @@ function comValores(p, user) {
     unidades_resumo: COM_UNIDADES.has(categoriaDe(p)) ? resumoDasUnidades(p.id) : null,
     modalidade: p.modalidade || null,
     publicar_portais: !!p.publicar_portais,
+    publicar_site: p.publicar_site !== 0,
     midias,
     // A foto que o tratamento acha claramente melhor que a capa atual — só sugestão.
     capa_sugerida: sugestaoDeCapa(midias.filter(m => m.tipo === "foto")),
@@ -225,6 +226,13 @@ const EXIBIR_ENDERECO = ["bairro", "rua", "completo"];
    é decisão da gestão. O corretor que capta edita o resto do anúncio. */
 function gravarCamposPortal(id, b, user, anterior = 0) {
   const cep = limpar(b.cep) && String(b.cep).replace(/\D/g, "");
+  /* "Publicar no site" segue a mesma régua: só a gestão muda. Ausente no
+     corpo = não mexe (cliente antigo não tira imóvel do site sem querer). */
+  // Só `false`/0 tira do site: nulo é "sim", como sempre foi (a edição chega
+  // com a linha antiga misturada, e nulo ali não é escolha de ninguém).
+  if (supervisiona(user) && b.publicar_site !== undefined)
+    db.prepare("UPDATE produtos SET publicar_site = ? WHERE id = ?").run(b.publicar_site === false || b.publicar_site === 0 ? 0 : null, id);
+  db.prepare("UPDATE produtos SET titulo_portal = ? WHERE id = ?").run(limpar(b.titulo_portal) ? String(b.titulo_portal).trim().slice(0, 100) : null, id);
   db.prepare(`UPDATE produtos SET publicar_portais=@publicar_portais, descricao=@descricao, uf=@uf, cep=@cep,
     numero_end=@numero_end, complemento=@complemento, latitude=@latitude, longitude=@longitude, vagas=@vagas,
     suites=@suites, area_util=@area_util, condominio=@condominio, iptu=@iptu, exibir_endereco=@exibir_endereco,
@@ -446,6 +454,8 @@ r.delete("/:id", roles("adm", "sdr"), (req, res) => {
   for (const m of db.prepare("SELECT chave, variantes FROM produto_midias WHERE produto_id=?").all(p.id)) apagarArquivosDaMidia(m);
   db.prepare("DELETE FROM produto_midias WHERE produto_id=?").run(p.id);
   db.prepare("DELETE FROM produto_unidades WHERE produto_id=?").run(p.id);
+  for (const d of db.prepare("SELECT url FROM produto_documentos WHERE produto_id=?").all(p.id)) { const c = chaveDaUrl(d.url); if (c) apagar(c).catch(() => {}); }
+  db.prepare("DELETE FROM produto_documentos WHERE produto_id=?").run(p.id);
   db.prepare("DELETE FROM produtos WHERE id=?").run(p.id);
   res.json({ ok: true });
 });
@@ -587,6 +597,70 @@ r.delete("/:id/midias/:midiaId", (req, res) => {
   apagarArquivosDaMidia(m);
   db.prepare("DELETE FROM produto_midias WHERE id=?").run(m.id);
   res.json({ ok: true, capa_sugerida: sugestaoDeCapa(midiasDe(p.id).filter(x => x.tipo === "foto")) });
+});
+
+/* Legenda e planta de uma foto (27/11/2026, protótipo CETRO). A legenda vai
+   ao site como texto da foto; a planta aparece à parte, em "Plantas". */
+r.patch("/:id/midias/:midiaId", (req, res) => {
+  const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!podeEditar(req.user, p)) return res.status(403).json({ error: "Sem permissão." });
+  const m = db.prepare("SELECT * FROM produto_midias WHERE id=? AND produto_id=?").get(req.params.midiaId, p.id);
+  if (!m) return res.status(404).json({ error: "Mídia não encontrada" });
+  if (req.body?.legenda !== undefined)
+    db.prepare("UPDATE produto_midias SET legenda=? WHERE id=?").run(String(req.body.legenda || "").replace(/\s+/g, " ").trim().slice(0, 140) || null, m.id);
+  if (req.body?.planta !== undefined && m.tipo === "foto")
+    db.prepare("UPDATE produto_midias SET planta=? WHERE id=?").run(req.body.planta ? 1 : null, m.id);
+  res.json(comValores(db.prepare("SELECT * FROM produtos WHERE id=?").get(p.id), req.user));
+});
+
+/* DOCUMENTOS DO IMÓVEL (27/11/2026, protótipo CETRO): matrícula, registro,
+   autorização de venda. Internos: veem quem vê o proprietário (gestão, quem
+   cadastrou, quem captou) — nunca o site, os portais ou o cliente. */
+const LIMITE_DOC = 15 * 1048576;
+const docPermitido = (mime) => /^image\/(jpeg|png|webp|heic|heif)$/.test(mime) || ehDocumento(mime);
+const listarDocs = (id) => db.prepare(`SELECT d.id, d.nome, d.mime, d.tamanho, d.created_at, d.user_id, u.name AS de_quem
+  FROM produto_documentos d LEFT JOIN users u ON u.id = d.user_id WHERE d.produto_id = ? ORDER BY d.created_at DESC`).all(id);
+function docsAcesso(req, res) {
+  const p = db.prepare("SELECT * FROM produtos WHERE id=? AND org_id=?").get(req.params.id, req.user.org_id);
+  if (!p) { res.status(404).json({ error: "Produto não encontrado" }); return null; }
+  if (!veDono(req.user, p)) { res.status(403).json({ error: "Os documentos do imóvel são da gestão e de quem captou." }); return null; }
+  return p;
+}
+r.get("/:id/documentos", (req, res) => { const p = docsAcesso(req, res); if (p) res.json({ documentos: listarDocs(p.id) }); });
+r.post("/:id/documentos", async (req, res) => {
+  const p = docsAcesso(req, res); if (!p) return;
+  const { nome, mime, base64 } = req.body || {};
+  if (!docPermitido(String(mime || ""))) return res.status(400).json({ error: "Dá para anexar PDF, Word, Excel, foto, texto e ZIP." });
+  const buffer = Buffer.from(String(base64 || "").replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (!buffer.length) return res.status(400).json({ error: "Arquivo vazio." });
+  if (buffer.length > LIMITE_DOC) return res.status(413).json({ error: "O arquivo passa do limite de 15 MB." });
+  if (db.prepare("SELECT COUNT(*) n FROM produto_documentos WHERE produto_id=?").get(p.id).n >= 30) return res.status(400).json({ error: "Este imóvel já tem 30 documentos." });
+  try {
+    const { url } = await salvar({ buffer, mime, prefixo: "documentos-imovel" });
+    db.prepare(`INSERT INTO produto_documentos (id,org_id,produto_id,nome,mime,tamanho,url,user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run("pd_" + randomUUID(), p.org_id, p.id, String(nome || "documento").replace(/[\r\n"\\/]/g, "").slice(0, 120) || "documento", mime, buffer.length, url, req.user.id, Date.now());
+    res.json({ ok: true, documentos: listarDocs(p.id) });
+  } catch (e) { console.error("[documentos do imóvel]", e.message); res.status(502).json({ error: "Não consegui guardar o arquivo." }); }
+});
+r.get("/:id/documentos/:did/baixar", async (req, res) => {
+  const p = docsAcesso(req, res); if (!p) return;
+  const d = db.prepare("SELECT * FROM produto_documentos WHERE id=? AND produto_id=?").get(req.params.did, p.id);
+  if (!d) return res.status(404).json({ error: "Arquivo não encontrado." });
+  try {
+    const buffer = await bytesParaBaixar(d.url);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Type", d.mime || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${d.nome.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(d.nome)}`);
+    res.send(buffer);
+  } catch (e) { res.status(502).json({ error: "Não consegui buscar o arquivo." }); }
+});
+r.delete("/:id/documentos/:did", (req, res) => {
+  const p = docsAcesso(req, res); if (!p) return;
+  const d = db.prepare("SELECT * FROM produto_documentos WHERE id=? AND produto_id=?").get(req.params.did, p.id);
+  if (!d) return res.status(404).json({ error: "Arquivo não encontrado." });
+  db.prepare("DELETE FROM produto_documentos WHERE id=?").run(d.id);
+  const c = chaveDaUrl(d.url); if (c) apagar(c).catch(() => {});
+  res.json({ ok: true, documentos: listarDocs(p.id) });
 });
 
 export default r;
