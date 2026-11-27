@@ -11699,7 +11699,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
           style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
             background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,
             padding:isMobile?"10px 13px":"8px 12px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
-          <Icon n="columns" size={13}/>Filtros
+          <Icon n="sliders" size={13}/>Filtros
           {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,
             color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
           <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}>
@@ -19808,7 +19808,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={()=>setFiltrosAbertos(a=>!a)}
             style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            <Icon n="columns" size={13}/>Filtros
+            <Icon n="sliders" size={13}/>Filtros
             {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
             <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
           </button>
@@ -21772,8 +21772,7 @@ function ConfigAtendimento({acoes,isMobile,irParaAba,irPara,org}){
     {!autonomo&&prazo&&<div style={cartao}>
       <div style={titulo}>Quando o prazo da etapa vencer <span style={{color:C.faint,fontWeight:500,fontSize:12}}>· padrão da conta</span></div>
       <div style={sub}>
-        Vale para lead de corretor parado além do prazo da etapa, contado da última conversa com o cliente.
-        {" "}Cada etapa pode ter a própria escolha na engrenagem ⚙ da coluna, no Funil; esta vale para as que não escolheram.
+        Padrão para as etapas que não escolheram na engrenagem ⚙ da coluna, no Funil.
         {prazo.etapas_proprias?<span> {prazo.etapas_proprias} {prazo.etapas_proprias===1?"etapa tem escolha própria":"etapas têm escolha própria"}.</span>:null}
         {" "}{prazo.etapas_com_prazo
           ?<span>{prazo.etapas_com_prazo} {prazo.etapas_com_prazo===1?"etapa tem":"etapas têm"} prazo.</span>
