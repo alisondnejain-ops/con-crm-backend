@@ -1278,6 +1278,7 @@ const ICO={
   logout:<React.Fragment><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></React.Fragment>,
   lock:<React.Fragment><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></React.Fragment>,
   dot:<React.Fragment><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></React.Fragment>,
+  plus:<React.Fragment><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></React.Fragment>,
   userplus:<React.Fragment><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></React.Fragment>,
   toggleOn:<React.Fragment><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="16" cy="12" r="3" fill="currentColor"/></React.Fragment>,
   toggleOff:<React.Fragment><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="8" cy="12" r="3" fill="currentColor"/></React.Fragment>,
@@ -9420,9 +9421,13 @@ function SeloDaLinha({linha,grande}){
 function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
   const naoLida=esperandoContato(l), quando=l.lastAt||l.createdAt;
   const relogio=cronometroDoLead(l,Date.now(),{daChegada:!mostrarDono}), espera=relogio?Date.now()-relogio.desde:0;
-  return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"13px 14px":"10px 12px",borderBottom:`1px solid ${C.line}`,borderLeft:`3px solid ${ativo?C.green:naoLida?C.hot:"transparent"}`,background:ativo?C.greenSoft:naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4}}>
+  // No desenho do protótipo (27/11/2026): nome, telefone, prévia e as pastilhas
+  // quadradinhas da etapa e do responsável; a ativa fica verde-clara com a barra.
+  const pastilha={background:"#e6f1e9",color:"#47805b",fontSize:9.5,fontWeight:600,padding:"3px 6px",borderRadius:5};
+  return <button onClick={onClick} style={{width:"100%",textAlign:"left",padding:isMobile?"14px 14px":"14px 14px",borderBottom:"1px solid #edf0e8",
+    boxShadow:`inset 3px 0 ${ativo?"#268c51":naoLida?C.hot:"transparent"}`,background:ativo?"#eff6e9":naoLida?"#FFFBFA":"transparent",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",gap:4,fontFamily:FONT}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-      <span style={{color:C.ink,fontSize:13.5,fontWeight:naoLida?700:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
+      <span style={{color:C.ink,fontSize:13,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
       <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
         {/* A temperatura saiu daqui a pedido do Ali: ela já aparece no card do
             funil e na ficha, e nesta lista competia com a informação que muda
@@ -9439,7 +9444,8 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
           title={quando?new Date(quando).toLocaleString("pt-BR"):undefined}>{fmtQuando(quando)}</span>
       </div>
     </div>
-    <span style={{color:naoLida?C.ink:C.faint,fontWeight:naoLida?500:400,fontSize:11.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+    {l.tel&&<span style={{color:"#81927a",fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{fmtTel(l.tel)}</span>}
+    <span style={{color:naoLida?C.ink:"#81927a",fontWeight:naoLida?500:400,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
       {l.lastBody?(l.lastDirection==="in"?"":"Você: ")+l.lastBody:l.aguardaContato?`Pediu contato · ${l.origem}`:"Novo lead — sem contato"}
     </span>
     <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2,minWidth:0}}>
@@ -9456,13 +9462,13 @@ function ItemLead({l,ativo,onClick,isMobile,mostrarDono,cutucar,linha}){
         ?<span title={`${relogio.titulo} · ${fmtEspera(espera)}`} style={{display:"flex",alignItems:"center",gap:3,color:relogio.sla?C.hot:ageColor(espera),fontSize:11,fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}><Icon n="timer" size={11} color={relogio.sla?C.hot:ageColor(espera)}/><span style={{fontFamily:MONO}}>{fmtRelogio(espera)}</span></span>
         :null}
       {/* A etapa sempre (CETRO 07.1), encolhendo antes do resto. */}
-      <span title={l.status} style={{color:STAGE_C[l.status]||C.sub,background:(STAGE_C[l.status]||C.sub)+"16",fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:4,
-        flexShrink:1,minWidth:0,maxWidth:relogio?84:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.status}</span>
+      <span title={l.status} style={{...pastilha,flexShrink:1,minWidth:0,maxWidth:relogio?84:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.status}</span>
       {/* Follow-up automático rodando: não confundir com cliente esperando. */}
       {l.fluxoAtivo&&<span title={`Fluxo automático rodando: ${l.fluxoAtivo}`} style={{display:"flex",alignItems:"center",gap:2,color:C.cool,fontSize:10,fontWeight:700,flexShrink:0}}><Icon n="zap" size={10} color={C.cool}/>fluxo</span>}
       <SeloDoFormulario l={l}/>
       <SeloDaLinha linha={linha}/>
-      {mostrarDono&&<span style={{color:C.faint,fontSize:10.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>}
+      {mostrarDono&&<span style={{...pastilha,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+        ...(l.assignedName?{}:{background:"#f1f3ee",color:C.faint})}}>{l.assignedName||"na fila"}</span>}
       <span style={{flex:1}}/>
       {naoLida&&(l.unread>0
         ?<span style={{minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:C.hot,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.unread}</span>
@@ -9892,11 +9898,12 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     try{ await acoes.enviarArquivoPronto(lead.id,comArquivo.id); setComArquivo(null); acoes.abrir&&acoes.abrir(lead.id,true); }
     catch(e){ setErroArq(e.message); } finally{ setEnviandoArq(false); }
   };
-  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>escolher(tp)} style={{fontSize:11,fontWeight:destaque?600:500,
-    padding:"4px 10px",borderRadius:999,border:destaque?`1px solid ${C.green}66`:"none",cursor:"pointer",whiteSpace:"nowrap",
-    display:"flex",alignItems:"center",gap:4,color:destaque?C.greenDeep:C.greenMid,background:C.greenSoft,flexShrink:0}}>
-    <Icon n={tp.midia_url?"clip":"zap"} size={11}/> {tp.titulo}</button>;
-  const rotulo=(t)=><span style={{color:C.faint,fontSize:10.5,fontWeight:600,whiteSpace:"nowrap",flexShrink:0,alignSelf:"center"}}>{t}</span>;
+  // Botões pequenos e brancos, como no protótipo (27/11/2026).
+  const chip=(tp,destaque)=><button key={tp.id} onClick={()=>escolher(tp)} style={{fontSize:11,fontWeight:600,
+    padding:"6px 10px",borderRadius:9,border:"1px solid #dce5d4",cursor:"pointer",whiteSpace:"nowrap",fontFamily:FONT,
+    display:"flex",alignItems:"center",gap:4,color:destaque?"#1e4a32":"#2c4a35",background:"#fff",flexShrink:0}}>
+    {tp.midia_url&&<Icon n="clip" size={11}/>}{tp.titulo}</button>;
+  const rotulo=(t)=><span style={{color:"#4a6250",fontSize:10.5,fontWeight:500,whiteSpace:"nowrap",flexShrink:0,alignSelf:"center"}}>{t}</span>;
   return <React.Fragment>
   {comArquivo&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:C.greenSoft,border:`1px solid ${C.green}44`,
     borderRadius:10,padding:"7px 10px",marginBottom:8,fontSize:12}}>
@@ -9909,14 +9916,14 @@ function FaixaMensagensProntas({lead,acoes,session,versao,onEscolher,onEnviarImo
     {erroArq&&<span style={{color:C.hot,fontSize:11.5,width:"100%"}}>{erroArq}</span>}
   </div>}
   <div style={{display:"flex",gap:6,marginBottom:8,overflowX:"auto",paddingBottom:4}}>
-    {!contaInterna()&&!contaEmpreendimento()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px solid ${C.green}55`,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:C.greenDeep,background:C.card,flexShrink:0}}><Icon n="pin" size={11}/> Enviar imóvel</button>}
+    {!contaInterna()&&!contaEmpreendimento()&&<button onClick={onEnviarImovel} style={{fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:9,border:"1px solid #dce5d4",cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4,color:"#2c4a35",background:"#fff",flexShrink:0,fontFamily:FONT}}>Enviar imóvel</button>}
     {daEtapa.length>0&&rotulo(`${lead.status}:`)}
     {daEtapa.map(m=>chip(m,true))}
     {daEtapa.length>0&&gerais.length>0&&rotulo("Gerais:")}
     {gerais.map(m=>chip(m,false))}
     {outras.length>0&&<button onClick={()=>setAbertas(a=>!a)} aria-expanded={abertas}
-      style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:999,border:`1px dashed ${C.line}`,cursor:"pointer",
-        whiteSpace:"nowrap",color:C.sub,background:C.card,flexShrink:0}}>
+      style={{fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:9,border:"1px dashed #dce5d4",cursor:"pointer",
+        whiteSpace:"nowrap",color:"#4a6250",background:"transparent",flexShrink:0,fontFamily:FONT}}>
       {abertas?"Menos":`Outras etapas (${outras.length})`}</button>}
     {abertas&&outras.map(m=>chip(m,false))}
   </div>
@@ -10200,9 +10207,9 @@ function Anexar({lead,acoes,isMobile,aoAvisar,aoGravarAudio,refGravar,aoFluxo}){
       {progressoVideo<100?`Enviando vídeo… ${progressoVideo}%`:"Processando vídeo…"}</div>}
     <button onClick={()=>setAberto(a=>!a)} disabled={!!ocupado}
       title={progressoVideo!=null?(progressoVideo<100?`Enviando vídeo… ${progressoVideo}%`:"Processando vídeo…"):"Anexar"}
-      style={{width:isMobile?40:42,height:isMobile?40:42,borderRadius:12,border:`1px solid ${C.line}`,background:C.surface,
-        color:ocupado?C.faint:C.sub,cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <Icon n={ocupado?"loader":"link"} size={18} spin={!!ocupado}/></button>
+      style={{width:isMobile?40:38,height:isMobile?40:44,borderRadius:10,border:"none",background:aberto?"#e7eee5":"transparent",
+        color:ocupado?C.faint:"#7e9283",cursor:ocupado?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Icon n={ocupado?"loader":"plus"} size={19} spin={!!ocupado}/></button>
   </div>;
 }
 
@@ -10552,7 +10559,7 @@ function Midia({m,mine,isMobile,leadId}){
    e o lead continua nos relatórios. Se o cliente responder, reabre sozinho.
    "Marcar como lida" vira "não lida" quando já está lida: abrir a conversa já
    marca sozinho, então sem o caminho de volta o botão não faria nada. */
-function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
+function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead,extra}){
   const [ocupado,setOcupado]=useState("");
   const [robo,setRobo]=usarRoboDoLead(lead);
   const [pessoal,setPessoal]=useState(false);
@@ -10573,15 +10580,16 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
     try{ await acoes.marcarPessoal(lead.id); }
     catch(ex){ setErro(ex.message); setOcupado(""); }
   }
-  if(soDoLead&&!comIA&&!comPessoal) return null;
+  // Sem botão nenhum, sobra só a linha "Em atendimento por…" (extra), se houver.
+  if(soDoLead&&!comIA&&!comPessoal) return extra?<div style={{background:"#f8faf5",borderBottom:"1px solid #dce6d3",padding:"10px 12px",flexShrink:0,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>{extra}</div>:null;
   const roda=(nome,fn)=>async()=>{ setOcupado(nome); try{ await fn(lead.id); } finally{ setOcupado(""); } };
   const pill=(chave,icone,texto,onClick,cor)=><button key={chave} onClick={onClick} disabled={!!ocupado}
-    style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${cor?cor+"55":C.line}`,background:cor?cor+"12":C.card,
-      color:ocupado?C.faint:(cor||C.sub),fontSize:isMobile?12:11.5,fontWeight:600,padding:isMobile?"7px 11px":"5px 11px",
-      borderRadius:999,cursor:ocupado?"default":"pointer",whiteSpace:"nowrap"}}>
+    style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${cor?cor+"55":"#dce5d4"}`,background:cor?cor+"12":"#fff",
+      color:ocupado?C.faint:(cor||"#2c4a35"),fontSize:isMobile?12:11,fontWeight:600,padding:isMobile?"7px 11px":"6px 10px",
+      borderRadius:9,cursor:ocupado?"default":"pointer",whiteSpace:"nowrap",fontFamily:FONT}}>
     <Icon n={ocupado===chave?"loader":icone} size={12} spin={ocupado===chave}/>{texto}</button>;
 
-  return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:isMobile?"8px 10px":"7px 16px",
+  return <div style={{background:"#f8faf5",borderBottom:"1px solid #dce6d3",padding:isMobile?"8px 10px":"10px 12px",
     flexShrink:0}}>
     {/* No celular cabe UMA linha (23/11/2026, print do Ali: cinco botões em
         três linhas comiam a conversa). Fica à vista só Finalizar/Reabrir; o
@@ -10610,6 +10618,7 @@ function ControleConversa({lead,acoes,isMobile,session,minhaLinha,soDoLead}){
     {comIA&&pill("ia",robo.ligado?"x":"spark",robo.ligado?(isMobile?"Desligar IA":"Desligar a IA"):(isMobile?"Ativar IA":"Ativar a IA"),alternarIA,robo.ligado?null:C.green)}
     {comPessoal&&pill("pessoal","user",isMobile?"Pessoal":"Conversa pessoal",()=>setPessoal(true))}
     {!isMobile&&!soDoLead&&lead.finalizado&&<span style={{color:C.faint,fontSize:11,whiteSpace:"nowrap"}}>Atendimento encerrado · segue no funil em <b style={{color:C.sub}}>{lead.status}</b></span>}
+    {extra}
     </div>}
     {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:6}}>{erro}</div>}
     {pessoal&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:10,padding:10,marginTop:8}}>
@@ -11176,11 +11185,11 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           </React.Fragment>}
       </div>
     </div>}
-    {showChat&&<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
+    {showChat&&<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:"#f8faf5"}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,height:56,display:"flex",alignItems:"center",justifyContent:"space-between",padding:isMobile?"0 10px":"0 16px",gap:8,flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:isMobile?8:12,minWidth:0}}>
           {isMobile&&backBtn(()=>setPane("lista"),"Voltar para a lista")}
-          <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
+          <span style={{width:36,height:36,borderRadius:"50%",background:"#e8f3ea",color:"#17704a",fontSize:12,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.nome)}</span>
           <div style={{minWidth:0}}><div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div><div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:4,flexWrap:isMobile?"nowrap":"wrap",whiteSpace:isMobile?"nowrap":undefined,overflow:"hidden"}}>{!isMobile&&<Icon n="phone" size={11}/>}<span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{fmtTel(sel.tel)}</span>
             {/* Responsável e linha (CETRO 07.2). */}
             {/* No celular, "com você" é óbvio na caixa do próprio corretor e cortava o telefone. */}
@@ -11229,12 +11238,12 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
             {mine&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar={!m.byName||m.by===session.id||podeSupervisionar} aoEditar={()=>abrirEdicao(m)}/>}
             {mine&&<BotaoApagar m={m} pode={!m.byName||m.by===session.id||podeSupervisionar} leadId={sel.id} acoes={acoes}/>}
             {mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:mine?"#E3F1E8":C.card,color:C.ink,border:mine?`1px solid ${C.green}2E`:`1px solid ${C.line}`,boxShadow:"0 1px 2px rgba(0,0,0,.04)",borderBottomRightRadius:mine?4:16,borderBottomLeftRadius:mine?16:4}}>
+            <div style={{maxWidth:isMobile?"86%":"78%",padding:"11px 14px",fontSize:13,lineHeight:1.55,background:mine?"#e6f1de":"#fff",color:C.ink,border:`1px solid ${mine?"#d7e7cd":"#e0e8d9"}`,borderRadius:mine?"12px 0 12px 12px":"0 12px 12px 12px"}}>
               {mine&&<div style={{fontSize:10.5,fontWeight:700,color:C.greenMid,marginBottom:2,fontStyle:peloCelular?"italic":"normal"}}>{senderName}</div>}
               {m.apagadaEm?<MensagemApagada m={m} mine={false} session={session}/>:<React.Fragment>
               <Citacao c={m.citada} claro={false}/>
               {m.midia&&<Midia m={m} mine={false} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:"#899a7d",fontSize:9.5,marginTop:4,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!mine&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
@@ -11252,7 +11261,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <LinhaDaConversa canal={sel.canal} acoes={acoes} leadId={sel.id} isMobile={isMobile}
         sugerir={(t)=>setDraft(t)}
         aoTrocar={(c)=>{if(linha!=="todas")setLinha(c&&c.onde==="corretor"?"minha":"casa");acoes.abrir(sel.id);}}/>
-      <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
+      <div style={{background:"#fff",borderTop:"1px solid #dce6d3",padding:12,flexShrink:0}}>
         <FaixaMensagensProntas lead={sel} acoes={acoes} session={session} versao={versaoMsgs}
           onEscolher={setDraft} onEnviarImovel={()=>setEnviandoImovel(true)}/>
         {enviandoImovel&&<EnviarImovel lead={sel} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
@@ -11274,7 +11283,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           {/* 16px no celular evita o zoom automático do iOS ao focar o campo */}
           <textarea value={draft} onChange={e=>setDraft(e.target.value)} onPaste={colar} onKeyDown={e=>{
             if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
-            if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+            if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():send();}}} rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Escreva a mensagem…  (cole uma imagem com Ctrl+V)"} style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:10,border:"1px solid #dce5d4",padding:"10px 12px",outline:"none",resize:"none",color:C.ink,background:"#f5f8ef",fontFamily:FONT}}/>
           {/* Com imagem colada esperando, o botão manda a imagem (com a legenda
               digitada) em vez de mandar só o texto e deixar a foto para trás. */}
           {/* Durante a edição o mesmo botão SALVA — dois botões de ação no mesmo
@@ -11283,7 +11292,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():send()}
             title={editando?"Salvar a edição":"Enviar"}
             disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
-            style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
+            style={{minWidth:44,height:44,padding:isMobile?0:"0 16px",gap:6,borderRadius:10,border:`1px solid ${(!draft.trim()&&!colados.length)?"transparent":"#1fb273"}`,fontFamily:FONT,fontSize:12.5,fontWeight:700,cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:"linear-gradient(180deg,#109c66,#087b4f)"),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/>{!isMobile&&(editando?"Salvar":"Enviar")}</button>
         </div>
         {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:10,cursor:"pointer"}}>{erroAnexo}</div>}
         {/* A frase da assinatura vale no número da CASA. Na linha pessoal a
@@ -14955,22 +14964,21 @@ function LinhaDaConversa({canal,acoes,leadId,aoTrocar,isMobile,sugerir}){
     }catch(e){ setErro(e.message); }
     finally{ setOcupado(false); }
   };
-  return <div style={{padding:isMobile?"4px 12px":"7px 14px",borderTop:`1px solid ${C.line}`,
-    background:noMeu?C.greenSoft:C.surface,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-    <Icon n="whatsapp" size={isMobile?12:13} color={noMeu?C.greenDeep:C.faint}/>
-    <span style={{fontSize:isMobile?11:11.5,color:noMeu?C.greenDeep:C.sub,fontWeight:noMeu?700:500,flex:1,minWidth:120}}>
+  // A faixa do protótipo: verde-clara, texto em negrito e o botão à direita.
+  const btnFaixa={background:"#fff",border:"1px solid #dce5d4",color:"#2c4a35",borderRadius:9,padding:isMobile?"8px 12px":"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT};
+  return <div style={{padding:isMobile?"5px 12px":"9px 12px",borderTop:"1px solid #dce6d3",borderBottom:"1px solid #dce6d3",
+    background:"#eef5e8",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+    <span style={{fontSize:isMobile?11:11,color:"#1e4a32",fontWeight:700,flex:1,minWidth:120}}>
       {noMeu
         ?<React.Fragment>Sai pelo <b>{deOutro?`WhatsApp de ${canal.atual.nome||"outra pessoa"}`:"seu WhatsApp"}</b>{finalDe(canal.atual&&canal.atual.wa_number)} · sem assinatura</React.Fragment>
         :<React.Fragment>Sai pelo <b>WhatsApp {contaInterna()?"do CETRO":"da imobiliária"}</b>{finalDe(canal.casa_numero)}</React.Fragment>}
     </span>
     {canal.pode_trocar&&<button disabled={ocupado} onClick={()=>trocar(noMeu?"imobiliaria":"minha")}
-      style={{background:C.card,border:`1px solid ${noMeu?C.line:C.green+"66"}`,color:noMeu?C.sub:C.greenDeep,
-        borderRadius:10,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      style={btnFaixa}>
       {ocupado?"…":noMeu?(isMobile?"Voltar à imobiliária":"Voltar para o número da imobiliária"):(isMobile?"Usar meu WhatsApp":"Continuar no meu WhatsApp")}</button>}
     {!canal.pode_trocar&&canal.pode_voltar_casa&&<button disabled={ocupado} onClick={()=>trocar("imobiliaria")}
       title="A conversa volta a sair pelo número da imobiliária. Para o WhatsApp pessoal, só quem está com o lead leva."
-      style={{background:C.card,border:`1px solid ${C.line}`,color:C.sub,
-        borderRadius:10,padding:isMobile?"8px 12px":"6px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+      style={btnFaixa}>
       {ocupado?"…":"Trazer para o número da imobiliária"}</button>}
     {erro&&<span style={{color:C.hot,fontSize:11}}>{erro}</span>}
   </div>;
@@ -15121,10 +15129,10 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       </div>
     </div>}
 
-    {mostrarChat?<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:C.surface}}>
+    {mostrarChat?<div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0,minHeight:0,background:"#f8faf5"}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.line}`,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         {isMobile&&<button onClick={()=>setPane("lista")} aria-label="Voltar" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",flexShrink:0}}><Icon n="chevron" size={17}/></button>}
-        <Avatar ini={initials(sel.nome)} color={prioDe(sel.prio).c} size={36}/>
+        <span style={{width:36,height:36,borderRadius:"50%",background:"#e8f3ea",color:"#17704a",fontSize:12,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{initials(sel.nome)}</span>
         <div style={{minWidth:0,flex:1}}>
           <div style={{color:C.ink,fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.nome}</div>
           <div style={{color:C.faint,fontSize:11.5,display:"flex",alignItems:"center",gap:6,flexWrap:isMobile?"nowrap":"wrap",overflow:"hidden"}}>
@@ -15140,9 +15148,11 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
           de corretor para apagar, e alguém precisa poder encerrar. */}
       {/* No lead de outra pessoa, só os dois botões do lead (IA e conversa
           pessoal): lida e finalizar continuam sendo de quem está com ele. */}
+      {/* No computador, "Em atendimento por…" fica na mesma linha dos botões (protótipo). */}
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile} session={session} minhaLinha={minhaLinha}
-        soDoLead={!(sel.assignedTo===session.id||!sel.assignedTo)}/>
-      <BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>
+        soDoLead={!(sel.assignedTo===session.id||!sel.assignedTo)}
+        extra={isMobile?null:<BarraControleADM inline lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>}/>
+      {isMobile&&<BarraControleADM lead={sel} session={session} pessoas={pessoas} acoes={acoes} isMobile={isMobile}/>}
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
         {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",fontSize:13}}>Nenhuma mensagem trocada ainda.</div>}
         <VerAnteriores janela={janela}/>
@@ -15161,12 +15171,12 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
             {meu&&!m.apagadaEm&&<BotaoEditar m={m} podeEditar aoEditar={()=>setEditando({id:m.id,texto:m.text||""})}/>}
             {meu&&<BotaoApagar m={m} pode leadId={sel.id} acoes={acoes}/>}
             {meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
-            <div style={{maxWidth:isMobile?"86%":"74%",padding:"8px 12px",fontSize:13.5,lineHeight:1.35,borderRadius:16,background:meu?"#E3F1E8":C.card,color:C.ink,border:meu?`1px solid ${C.green}2E`:`1px solid ${C.line}`,borderBottomRightRadius:meu?4:16,borderBottomLeftRadius:meu?16:4}}>
+            <div style={{maxWidth:isMobile?"86%":"78%",padding:"11px 14px",fontSize:13,lineHeight:1.55,background:meu?"#e6f1de":"#fff",color:C.ink,border:`1px solid ${meu?"#d7e7cd":"#e0e8d9"}`,borderRadius:meu?"12px 0 12px 12px":"0 12px 12px 12px"}}>
               {meu&&<div style={{fontSize:10.5,fontWeight:700,color:C.greenMid,marginBottom:2,fontStyle:m.byName?"normal":"italic"}}>{m.byName||"Enviada pelo WhatsApp"}</div>}
               {m.apagadaEm?<MensagemApagada m={m} mine={false} session={session}/>:<React.Fragment>
               <Citacao c={m.citada} claro={false}/>
               {m.midia&&<Midia m={m} mine={false} isMobile={isMobile} leadId={sel.id}/>}
-              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:C.faint,fontSize:10,marginTop:2,textAlign:"right"}}>
+              {!m.rotuloAuto&&<TextoDaMensagem texto={m.text}/>}</React.Fragment>}<div style={{color:"#899a7d",fontSize:9.5,marginTop:4,textAlign:"right"}}>
                 {m.editadaEm?<span style={{fontStyle:"italic",marginRight:5}}>editada</span>:null}{fmtClock(m.at)}</div>
             </div>
             {!meu&&!m.apagadaEm&&<BotaoResponder m={m} aoResponder={setCitando}/>}
@@ -16444,7 +16454,7 @@ function RodapeDaFicha({lead,acoes,session,minhaLinha,isMobile}){
 
 /* ===== BARRA DE CONTROLE DA ADM =====
    Mostra de quem é o lead e permite assumir a negociação ou devolver. */
-function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
+function BarraControleADM({lead,session,pessoas,acoes,isMobile,inline}){
   const [devolvendo,setDevolvendo]=useState(false);
   const meu=lead.assignedTo===session.id;
   useEffect(()=>setDevolvendo(false),[lead.id]);
@@ -16453,7 +16463,7 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
   // sugerindo que a ação não foi concluída.
   const devolverPara=async(userId)=>{ await acoes.devolver(lead.id,userId); setDevolvendo(false); };
 
-  if(devolvendo) return <div style={{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:"10px 14px",flexShrink:0}}>
+  if(devolvendo) return <div style={inline?{flexBasis:"100%",paddingTop:6}:{background:C.surface,borderBottom:`1px solid ${C.line}`,padding:"10px 14px",flexShrink:0}}>
     <div style={{color:C.sub,fontSize:11.5,fontWeight:600,marginBottom:7}}>Devolver este atendimento para:</div>
     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
       <button onClick={()=>devolverPara()} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:999,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}><Icon n="transfer" size={13}/> Fila da catraca</button>
@@ -16463,17 +16473,18 @@ function BarraControleADM({lead,session,pessoas,acoes,isMobile}){
     </div>
   </div>;
 
-  return <div style={{background:meu?C.greenSoft:C.amberSoft,borderBottom:`1px solid ${meu?C.green+"33":C.amber+"33"}`,color:meu?C.greenDeep:"#8a6d1f",fontSize:11.5,padding:"7px 14px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0}}>
-    <Icon n={meu?"star":"users"} size={13}/>
+  // Uma linha neutra, como a do protótipo: "Em atendimento por X" e o botão ao lado.
+  // Dentro da linha de botões (computador): sem caixa própria, como no protótipo.
+  return <div style={inline?{display:"flex",alignItems:"center",gap:8,color:"#4a6250",fontSize:11,whiteSpace:"nowrap"}:{background:"#f8faf5",borderBottom:"1px solid #dce6d3",color:"#4a6250",fontSize:11,padding:"8px 12px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0}}>
     {/* No celular é uma linha só, com o botão ao lado (23/11/2026). */}
-    <span style={{flex:1,minWidth:isMobile?0:160,lineHeight:1.4,...(isMobile?{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
+    <span style={inline?{lineHeight:1.4}:{flex:1,minWidth:isMobile?0:160,lineHeight:1.4,...(isMobile?{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}:{})}}>
       {meu?(isMobile?"Você assumiu este lead.":"Você assumiu esta negociação — o lead está na sua mão.")
           :lead.assignedName?(isMobile?`Com ${first(lead.assignedName)}`:`Em atendimento por ${lead.assignedName}.`)
           :(isMobile?"Na fila, sem atendente":"Este lead está na fila, sem atendente.")}
     </span>
     {meu
-      ?<button onClick={()=>setDevolvendo(true)} style={{border:`1px solid ${C.green}55`,background:C.card,color:C.greenMid,fontSize:11.5,fontWeight:700,padding:"5px 11px",borderRadius:10,cursor:"pointer",flexShrink:0}}>Devolver</button>
-      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"none",background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,padding:"6px 12px",borderRadius:10,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",gap:5}}><Icon n="zap" size={12}/> {isMobile?"Assumir":"Assumir negociação"}</button>}
+      ?<button onClick={()=>setDevolvendo(true)} style={{border:"1px solid #dce5d4",background:"#fff",color:"#2c4a35",fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:9,cursor:"pointer",flexShrink:0,fontFamily:FONT}}>Devolver</button>
+      :<button onClick={()=>acoes.assumir(lead.id)} style={{border:"1px solid #dce5d4",background:"#fff",color:"#2c4a35",fontSize:11,fontWeight:600,padding:"6px 10px",borderRadius:9,cursor:"pointer",flexShrink:0,fontFamily:FONT}}>{isMobile?"Assumir":"Assumir negociação"}</button>}
   </div>;
 }
 
@@ -16661,8 +16672,8 @@ function BotaoAgendar({ag,desligado,isMobile}){
   const pendentes=ag.lista.filter(a=>a.status==="pendente").length;
   return <button onClick={()=>ag.setAberto(v=>!v)} disabled={desligado} title="Agendar o envio desta mensagem"
     aria-label="Agendar mensagem" aria-pressed={ag.aberto}
-    style={{width:isMobile?40:36,height:44,borderRadius:12,border:`1px solid ${ag.aberto?C.green:C.line}`,
-      background:ag.aberto?C.greenSoft:C.surface,color:ag.aberto?C.greenDeep:C.sub,cursor:desligado?"default":"pointer",
+    style={{width:isMobile?40:36,height:44,borderRadius:10,border:"none",
+      background:ag.aberto?"#e7eee5":"transparent",color:ag.aberto?C.greenDeep:"#7e9283",cursor:desligado?"default":"pointer",
       display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,position:"relative",opacity:desligado?.5:1}}>
     <Icon n="clock" size={17}/>
     {pendentes>0&&<span style={{position:"absolute",top:-5,right:-5,minWidth:16,height:16,padding:"0 4px",borderRadius:999,
@@ -16834,7 +16845,7 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
   <LinhaDaConversa canal={lead.canal} acoes={acoes} leadId={lead.id} isMobile={isMobile}
     sugerir={(t)=>setDraft(t)}
     aoTrocar={(c)=>{aoMudarLinha&&aoMudarLinha(c);acoes.abrir(lead.id);}}/>
-  <div style={{background:C.card,borderTop:`1px solid ${C.line}`,padding:12,flexShrink:0}}>
+  <div style={{background:"#fff",borderTop:"1px solid #dce6d3",padding:12,flexShrink:0}}>
     <FaixaMensagensProntas lead={lead} acoes={acoes} session={session} versao={versaoMsgs}
       onEscolher={setDraft} onEnviarImovel={()=>setEnviandoImovel(true)}/>
     {enviandoImovel&&<EnviarImovel lead={lead} acoes={acoes} isMobile={isMobile} aoFechar={()=>setEnviandoImovel(false)}/>}
@@ -16858,12 +16869,12 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
           if(e.key==="Escape"&&editando){e.preventDefault();cancelarEdicao();return;}
           if(e.key==="Enter"&&!e.shiftKey&&!isMobile){e.preventDefault();editando?salvarEdicao():colados.length?enviarColados():enviar();}}}
         rows={2} placeholder={colando?"Colando a imagem…":isMobile?"Escreva a mensagem…":"Responder como direção…  (Ctrl+V cola imagem)"}
-        style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:12,border:`1px solid ${C.line}`,padding:"8px 12px",outline:"none",resize:"none",color:C.ink,background:C.surface,fontFamily:FONT}}/>
+        style={{flex:1,minWidth:0,fontSize:isMobile?16:13.5,borderRadius:10,border:"1px solid #dce5d4",padding:"10px 12px",outline:"none",resize:"none",color:C.ink,background:"#f5f8ef",fontFamily:FONT}}/>
       <BotaoAgendar ag={ag} desligado={!!editando||!!colados.length} isMobile={isMobile}/>
       <button onClick={()=>editando?salvarEdicao():colados.length?enviarColados():enviar()}
         title={editando?"Salvar a edição":"Enviar"}
         disabled={enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)}
-        style={{width:44,height:44,borderRadius:12,border:"none",cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:C.green),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/></button>
+        style={{minWidth:44,height:44,padding:isMobile?0:"0 16px",gap:6,borderRadius:10,border:`1px solid ${(!draft.trim()&&!colados.length)?"transparent":"#1fb273"}`,fontFamily:FONT,fontSize:12.5,fontWeight:700,cursor:enviando?"default":"pointer",background:enviando||mandandoColados||salvandoEdicao||(!draft.trim()&&!colados.length)?C.faint:(editando?C.greenDeep:"linear-gradient(180deg,#109c66,#087b4f)"),color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon n={enviando||mandandoColados||salvandoEdicao?"loader":editando?"check":"send"} size={18} spin={enviando||mandandoColados||salvandoEdicao}/>{!isMobile&&(editando?"Salvar":"Enviar")}</button>
     </div>
     {erroAnexo&&<div onClick={()=>setErroAnexo("")} style={{color:C.hot,background:C.hotSoft,fontSize:11.5,marginTop:6,padding:"6px 9px",borderRadius:10,cursor:"pointer"}}>{erroAnexo}</div>}
     {/* A frase da assinatura só vale no número da CASA. Na linha pessoal a
