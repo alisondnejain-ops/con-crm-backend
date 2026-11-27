@@ -12635,9 +12635,6 @@ function HistoricoDisponibilidade({acoes,isMobile,podeConfigurar}){
       <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Disponibilidade da equipe</span>
       {d.expediente_fim&&<span style={{color:C.faint,fontSize:11}}>encerra às {d.expediente_fim}</span>}
     </div>
-    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-      Quem se prontificou hoje, a que horas, e se foi a própria pessoa ou o encerramento automático do fim do dia.
-    </div>
 
     {/* Quem não se prontificou é a informação acionável do dia: são os que
         estão fora da catraca sem ninguém ter percebido. */}
@@ -12985,8 +12982,7 @@ function FilaDaVez({acoes,isMobile,versao,principal}){
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3,display:"flex",alignItems:"center",gap:8}}>
       <Icon n="transfer" size={15} color={C.green}/> {principal?"Catraca principal":"Ordem da catraca"}</div>
     <div style={{color:C.faint,fontSize:11,lineHeight:1.5,marginBottom:11}}>
-      Quem recebe o próximo lead do rodízio. Recebeu, vai para o fim da fila —
-      inclusive quando a escolha é feita na mão.
+      Recebeu, vai para o fim da fila.
     </div>
 
     {!d&&<div style={{color:C.faint,fontSize:12}}>Carregando…</div>}
@@ -13567,7 +13563,7 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
           {verDesativadas&&desativadas.map(cartao)}
         </div>
         {!ativas.length&&podeEditarCatracas&&editando!=="nova"&&<div style={{color:C.faint,fontSize:12,marginBottom:18}}>
-          Nenhuma catraca de produto ainda — todos os leads usam a catraca principal. Crie uma para separar os leads de um empreendimento.</div>}
+          Nenhuma catraca de produto ainda — todos os leads usam a principal.</div>}
         {desativadas.length>0&&<button onClick={()=>setVerDesativadas(v=>!v)} style={{border:"none",background:"none",color:C.sub,
           fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"0 0 18px"}}>{verDesativadas?"Esconder":"Ver"} desativadas ({desativadas.length})</button>}
         <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
@@ -20908,7 +20904,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
             <input type="file" multiple accept="image/*,video/mp4,video/quicktime" onChange={enviarArquivo} disabled={subindo} style={{display:"none"}}/>
           </label>
           <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.45}}>
-            Dá para escolher várias de uma vez: segure <b>Ctrl</b> (ou <b>Cmd</b>) ao clicar, ou toque em "Selecionar" no celular.
+            Dá para escolher várias de uma vez.
             {!id&&" Ao enviar a primeira, o produto é salvo automaticamente."}
           </div>
         </div>
@@ -21325,7 +21321,7 @@ function EstruturaDaEquipe({isMobile,ehGestor}){
   </div>);
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:14,marginBottom:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:7}}><Icon n="users" size={14} color={C.green}/> Estrutura da equipe</div>
-    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>Crie só os níveis que a operação tem (uma gerência e corretores; diretoria, gerência e corretores…). O nível serve para agrupar e filtrar — não dá permissão. Nos filtros de pessoas, marcar um nível marca todo mundo dele e dos níveis abaixo.</div>
+    <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:8}}>O nível agrupa e filtra as pessoas; não dá permissão.</div>
     {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:6}}>{erro}</div>}
     {!d.niveis.length&&!novo&&<div style={{color:C.sub,fontSize:12.5}}>Nenhum nível criado.</div>}
     {arvore(null,0)}
@@ -22044,8 +22040,7 @@ function AnunciosDoMeta({acoes,isMobile}){
           <span style={{fontFamily:DISPLAY,color:C.ink,fontSize:15,fontWeight:700,marginLeft:2}}>Anúncios do Facebook e Instagram</span>
         </div>
         <div style={{color:C.faint,fontSize:12,marginTop:3,lineHeight:1.55,marginBottom:14}}>
-          Conecte a página da imobiliária e todo lead dos anúncios de formulário entra aqui sozinho: vai para a atendente da vez,
-          com as respostas do formulário na ficha e a campanha registrada.
+          Os leads dos anúncios de formulário entram sozinhos, com as respostas e a campanha.
         </div>
 
         {d.paginas.length===0?<React.Fragment>
@@ -22758,7 +22753,7 @@ function RoboConfig({acoes,session,isMobile}){
       <div style={{color:C.sub,fontSize:11.5,lineHeight:1.6}}>
         {cfg.sempre
           ?"Quando um lead chama e você não está no celular, a IA conversa com ele seguindo as regras que você escrever abaixo. Assim que você responde, ela sai da conversa e não volta."
-          :"Quando um lead chama de madrugada ou no fim de semana, a IA conversa com ele seguindo as regras que a sua equipe escrever abaixo. Na manhã seguinte a atendente confere e encaminha."}
+          :"A IA conversa com o lead seguindo as regras da sua equipe, abaixo."}
       </div>
 
       {/* AS REGRAS SÃO DE CADA CONTA (08/10/2026, pedido do Ali). Aqui havia
@@ -23873,7 +23868,7 @@ function PainelGestao({acoes,session,isMobile,abrirConversa,irPara,org}){
           <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,boxShadow:SOMBRA,padding:isMobile?14:22}}>
             <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Onde estão agora</div>
             <div style={{color:C.faint,fontSize:11.5,lineHeight:1.5,marginBottom:12}}>
-              Contatos em cada etapa neste momento, pelo responsável de hoje — Inbox incluído. Não é conversão.
+              Onde os leads estão neste momento (não é conversão).
             </div>
             {(()=>{const fatias=fatiasDoFunil(funil.operacional);
               const total=fatias.reduce((s,x)=>s+x.valor,0);
@@ -24145,11 +24140,6 @@ function FunisConfig({acoes,session,isMobile}){
   const rot=(t)=><div style={{color:C.faint,fontSize:10.5,fontWeight:600,marginBottom:3}}>{t}</div>;
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
-    <div style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
-      Cada funil é um fluxo de trabalho da sua operação — pré-atendimento, venda,
-      locação, recaptação. Você monta as etapas, o prazo de cada uma e o que precisa
-      estar preenchido para o lead avançar.
-    </div>
 
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",lineHeight:1.45}}>{erro}</div>}
 
@@ -24301,9 +24291,7 @@ function TagsConfig({acoes,session,isMobile}){
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginTop:14}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Tags</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
-      Marcações livres do lead — "investidor", "indicação", "não perturbe". Quem atende marca na
-      ficha e filtra por elas no funil; criar e apagar é da gestão, para a casa não acabar com
-      três jeitos de escrever a mesma coisa.
+      Quem atende marca na ficha e filtra no funil. Criar e apagar é da gestão.
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
 
@@ -24787,8 +24775,7 @@ function CamposConfig({acoes,campos,isMobile,aoMudar}){
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16}}>
     <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:3}}>Campos do lead</div>
     <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55,marginBottom:12}}>
-      O que a sua operação precisa saber de cada atendimento. Depois de criado, o campo
-      pode ser exigido em qualquer etapa — é assim que o funil para de andar com lead pela metade.
+      Pode ser exigido para entrar em qualquer etapa.
     </div>
     {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12,borderRadius:10,padding:"9px 11px",marginBottom:10}}>{erro}</div>}
 
@@ -24932,10 +24919,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
           + Nova mensagem</button>
       </div>
       <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55}}>
-        São os botões que aparecem acima do campo de conversa. Escreva <b style={{color:C.sub}}>{"{nome}"}</b> onde
-        o primeiro nome do cliente deve entrar. Escolha em que <b style={{color:C.sub}}>etapa</b> cada uma
-        aparece primeiro — na conversa, as da etapa do lead vêm na frente e as outras ficam a um toque.
-        Desligar guarda o texto sem mostrar na conversa.
+        Use <b style={{color:C.sub}}>{"{nome}"}</b> para o primeiro nome do cliente. As da etapa do lead aparecem primeiro na conversa.
       </div>
     </div>
 
@@ -25242,7 +25226,7 @@ function ConexaoConfig({acoes,session,isMobile}){
           <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>
             {ligado?<React.Fragment>Número {fmtTel(w.numero)} · via {provedorAtivo?provedorAtivo.nome:"—"}</React.Fragment>
               :w.configurado?(w.erro||({disconnected:"o número não está pareado — conecte com o QR Code abaixo",connecting:"conectando… leia o QR Code"}[String(w.status||"").toLowerCase()])||w.status||"a instância não respondeu")
-              :"Escolha uma das opções abaixo para a equipe atender pelo CRM."}
+              :""}
           </div>
         </div>
         {ehGestor&&w.configurado&&<button onClick={()=>{setConfirmando(c=>!c);setPalavra("");}}
