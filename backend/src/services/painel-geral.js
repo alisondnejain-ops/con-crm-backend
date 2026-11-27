@@ -35,6 +35,7 @@
    mandou reduzir. */
 
 import { etapasDeContagem } from "./interno.js";
+import { pessoasDoNivel } from "./estrutura.js";
 import db from "../db.js";
 import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
@@ -422,8 +423,43 @@ export function obterMeta(orgId, userId, mes) {
     .get(orgId, userId || ALVO_ORG, mes) || null;
 }
 
+/* METAS POR DIRETORIA/GERÊNCIA (27/11/2026, protótipo CETRO). A meta de um
+   nível da Estrutura é guardada com `user_id = "nivel:<id>"`, na mesma tabela.
+   Ela vale quando o filtro de pessoas é EXATAMENTE quem está no nível (que é o
+   que marcar o nível no seletor faz); campo que o nível não definiu continua
+   sendo a soma das metas pessoais, como antes. */
+const PREFIXO_NIVEL = "nivel:";
+function nivelDoGrupo(orgId, userIds) {
+  if (!Array.isArray(userIds) || !userIds.length) return null;
+  const alvo = new Set(userIds);
+  const niveis = db.prepare("SELECT id FROM estrutura_niveis WHERE org_id = ?").all(orgId);
+  const papel = new Map(db.prepare("SELECT id, role FROM users WHERE org_id = ?").all(orgId).map(u => [u.id, u.role]));
+  const igual = (ps) => ps.length === alvo.size && ps.every(id => alvo.has(id));
+  for (const n of niveis) {
+    const ps = pessoasDoNivel(orgId, n.id);
+    // O seletor de pessoas mostra só quem atende; o gestor que está no nível
+    // pode não ter sido marcado junto — vale com ele ou sem ele.
+    if (igual(ps) || igual(ps.filter(id => papel.get(id) !== "adm"))) return n.id;
+  }
+  return null;
+}
+function metaDoGrupo(orgId, userIds, mes) {
+  const ms = userIds.map(u => obterMeta(orgId, u, mes)).filter(Boolean);
+  const soma = ms.length ? Object.fromEntries(CAMPOS_META.map(c => {
+    const vs = ms.map(m => m[c]).filter(v => v != null);
+    return [c, vs.length ? vs.reduce((a, b) => a + b, 0) : null];
+  })) : null;
+  const nid = nivelDoGrupo(orgId, userIds);
+  const doNivel = nid ? obterMeta(orgId, PREFIXO_NIVEL + nid, mes) : null;
+  if (!doNivel) return soma;
+  return Object.fromEntries(CAMPOS_META.map(c => [c, doNivel[c] != null ? doNivel[c] : (soma ? soma[c] : null)]));
+}
+
 export function salvarMeta(orgId, userId, mes, dados = {}) {
   if (!/^\d{4}-\d{2}$/.test(mes || "")) return { erro: "Escolha o mês da meta." };
+  if (userId && String(userId).startsWith(PREFIXO_NIVEL)
+    && !db.prepare("SELECT 1 FROM estrutura_niveis WHERE id = ? AND org_id = ?").get(String(userId).slice(PREFIXO_NIVEL.length), orgId))
+    return { erro: "Nível não encontrado nesta conta." };
   const alvo = userId || ALVO_ORG;
   const existente = obterMeta(orgId, alvo, mes);
   const valores = {};
@@ -482,14 +518,7 @@ export function metasComRealizado(orgId, userId, mes) {
   /* Várias pessoas no filtro (CETRO 04.1): a meta é a SOMA das metas
      pessoais de cada uma — campo que ninguém do grupo definiu continua "não
      definido" — e o realizado é o do grupo (união). */
-  let meta;
-  if (Array.isArray(userId)) {
-    const ms = userId.map(u => obterMeta(orgId, u, mes)).filter(Boolean);
-    meta = ms.length ? Object.fromEntries(CAMPOS_META.map(c => {
-      const vs = ms.map(m => m[c]).filter(v => v != null);
-      return [c, vs.length ? vs.reduce((a, b) => a + b, 0) : null];
-    })) : null;
-  } else meta = obterMeta(orgId, userId, mes);
+  const meta = Array.isArray(userId) ? metaDoGrupo(orgId, userId, mes) : obterMeta(orgId, userId, mes);
   const realizado = realizadoDoMes(orgId, userId, mes);
   const interna = etapasDeContagem(orgId).realizada !== "Visita";
   const nomeDe = (campo) => interna
@@ -522,12 +551,7 @@ export function metasComRealizado(orgId, userId, mes) {
 export function metasDoPeriodo(orgId, userId, de, ate) {
   const metaDoMes = (mes) => {
     if (!Array.isArray(userId)) return obterMeta(orgId, userId, mes);
-    const ms = userId.map(u => obterMeta(orgId, u, mes)).filter(Boolean);
-    if (!ms.length) return null;
-    return Object.fromEntries(CAMPOS_META.map(c => {
-      const vs = ms.map(m => m[c]).filter(v => v != null);
-      return [c, vs.length ? vs.reduce((a, b) => a + b, 0) : null];
-    }));
+    return metaDoGrupo(orgId, userId, mes);
   };
   const somas = Object.fromEntries(CAMPOS_META.map(c => [c, null]));
   const meses = [];
@@ -573,9 +597,19 @@ export function metasConfig(orgId, mes) {
   const corretores = db.prepare(`SELECT u.id, u.name FROM users u
     WHERE u.org_id = ? AND u.status = 'ativo' AND u.role = 'corretor'${semMaster("u")} ORDER BY u.name`)
     .all(orgId);
+  // Níveis sem ninguém ficam de fora: sem pessoas, o realizado seria o da casa.
+  const niveis = db.prepare("SELECT id, nome FROM estrutura_niveis WHERE org_id = ? ORDER BY ordem, created_at").all(orgId)
+    .map(n => ({ ...n, pessoas: pessoasDoNivel(orgId, n.id) })).filter(n => n.pessoas.length);
   return {
     mes,
     operacao: metasComRealizado(orgId, null, mes),
+    niveis: niveis.map(n => {
+      const m = metasComRealizado(orgId, n.pessoas, mes);
+      const proprio = obterMeta(orgId, PREFIXO_NIVEL + n.id, mes);
+      // No formulário vai só o que o NÍVEL definiu; a soma das pessoas é a dica.
+      return { id: PREFIXO_NIVEL + n.id, nome: n.nome, pessoas: n.pessoas.length,
+        itens: m.itens.map(i => ({ ...i, soma: i.meta, meta: proprio ? proprio[i.campo] : null })) };
+    }),
     corretores: corretores.map(c => ({ id: c.id, nome: c.name, ...metasComRealizado(orgId, c.id, mes) })),
   };
 }

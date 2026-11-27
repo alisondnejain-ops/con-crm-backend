@@ -259,6 +259,29 @@ assert.equal(r.status, 200);
 assert.equal(d.operacao.itens.find(i => i.campo === "ligacoes").meta, 100);
 assert.equal(d.corretores.length, 2);
 
+console.log("14b. Meta da gerência: vale quando o filtro marca o nível; o vazio é a soma");
+{
+  db.prepare("INSERT INTO estrutura_niveis (id,org_id,nome,ordem,created_at) VALUES (?,?,?,0,?)").run("niv_t", org, "Gerência Teste", Date.now());
+  db.prepare("UPDATE users SET nivel_id='niv_t' WHERE id IN (?,?)").run(marina, rafael);
+  r = await post(tAli, "/painel/metas", { user_id: "nivel:niv_t", mes: mesAtual, ligacoes: 40 });
+  assert.equal(r.status, 200);
+  r = await post(tAli, "/painel/metas", { user_id: "nivel:nao_existe", mes: mesAtual, ligacoes: 1 });
+  assert.equal(r.status, 400, "nível de outra conta / inexistente é recusado");
+  r = await chamar(tAli, `/painel/geral?periodo=mes&responsavel=${marina},${rafael}`);
+  d = await r.json();
+  const it = (c) => d.metas.itens.find(i => i.campo === c);
+  console.log(`   grupo = gerência: ligações meta ${it("ligacoes").meta}, vgv meta ${it("vgv").meta}`);
+  assert.equal(it("ligacoes").meta, 40, "a meta do nível vale no lugar da soma");
+  r = await chamar(tAli, `/painel/geral?periodo=mes&responsavel=${marina}`);
+  d = await r.json();
+  assert.equal(d.metas.itens.find(i => i.campo === "ligacoes").meta, 10, "uma pessoa só continua com a meta dela");
+  r = await chamar(tAli, `/painel/metas?mes=${mesAtual}`);
+  d = await r.json();
+  assert.equal(d.niveis.length, 1);
+  assert.equal(d.niveis[0].itens.find(i => i.campo === "ligacoes").meta, 40);
+  assert.equal(d.niveis[0].itens.find(i => i.campo === "ligacoes").soma, 40);
+}
+
 console.log("15. Sem login, nada disso abre");
 for (const caminho of ["/painel/geral", "/painel/metas"]) {
   r = await fetch(BASE + caminho);
