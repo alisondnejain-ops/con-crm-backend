@@ -156,7 +156,10 @@ export function fichaDoLead(orgId, lead) {
    outras enquanto couber; as que não couberem vão só pelo nome, para a IA
    saber que existem e dizer que o corretor detalha. Sem acento e sem
    maiúscula, e vale uma palavra do nome ("horizon" acha "Residencial Horizon"). */
-const TETO_OUTRAS = 16000;
+/* 40 mil desde 27/11/2026 (era 16 mil): com várias fichas longas, as que o
+   cliente não citou iam só pelo nome e a IA dizia "o corretor detalha". O
+   custo sobe junto — este texto vai em toda resposta. */
+const TETO_OUTRAS = Number(process.env.IA_FICHAS_TETO) || 40000;
 const semAcento = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const GENERICAS = new Set(["residencial", "condominio", "edificio", "loteamento", "empreendimento", "torre", "torres", "casas", "apartamentos"]);
 const citada = (nome, conversa) => {
@@ -178,6 +181,24 @@ export function outrasFichas(orgId, excetoId, conversa = "") {
     else soNomes.push(f.nome);
   }
   return { fichas, soNomes };
+}
+
+/* AS FICHAS EM TEXTO, PARA AS OUTRAS IAs QUE ESCREVEM (27/11/2026, Fernando:
+   "as fichas só funcionam se estiverem em catraca ou formulário"). O
+   Autoatendimento lia as fichas; o bloco "Chamar a IA" dos fluxos e o
+   "Sugerir mensagem" da conversa não liam nenhuma. A mesma regra do
+   Autoatendimento: a ficha ligada ao lead primeiro, depois as outras ativas,
+   as citadas na conversa antes. Vazio quando a conta não tem ficha. */
+export function textoDasFichas(orgId, lead, conversa = "") {
+  const ficha = lead ? fichaDoLead(orgId, lead) : null;
+  const { fichas, soNomes } = outrasFichas(orgId, ficha?.id || null, conversa);
+  if (!(ficha && ficha.texto) && !fichas.length && !soNomes.length) return "";
+  const partes = [];
+  if (ficha && ficha.texto) partes.push(`O PRODUTO DESTE CLIENTE (veio pelo anúncio ou pela fila dele): ${ficha.nome}\n${String(ficha.texto).slice(0, 5000)}`);
+  if (fichas.length || soNomes.length) partes.push(`${ficha && ficha.texto ? "OUTROS PRODUTOS" : "OS PRODUTOS"} DA EMPRESA, descritos pela equipe. Use quando o cliente falar de um deles; não ofereça um produto que ele não pediu sem entender o que ele procura.`
+    + fichas.map(f => `\n--- ${f.nome} ---\n${f.texto}`).join("\n")
+    + (soNomes.length ? `\n\nA empresa também tem (sem descrição aqui — o corretor detalha): ${soNomes.join(", ")}.` : ""));
+  return partes.join("\n\n") + "\n\nFale só do que está escrito nestas fichas; o que não estiver, diga que o corretor confirma.";
 }
 
 /* A CATRACA DO PRODUTO QUE O CLIENTE ESCOLHEU (09/10/2026, print do Ali: "eu

@@ -47,6 +47,7 @@ import { gatilhoLimpo, problemasDoGatilho, formulariosDaRef, gatilhosDoGrafo, so
 import { temRecurso } from "./recursos.js";
 import { iaConfigurada, mensagemDoFluxo } from "./ia.js";
 import { textoParaIA as textoDosLotes } from "./lotes.js";
+import { textoDasFichas } from "./ia-produtos.js";
 import { registrar as registrarUsoIA } from "./iauso.js";
 import { temCredito } from "./ia-creditos.js";
 import { definirFunil, definirCatraca, ErroFormulario } from "./formularios.js";
@@ -963,6 +964,9 @@ async function enviarConteudo({ org, canalId, telefone, nome, no, rodape = "", l
     const r = await mensagemDoFluxo({ instrucao: no.dados.instrucao, nome: e.nome, orientacoes: ensino, imobiliaria: orgRow.name,
       // Conta de empreendimento: a IA escreve sabendo quais lotes estão disponíveis agora (services/lotes.js).
       contexto: textoDosLotes(org),
+      // As fichas de produto (ia-produtos.js), como no Autoatendimento.
+      produtos: textoDasFichas(org, leadId ? db.prepare("SELECT * FROM leads WHERE id = ? AND org_id = ?").get(leadId, org) : null,
+        msgs.filter(m => m.direction === "in").map(m => m.body || "").join(" ")),
       mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "empresa", texto: m.body })) });
     if (!r.ok) throw new Error("A IA não escreveu a mensagem: " + r.erro);
     registrarUsoIA({ orgId: org, userId: null, leadId, recurso: "fluxo_ia", uso: r.uso });

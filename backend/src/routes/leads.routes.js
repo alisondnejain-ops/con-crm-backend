@@ -13,6 +13,7 @@ import { STAGES, LINEAR, GATILHOS, normalizePhone, inferStage, gatilhosNaConvers
 import { validarTelefone, paisPorIso, leadPorTelefone, formasDoTelefone, normalizarPeloPadrao } from "../services/telefone.js";
 import { salvar } from "../services/storage.js";
 import { lerPrintSimulacao, iaConfigurada, resumirConversa, etapaDaConversa, proximaMensagem, CAMPOS_SIMULACAO } from "../services/ia.js";
+import { textoDasFichas } from "../services/ia-produtos.js";
 import { registrar as registrarUsoIA } from "../services/iauso.js";
 import { sendText } from "../services/uazapi.js";
 import { numero as numeroBR } from "./produtos.routes.js";
@@ -1438,6 +1439,8 @@ r.post("/:id/proxima-mensagem", async (req, res) => {
   const r2 = await proximaMensagem({
     nome: lead.name, quem: req.user.name, imobiliaria: org.name, orientacoes: ensino,
     pedido: String(req.body?.pedido || "").slice(0, 300),
+    // As fichas de produto, como no Autoatendimento (ia-produtos.js).
+    produtos: textoDasFichas(lead.org_id, lead, msgs.filter(m => m.direction === "in").map(m => m.body || "").join(" ")),
     mensagens: msgs.map(m => ({ de: m.direction === "in" ? "cliente" : "imobiliaria", texto: m.body })),
   });
   if (!r2.ok) return res.status(422).json({ error: r2.erro });
