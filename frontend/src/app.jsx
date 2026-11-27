@@ -11178,7 +11178,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       </div>
       <ControleConversa lead={sel} acoes={acoes} isMobile={isMobile} session={session} minhaLinha={minhaLinha}/>
       <div ref={chatRef} style={{flex:1,overflowY:"auto",padding:isMobile?"14px 12px":"16px 20px",display:"flex",flexDirection:"column",gap:8,minHeight:0}}>
-        {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.<br/>Use um modelo e fale agora — quanto mais rápido, maior a chance.</div></div>}
+        {sel.msgs.length===0&&<div style={{color:C.faint,margin:"auto",textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="spark" size={22} color={C.green}/><div style={{fontSize:13,marginTop:8}}>Lead ainda não contatado.</div></div>}
         <VerAnteriores janela={janela}/>
         {sel.msgs.slice(janela.inicio).map((m,j)=>{
           const i=janela.inicio+j;
@@ -13809,20 +13809,19 @@ function TopoDaCaixa({isMobile,busca,setBusca,onNovoLead,vista,setVista,contagem
     </div>
     <div style={{display:"flex",gap:isMobile?6:5,flexWrap:"wrap"}}>{chips.map(chip)}</div>
     {vista==="formulario"&&<SeletorDeCampanha lista={lista} campanha={campanha} setCampanha={setCampanha} isMobile={isMobile}/>}
-    {vista!=="novos"&&<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+    {vista!=="novos"&&<div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
       {seletor&&<select value={seletor.valor} onChange={e=>seletor.mudar(e.target.value)} aria-label={seletor.rotulo}
         title={seletor.rotulo}
         style={{fontSize:isMobile?16:12,fontWeight:600,color:C.ink,background:C.surface,border:`1px solid ${C.line}`,
-          borderRadius:10,padding:isMobile?"9px 10px":"6px 8px",outline:"none",maxWidth:"60%",minWidth:0,cursor:"pointer"}}>
+          borderRadius:10,padding:isMobile?"9px 10px":"6px 8px",outline:"none",maxWidth:"40%",minWidth:0,cursor:"pointer",textOverflow:"ellipsis"}}>
         {seletor.opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
       </select>}
       {/* Os filtros detalhados ficam recolhidos: abertos, empurravam a lista
           para baixo. O número ao lado avisa quando algum ficou ligado. */}
       <button onClick={()=>setGaveta(a=>!a)}
-        style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,padding:isMobile?"9px 12px":"6px 10px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer"}}>
-        <Icon n="columns" size={13}/>Filtros
+        style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${filtrosAtivos||gaveta?C.green+"66":C.line}`,background:filtrosAtivos||gaveta?C.greenSoft:C.surface,color:filtrosAtivos||gaveta?C.greenDeep:C.sub,borderRadius:10,padding:isMobile?"9px 12px":"6px 9px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+        <Icon n="sliders" size={13}/>Filtros
         {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
-        <span style={{display:"inline-flex",transform:gaveta?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
       </button>
       {/* Inverter a ordem fica à vista, ao lado dos filtros: é o gesto de quem
           quer zerar a caixa começando pelo que espera há mais tempo. O
@@ -19485,7 +19484,6 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
       <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`,display:"flex",alignItems:"center",gap:10}}>
         <div style={{flex:1}}>
           <div style={{color:C.ink,fontSize:15,fontWeight:700}}>Enviar imóvel para {first(lead.nome)}</div>
-          <div style={{color:C.faint,fontSize:11.5}}>O cliente recebe as informações e as fotos pelo WhatsApp.</div>
         </div>
         <button onClick={aoFechar} style={{border:"none",background:"transparent",color:C.faint,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
       </div>
@@ -25069,7 +25067,7 @@ function UsoDaIA({acoes,isMobile}){
       <div style={{color:C.ink,fontSize:13,fontWeight:700,marginBottom:9,display:"flex",alignItems:"center",gap:7}}>
         <Icon n="users" size={14} color={C.greenMid}/> Quem usou</div>
       {d.por_pessoa.length===0
-        ?<div style={{color:C.faint,fontSize:12.5,lineHeight:1.5}}>Ninguém usou a IA neste período. Se o recurso é útil, vale lembrar a equipe de que ele existe.</div>
+        ?<div style={{color:C.faint,fontSize:12.5,lineHeight:1.5}}>Ninguém usou a IA neste período.</div>
         :<div style={{display:"flex",flexDirection:"column",gap:8}}>
           {d.por_pessoa.map((p,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
             <Avatar ini={initials(p.nome)} color={COLORS[i%COLORS.length]} size={26}/>
@@ -26792,7 +26790,7 @@ function EscolherIndicadores({escolha,aoSalvar,aoFechar,isMobile}){
       borderRadius:isMobile?"18px 18px 0 0":16,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.line}`}}>
         <div style={{color:C.ink,fontSize:15,fontWeight:700,fontFamily:DISPLAY}}>Escolher indicadores</div>
-        <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>Marque o que aparece no seu Painel, na ordem em que marcar. O primeiro vira o cartão em destaque. Vale só para você.</div>
+        <div style={{color:C.faint,fontSize:11.5,marginTop:2}}>O primeiro marcado vira o cartão em destaque.</div>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"10px 16px"}}>
         {KPIS_CATALOGO.filter(c=>!(contaInterna()&&c.k==="vgc")).map(c=>{const on=sel.includes(c.k), pos=sel.indexOf(c.k)+1;
@@ -26847,8 +26845,6 @@ function ProximosPassos({d,openLead,isMobile}){
       {d.itens.length>6&&<button onClick={()=>setTodos(v=>!v)} style={{border:"none",background:"transparent",color:C.green,fontSize:12,fontWeight:700,cursor:"pointer",padding:"6px 0 0"}}>
         {todos?"Mostrar menos":`Ver todos (${d.total})`}</button>}
     </React.Fragment>}
-    <div style={{background:"#eef3e8",border:"1px solid #dce6d6",borderRadius:10,padding:"12px 14px",color:"#56724d",fontSize:11.5,lineHeight:1.5,marginTop:16}}>
-      Cada próximo passo tem um responsável e uma data. Nenhum lead fica para trás.</div>
   </PainelCartao>;
 }
 
@@ -27308,12 +27304,11 @@ function Dashboard({acoes,pessoas,fila,setView,openLead,isMobile,sozinho,session
       {podeGerir(session)&&metasModal&&<ConfigurarMetasModal acoes={acoes} isMobile={isMobile} aoFechar={()=>{setMetasModal(false);
         acoes.painelGeral(f).then(setDGeral).catch(()=>{});}}/>}
 
-      <CabecalhoTela isMobile={isMobile} eyebrow={supervisor?undefined:"MEU WORKSPACE"}
-        titulo={supervisor?"Sua operação, em perspectiva.":"Seu próximo resultado começa aqui."}
-        sub={`${dataHoje()} · ${supervisor?"uma visão clara do que move suas vendas.":"acompanhe seu trabalho e as próximas oportunidades."}`}
-        acoes={supervisor?<button onClick={()=>setView("relatorios")} style={BOTAO_SECUNDARIO}><Icon n="chart" size={14}/> Relatório</button>:null}/>
-      <div style={{marginBottom:18}}>
-        <FiltrosPainelGeral f={f} setF={setF} op={op} supervisor={supervisor} isMobile={isMobile}/>
+      {/* Filtros e o atalho do relatório na MESMA linha: o botão sozinho numa
+          faixa própria gastava uma linha inteira para um clique. */}
+      <div style={{display:"flex",alignItems:"flex-start",gap:10,flexWrap:"wrap",marginBottom:18}}>
+        <div style={{flex:1,minWidth:0}}><FiltrosPainelGeral f={f} setF={setF} op={op} supervisor={supervisor} isMobile={isMobile}/></div>
+        {supervisor&&<button onClick={()=>setView("relatorios")} style={BOTAO_SECUNDARIO}><Icon n="chart" size={14}/> Relatório</button>}
       </div>
       {erroGeral&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:14}}>{erroGeral}</div>}
 
