@@ -11301,60 +11301,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
       <Simulacao lead={sel} acoes={acoes} isMobile={fichaPorBotao} aoFechar={()=>setSimulando(false)}/>
     </div>}
     {showFicha&&!simulando&&<div style={{width:fichaPorBotao?"100%":300,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
-      <div style={{padding:16}}>
-        {fichaPorBotao&&<div style={{marginBottom:10}}>{backBtn(()=>setPane("chat"),"Voltar para a conversa")}</div>}
-        {!fichaPorBotao&&<TopoDaGavetaFicha aoFechar={()=>setFichaAberta(false)}/>}
-
-        {/* Mesma ordem da ficha da supervisão (CETRO 08). */}
-        <NomeDoLead lead={sel} acoes={acoes}/>
-        <TelefoneDoLead lead={sel} acoes={acoes}/>
-        <EmailDoLead lead={sel} acoes={acoes}/>
-        <ResponsavelDoLead lead={sel} session={session}/>
-        <OrigemDoLead lead={sel}/>
-        <TemperaturaDoLead lead={sel} acoes={acoes}/>
-        <PossivelDuplicado lead={sel} acoes={acoes} podeUnir={podeSupervisionar(session)}/>
-
-        {/* O corretor que acabou de receber o lead é quem mais precisa do
-            resumo — foi ele que não acompanhou a conversa até aqui. */}
-        <ResumoIA lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <label style={{color:C.faint,fontSize:10.5,fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>Etapa do funil</label>
-        {(()=>{
-          const etapasFunil=etapasFunilDoLead;
-          const etapaAtual=etapasFunil.find(s=>(sel.stageId&&s.id===sel.stageId)||s.name===sel.status);
-          return <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):sel.status}
-            onChange={e=>{
-              const escolhida=etapasFunil.find(s=>String(s.id||s.name)===e.target.value);
-              setStatus(sel.id,escolhida?escolhida.name:e.target.value,escolhida&&escolhida.id?{stage_id:escolhida.id}:undefined);
-            }}
-            style={{width:"100%",marginTop:4,marginBottom:8,fontSize:isMobile?16:13,fontWeight:600,borderRadius:10,border:`1px solid ${C.line}`,padding:"8px 10px",outline:"none",color:corDaEtapa(etapaAtual,sel.status),background:C.surface}}>
-            {etapasFunil.map(s=><option key={s.id||s.name} value={s.id||s.name}>{s.name}</option>)}
-          </select>;
-        })()}
-        <DicaEtapa etapa={sel.status}/>
-        <MoverParaOutroFunil lead={sel} acoes={acoes} session={session}/>
-        <SugestaoDaConversa lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <EtapaIA lead={sel} acoes={acoes} isMobile={isMobile}/>
-        {!canHandoff&&temPerm(session,"repassar_leads")&&sel.assignedTo===session.id&&<RepasseDoCorretor lead={sel} acoes={acoes} session={session}/>}
-        {canHandoff&&<div style={{background:C.greenSoft,border:`1px solid ${C.green}33`,borderRadius:12,padding:12,marginBottom:14}}>
-          <div style={{color:C.greenDeep,fontSize:11.5,fontWeight:700,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><Icon n="transfer" size={13} color={C.greenMid}/> Repassar para um corretor</div>
-          <button onClick={()=>acoes.repassar(sel.id)} disabled={!availCorretores.length} style={{width:"100%",background:availCorretores.length?C.green:C.coolSoft,color:availCorretores.length?"#fff":C.faint,border:"none",cursor:availCorretores.length?"pointer":"default",fontSize:12.5,fontWeight:600,padding:"9px",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon n="transfer" size={14}/> {proximoDaVez?`Passar para ${first(proximoDaVez.name)}`:"Passar para o corretor da vez"}</button>
-          {proximoDaVez&&<div style={{color:C.faint,fontSize:10.5,marginTop:5,textAlign:"center"}}>{textoDaVez(proximoDaVez)}</div>}
-          <div style={{color:C.faint,fontSize:10.5,margin:"8px 0 5px"}}>ou escolher um corretor:</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-            {availCorretores.length?availCorretores.map(b=><button key={b.id} onClick={()=>acoes.repassar(sel.id,b.id)} title={b.name} style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${C.line}`,background:C.card,borderRadius:999,padding:"3px 9px 3px 3px",cursor:"pointer"}}><Avatar ini={b.ini} color={b.color} size={20}/><span style={{color:C.ink,fontSize:11.5,fontWeight:500}}>{first(b.name)}</span></button>):<span style={{color:C.hot,fontSize:11}}>Nenhum corretor disponível agora.</span>}
-          </div>
-        </div>}
-        <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
-        <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
-        <AnexosDoLead lead={sel} acoes={acoes} session={session}/>
-        <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
-        {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
-            do subsídio de quem vai comprar — por isso mora aqui na ficha. */}
-        <QualificacaoDoLead lead={sel} acoes={acoes} session={session}/>
-        <SimulacaoEVenda lead={sel} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
-        <div style={{marginTop:14}}><RoboNoLead lead={sel} acoes={acoes} isMobile={isMobile}/></div>
-        <RodapeDaFicha lead={sel} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
-      </div>
+      <FichaLateral lead={sel} acoes={acoes} session={session} isMobile={isMobile} mudarEtapa={setStatus} minhaLinha={minhaLinha}
+        aoVoltar={fichaPorBotao?()=>setPane("chat"):null} aoFechar={fichaPorBotao?null:()=>setFichaAberta(false)}/>
     </div>}
   </div>;
 }
@@ -11986,7 +11934,7 @@ function ConversaSoLeitura({lead,isMobile}){
 
 // A ordem dos prints do Ali (25/11/2026). "Dados" entrou na aba Lead; nome, e-mail e telefone ficam na coluna da esquerda.
 const ABAS_FICHA=[["lead","Lead"],["imoveis","Imóveis"],["historico","Histórico"],["whatsapp","WhatsApp"],["perfil","Perfil de busca"]];
-function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,session}){
+function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,session,minhaLinha}){
   /* A FICHA DO LEAD IGUAL AO PROTÓTIPO CETRO (27/11/2026, pedido do Ali:
      "exatamente igual"). Só o desenho mudou: cada campo continua ligado à
      mesma função de antes (repasse, etapa, temperatura, observações,
@@ -12198,6 +12146,15 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
       {!contaInterna()&&<FichaDoCliente lead={l} acoes={acoes} secoes={["Dados pessoais"]} titulo="Dados pessoais" todasAbertas/>}
       <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
         <CamposPersonalizadosDoLead lead={l} acoes={acoes} session={session}/>
+      </div>
+      {/* O que antes só a ficha lateral do Atender tinha (27/11/2026): catraca do lead, leitura de etapa pela IA, IA neste lead, conversa pessoal e LGPD. */}
+      <div style={{marginTop:14}}>
+        {supervisor&&<CatracaDoLead lead={l} acoes={acoes}/>}
+        <EtapaIA lead={l} acoes={acoes} isMobile={isMobile}/>
+        <RoboNoLead lead={l} acoes={acoes} isMobile={isMobile}/>
+        <ConversaPessoal lead={l} acoes={acoes} session={session} minhaLinha={minhaLinha} isMobile={isMobile}/>
+        <div style={{height:8}}/>
+        <DadosDoTitular lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
       </div>
     </React.Fragment>}
 
@@ -15236,8 +15193,119 @@ function Conversas({acoes,pessoas,sel,session,chatRef,isMobile,versao,minhaLinha
       <div style={{color:C.faint,textAlign:"center",maxWidth:280,display:"flex",flexDirection:"column",alignItems:"center"}}><Icon n="msg" size={26} color={C.faint}/><div style={{fontSize:13,marginTop:10,lineHeight:1.5}}>Escolha uma conversa à esquerda para acompanhar o atendimento.</div></div>
     </div>)}
 
-    {mostrarFicha&&<FichaLead lead={sel} acoes={acoes} session={session} corretoresDisponiveis={corretoresDisponiveis}
-      aoVoltar={fichaPorBotao?()=>setPane("chat"):null} aoFechar={fichaPorBotao?null:()=>setFichaAberta(false)} largura={fichaPorBotao?"100%":300}/>}
+    {mostrarFicha&&<div style={{width:fichaPorBotao?"100%":300,flex:fichaPorBotao?1:"none",flexShrink:0,borderLeft:fichaPorBotao?"none":`1px solid ${C.line}`,background:C.card,overflowY:"auto",minHeight:0}}>
+      <FichaLateral lead={sel} acoes={acoes} session={session} isMobile={fichaPorBotao} mudarEtapa={acoes.mudarEtapa} minhaLinha={minhaLinha}
+        aoVoltar={fichaPorBotao?()=>setPane("chat"):null} aoFechar={fichaPorBotao?null:()=>setFichaAberta(false)}/>
+    </div>}
+  </div>;
+}
+
+
+/* ===== FICHA LATERAL DO ATENDER IGUAL AO PROTÓTIPO (27/11/2026, Ali: "faz
+   igual na ficha lateral do atender também") =====
+   Enxuta como a do protótipo: nome, Etapa do funil, Autoatendimento IA,
+   Resumo da conversa, Responsável, Imóvel de interesse, Perfil de busca,
+   Tarefas e próximo passo e "Ficha completa →", que abre a ficha do Funil
+   com todo o resto (observações, etiquetas, anexos, simulação, venda,
+   histórico, IA do lead, catraca, LGPD). Uma só para as duas caixas. */
+function FichaLateral({lead,acoes,session,isMobile,aoFechar,aoVoltar,mudarEtapa,minhaLinha}){
+  const [resumoAberto,setResumoAberto]=useState(false);
+  const [tarefa,setTarefa]=useState(null);
+  const [completa,setCompleta]=useState(false);
+  const [opcoesDono,setOpcoesDono]=useState(null);
+  const [erroDono,setErroDono]=useState("");
+  const [movendo,setMovendo]=useState(false);
+  const etapas=usarEtapasDoLead(lead,acoes,session);
+  const [robo,setRobo]=usarRoboDoLead(lead);
+  const [roboOcupado,setRoboOcupado]=useState(false);
+  const supervisor=podeSupervisionar(session);
+  const podeRepassarProprio=temPerm(session,"repassar_leads")&&lead.assignedTo===session.id;
+  const podeTrocar=supervisor||podeRepassarProprio;
+  useEffect(()=>{ setResumoAberto(false); setTarefa(null); setErroDono(""); },[lead.id]);
+  useEffect(()=>{ let vivo=true; setOpcoesDono(null);
+    if(supervisor) acoes.equipe().then(r=>vivo&&setOpcoesDono((r.users||r||[]).filter(u=>u.status==="ativo"&&!u.master).map(u=>({id:u.id,name:u.name})))).catch(()=>vivo&&setOpcoesDono([]));
+    else if(podeRepassarProprio) acoes.rodizio(lead.id).then(r=>vivo&&setOpcoesDono(((r&&r.fila)||[]).filter(p=>p.disponivel&&p.id!==session.id).map(p=>({id:p.id,name:p.name})))).catch(()=>vivo&&setOpcoesDono([]));
+    return()=>{vivo=false;}; },[lead.id,supervisor,podeRepassarProprio]);
+
+  const rot={display:"block",fontSize:9.5,fontWeight:600,color:"#82927a",letterSpacing:.4,marginTop:18,textTransform:"uppercase"};
+  const seta=`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23314f32' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`;
+  const sel={width:"100%",boxSizing:"border-box",margin:"5px 0",border:"1px solid #dce6d4",borderRadius:10,padding:"8px 30px 8px 9px",background:"#f9fbf7",
+    color:"#314f32",fontSize:isMobile?16:11,appearance:"none",WebkitAppearance:"none",backgroundImage:seta,backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",cursor:"pointer"};
+  const tiny={padding:"6px 10px",fontSize:10.5,fontWeight:700,borderRadius:10,background:"#fff",border:"1px solid #dce5dc",color:"#3c5b48",cursor:"pointer",whiteSpace:"nowrap"};
+  const tinyPrim={...tiny,background:"linear-gradient(135deg,#109c66,#087b4f)",color:"#fff",border:"1px solid #1fb273",display:"inline-flex",alignItems:"center",gap:6};
+
+  const etapaAtual=etapas.find(s=>(lead.stageId&&s.id===lead.stageId)||s.name===lead.status);
+  async function trocarDono(id){
+    if(!id||id===lead.assignedTo) return;
+    setMovendo(true); setErroDono("");
+    try{ await api(supervisor?"/distribution/transfer":"/distribution/handoff",{method:"POST",body:{lead_id:lead.id,user_id:id}}); await acoes.abrir(lead.id,true); }
+    catch(e){ setErroDono(e.message||"Não consegui transferir."); } finally{ setMovendo(false); }
+  }
+  async function alternarRobo(){
+    if(!robo||roboOcupado) return; setRoboOcupado(true);
+    try{ const out=await acoes.roboNoLead(lead.id,!robo.ligado); setRobo(out.estado); }catch(e){} finally{ setRoboOcupado(false); }
+  }
+  const q=lead.qual||{};
+  const tem=(v)=>v!=null&&String(v).trim()!==""&&String(v).trim()!=="—";
+  const perfil=[q.objetivo,q.finalidade,q.tipo_imovel].filter(tem).map(fmtResposta).join(" · ");
+  const valorFaixa=tem(q.valor_max)?q.valor_max:tem(q.renda)?q.renda:null;
+  const faixa=valorFaixa?`Faixa: ${fmtResposta(valorFaixa)}`:"";
+  const abertas=(lead.listaTarefas||[]).filter(t=>!t.feito_em).sort((a,b)=>a.quando-b.quando);
+
+  return <div style={{padding:"18px 14px"}}>
+    {aoFechar&&<TopoDaGavetaFicha aoFechar={aoFechar}/>}
+    {aoVoltar&&<button onClick={aoVoltar} aria-label="Voltar para a conversa" style={{width:34,height:34,borderRadius:10,border:"none",background:C.surface,color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transform:"scaleX(-1)",marginBottom:10}}><Icon n="chevron" size={17}/></button>}
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <span style={{width:32,height:32,flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"#e8f3ea",color:"#17704a",borderRadius:"50%",fontSize:11,fontWeight:800}}>{initials(lead.nome||"?")}</span>
+      <strong style={{color:C.ink,fontSize:13,minWidth:0,overflowWrap:"anywhere"}}>{lead.nome}</strong>
+    </div>
+    <PossivelDuplicado lead={lead} acoes={acoes} podeUnir={supervisor}/>
+
+    <label style={rot}>Etapa do funil</label>
+    <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):""} aria-label="Etapa do funil"
+      onChange={e=>{const alvo=etapas.find(x=>String(x.id||x.name)===e.target.value); if(alvo) mudarEtapa(lead.id,alvo.name,alvo.id?{stage_id:alvo.id}:undefined);}} style={sel}>
+      {!etapaAtual&&<option value="">{lead.status||"—"}</option>}
+      {etapas.map(x=><option key={x.id||x.name} value={x.id||x.name}>{x.name}</option>)}
+    </select>
+    <SugestaoDaConversa lead={lead} acoes={acoes} isMobile={isMobile}/>
+
+    {robo&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",gap:20,borderBottom:"1px solid #eef2e8",fontSize:11.5,color:C.ink}}>
+      <span>Autoatendimento IA</span>
+      <button onClick={alternarRobo} disabled={roboOcupado} aria-label="Alternar IA" aria-pressed={!!robo.ligado}
+        style={{width:34,height:19,display:"inline-flex",alignItems:"center",padding:3,background:robo.ligado?"#209158":"#cfd7cb",borderRadius:12,border:"none",cursor:"pointer",flexShrink:0,justifyContent:robo.ligado?"flex-end":"flex-start"}}>
+        <span style={{width:13,height:13,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.15)"}}/></button>
+    </div>}
+
+    <div style={{height:20}}/>
+    <button onClick={()=>setResumoAberto(v=>!v)} style={tiny}>{resumoAberto?"Fechar resumo":"Resumo da conversa"}</button>
+    {resumoAberto&&<div style={{marginTop:10}}><ResumoIA lead={lead} acoes={acoes} isMobile={isMobile}/></div>}
+
+    <label style={rot}>Responsável</label>
+    <select value={lead.assignedTo||""} disabled={!podeTrocar||movendo} onChange={e=>trocarDono(e.target.value)} style={{...sel,opacity:podeTrocar?1:.8}}>
+      {!lead.assignedTo&&<option value="">Na fila, sem responsável</option>}
+      {lead.assignedTo&&!(opcoesDono||[]).some(o=>o.id===lead.assignedTo)&&<option value={lead.assignedTo}>{lead.assignedName||"—"}</option>}
+      {(opcoesDono||[]).map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+    </select>
+    {erroDono&&<div style={{color:C.hot,fontSize:10.5}}>{erroDono}</div>}
+
+    <label style={rot}>Imóvel de interesse</label>
+    <p style={{fontSize:11.5,marginTop:8,color:lead.produto?C.ink:C.faint,marginBottom:0}}>{lead.produto?lead.produto.titulo:"Nenhum escolhido"}</p>
+
+    <label style={rot}>Perfil de busca</label>
+    <p style={{fontSize:10.5,marginTop:8,color:"#6c825f",marginBottom:0,lineHeight:1.6}}>
+      {perfil||faixa?<React.Fragment>{perfil}{perfil&&faixa?<br/>:null}{faixa}</React.Fragment>:<span style={{color:C.faint}}>Não preenchido</span>}</p>
+
+    <label style={rot}>Tarefas e próximo passo</label>
+    {abertas.length>0&&<p style={{fontSize:10.5,marginTop:8,color:abertas[0].quando<Date.now()?C.hot:C.sub,marginBottom:0}}>{abertas[0].titulo} · {fmtTarefa(abertas[0].quando)}{abertas.length>1?` · +${abertas.length-1}`:""}</p>}
+    <div style={{height:abertas.length?10:20}}/>
+    <button onClick={()=>setTarefa({tipo:"",n:Date.now()})} style={tiny}>+ Marcar tarefa</button>
+    {tarefa&&<div style={{marginTop:10}}><TarefasDoLead lead={lead} acoes={acoes} isMobile={isMobile} abrirCom={tarefa}/></div>}
+
+    <div style={{height:20}}/>
+    <button onClick={()=>setCompleta(true)} style={tinyPrim}>Ficha completa <Icon n="chevron" size={12}/></button>
+
+    {completa&&<PopupLead leadId={lead.id} leads={[lead]} acoes={acoes} isMobile={isMobile} session={session}
+      abrirConversa={()=>{}} aoFechar={()=>setCompleta(false)} minhaLinha={minhaLinha}/>}
   </div>;
 }
 
