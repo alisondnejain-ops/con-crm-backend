@@ -11987,135 +11987,225 @@ function ConversaSoLeitura({lead,isMobile}){
 // A ordem dos prints do Ali (25/11/2026). "Dados" entrou na aba Lead; nome, e-mail e telefone ficam na coluna da esquerda.
 const ABAS_FICHA=[["lead","Lead"],["imoveis","Imóveis"],["historico","Histórico"],["whatsapp","WhatsApp"],["perfil","Perfil de busca"]];
 function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,session}){
+  /* A FICHA DO LEAD IGUAL AO PROTÓTIPO CETRO (27/11/2026, pedido do Ali:
+     "exatamente igual"). Só o desenho mudou: cada campo continua ligado à
+     mesma função de antes (repasse, etapa, temperatura, observações,
+     tarefas, anexos, venda). Estrutura do protótipo: à esquerda o resumo
+     (iniciais, nome, contato, temperatura, Responsável + Transferir lead,
+     Funil, Etapa, Em negociação, Vendi / Não vendi); à direita as abas
+     Lead · Dados · Imóveis · Perfil de busca · Histórico · WhatsApp. */
   const alturaBarra=usarAlturaDaBarra();
   const l=leads.find(x=>x.id===leadId);
   const [aba,setAba]=useState("lead");
   const [simulando,setSimulando]=useState(false);
-  const [transferindo,setTransferindo]=useState(false);
   const [perdendo,setPerdendo]=useState(false);
+  const [donoSel,setDonoSel]=useState("");
+  const [opcoesDono,setOpcoesDono]=useState(null);
+  const [transferindo,setTransferindo]=useState(false);
+  const [erroDono,setErroDono]=useState("");
+  const [nota,setNota]=useState("");
+  const [tarefasAbertas,setTarefasAbertas]=useState(null); // {tipo,n}
+  const [anexosAbertos,setAnexosAbertos]=useState(false);
+  const [editandoValor,setEditandoValor]=useState(false);
   const {pipelines}=usarPipelines(acoes,session);
   const etapas=usarEtapasDoLead(l||null,acoes,session);
-  useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); setAba("lead"); setSimulando(false); setTransferindo(false); setPerdendo(false); },[leadId]);
+  const obs=usarObservacoes({lead:l||{id:null},acoes});
+  const supervisor=podeSupervisionar(session);
+  const podeRepassarProprio=!!l&&temPerm(session,"repassar_leads")&&l.assignedTo===session.id;
+  useEffect(()=>{ if(leadId) acoes.abrir(leadId,true); setAba("lead"); setSimulando(false); setPerdendo(false);
+    setDonoSel(""); setErroDono(""); setNota(""); setTarefasAbertas(null); setAnexosAbertos(false); setEditandoValor(false); },[leadId]);
+  // Quem pode ir no "Responsável": a equipe (supervisão) ou os colegas disponíveis da vez (corretor com a permissão).
+  useEffect(()=>{ let vivo=true; setOpcoesDono(null);
+    if(supervisor) acoes.equipe().then(r=>vivo&&setOpcoesDono((r.users||r||[]).filter(u=>u.status==="ativo"&&!u.master).map(u=>({id:u.id,name:u.name})))).catch(()=>vivo&&setOpcoesDono([]));
+    else if(podeRepassarProprio) acoes.rodizio(leadId).then(r=>vivo&&setOpcoesDono(((r&&r.fila)||[]).filter(p=>p.disponivel&&p.id!==session.id).map(p=>({id:p.id,name:p.name})))).catch(()=>vivo&&setOpcoesDono([]));
+    return()=>{vivo=false;}; },[leadId,supervisor,podeRepassarProprio]);
   if(!l) return null;
 
-  /* O LAYOUT DE DUAS COLUNAS (25/11/2026, pedido do Ali com prints): à
-     esquerda, fixo, quem é o lead, com quem está, temperatura, valor, o funil
-     com a etapa e a origem; à direita, as abas. No celular a coluna da
-     esquerda vem em cima e tudo rola junto. */
   const pipe=pipelines.find(p=>p.id===l.pipelineId);
   const etapaAtual=etapas.find(s=>(l.stageId&&s.id===l.stageId)||s.name===l.status);
   const etapaPerda=etapas.find(s=>s.status_type==="perdido");
-  const podeTransferir=podeSupervisionar(session)||(temPerm(session,"repassar_leads")&&l.assignedTo===session.id);
-  const titulo=(t,extra)=><div style={{display:"flex",alignItems:"center",marginBottom:6}}>
-    <span style={{flex:1,color:C.ink,fontSize:12.5,fontWeight:700}}>{t}</span>{extra}</div>;
-  const caixa=(rot,v)=><div style={{marginBottom:8}}>
-    <div style={{color:C.sub,fontSize:11,fontWeight:600,marginBottom:3}}>{rot}</div>
-    <div style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:10,padding:"8px 10px",color:v?C.ink:C.faint,fontSize:12,overflowWrap:"anywhere",boxShadow:SOMBRA}}>{v||"—"}</div></div>;
+  const podeTransferir=supervisor||podeRepassarProprio;
   const doAnuncio=l.fonte==="meta";
   const plat=l.plataforma?(NOME_PLATAFORMA[String(l.plataforma).toLowerCase()]||l.plataforma):null;
   const canal=doAnuncio?`Anúncio${plat?` · ${plat}`:""}`:(l.fonte==="portal"?"Portal":l.origem||"WhatsApp");
-  const passo=Math.min(4,36/Math.max(1,etapas.length));
+  const final4=String(l.tel||"").replace(/\D/g,"").slice(-4);
+  const temp=l.prio?prioDe(l.prio):null;
 
-  /* O DESENHO DO PROTÓTIPO CETRO (27/11/2026, pedido do Ali: "a ficha do
-     exemplo está muito mais bonita"): só aparência. À esquerda, um cartão
-     verde-claro com as iniciais, quem é o lead e os campos com rótulo
-     pequeno; Vendi/Não vendi no pé dele. Todas as funções continuam. */
-  const rotuloP=(t)=><div style={{color:C.sub,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.6,margin:"14px 0 7px"}}>{t}</div>;
-  const etapaKey=etapaAtual?(etapaAtual.id||etapaAtual.name):"";
-  const esquerda=<div style={{padding:isMobile?"14px 15px 4px":"20px 0 20px 22px"}}>
-    <div style={{background:"#F5F8F1",border:`1px solid ${C.line}`,borderRadius:16,padding:isMobile?"16px 15px":"20px 18px"}}>
-      <div style={{width:44,height:44,borderRadius:999,background:C.greenSoft,color:C.greenDeep,display:"flex",alignItems:"center",justifyContent:"center",
-        fontSize:13,fontWeight:800,marginBottom:12}}>{initials(l.nome||"?")}</div>
-      <NomeDoLead lead={l} acoes={acoes}/>
-      {ocultar?<div style={{color:C.faint,fontSize:12,marginBottom:6}}>Telefone e e-mail escondidos (o olho do Funil está fechado).</div>
-        :<React.Fragment><EmailDoLead lead={l} acoes={acoes}/><div style={{marginTop:6}}><TelefoneDoLead lead={l} acoes={acoes}/></div></React.Fragment>}
+  // Peças com a medida do protótipo (rótulos 10px, campos 11px, botões "tiny"), nos cantos do CETRO.
+  const rot={display:"block",fontSize:10,fontWeight:600,color:"#718068",marginBottom:7};
+  const rotCaixa={display:"block",fontSize:10,fontWeight:600,color:"#718068",letterSpacing:.4,marginBottom:7};
+  const campo={width:"100%",boxSizing:"border-box",border:"1px solid #dce5d4",borderRadius:10,background:"#f8faf5",color:"#314f32",padding:11,fontSize:isMobile?16:11.5,minWidth:0};
+  // Caixa de seleção com a setinha, como no protótipo.
+  const seta=`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23314f32' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`;
+  const sel={...campo,appearance:"none",WebkitAppearance:"none",backgroundImage:seta,backgroundRepeat:"no-repeat",backgroundPosition:"right 12px center",paddingRight:32,cursor:"pointer"};
+  const tiny={padding:"6px 10px",fontSize:10.5,fontWeight:700,borderRadius:10,background:"#fff",border:"1px solid #dce5dc",color:"#3c5b48",cursor:"pointer",whiteSpace:"nowrap"};
+  const tinyPrim={...tiny,background:"linear-gradient(135deg,#109c66,#087b4f)",color:"#fff",border:"1px solid #1fb273"};
+  const regra=(titulo,sub,botao)=><div style={{border:"1px solid #e1e8d6",borderRadius:12,padding:15,display:"flex",justifyContent:"space-between",alignItems:"center",gap:15,marginBottom:10}}>
+    <div style={{minWidth:0}}><div style={{fontFamily:DISPLAY,fontSize:14,fontWeight:700,color:C.ink}}>{titulo}</div>
+      <div style={{fontSize:10.5,color:"#7f9075",marginTop:2}}>{sub}</div></div>{botao}</div>;
+  const caixaLeitura=(r,v,cheia)=><div style={{marginBottom:12,gridColumn:cheia?"1/-1":undefined}}>
+    <label style={rot}>{r}</label><div style={{...campo,color:v?"#314f32":C.faint,overflowWrap:"anywhere"}}>{v||"—"}</div></div>;
 
-      {rotuloP("Temperatura")}
-      <TemperaturaDoLead lead={l} acoes={acoes}/>
+  async function transferir(){
+    if(!donoSel) return setErroDono("Escolha para quem.");
+    setTransferindo(true); setErroDono("");
+    // Chamada direta: a recusa do servidor (pessoa indisponível…) aparece aqui, na ficha, e não atrás dela.
+    try{ await api(supervisor?"/distribution/transfer":"/distribution/handoff",{method:"POST",body:{lead_id:l.id,user_id:donoSel}});
+      await acoes.abrir(l.id,true); setDonoSel(""); }
+    catch(e){ setErroDono(e.message||"Não consegui transferir."); } finally{ setTransferindo(false); }
+  }
+  async function salvarNota(){ if(await obs.anotar(nota)) setNota(""); }
+  function mudarFunil(pid){
+    const destino=pipelines.find(p=>p.id===pid); if(!destino||destino.id===l.pipelineId) return;
+    const primeira=(destino.stages||[]).filter(e=>e.is_active!==0&&e.is_active!==false)[0]||(destino.stages||[])[0];
+    if(primeira) acoes.mudarEtapa(l.id,primeira.name,{stage_id:primeira.id});
+  }
 
-      {rotuloP("Responsável")}
-      <div style={{display:"flex",alignItems:"center",gap:10,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px"}}>
-        <Avatar ini={l.assignedName?initials(l.assignedName):"—"} color={l.assignedTo?C.greenMid:C.amber} size={28}/>
-        <div style={{minWidth:0,flex:1}}>
-          <div style={{color:C.ink,fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            {l.assignedTo&&l.assignedTo===session.id?"Você":l.assignedName||"Na fila, sem responsável"}</div>
-          {l.assignedTo&&l.assignedAt&&<div style={{color:C.faint,fontSize:11}}>Desde {fmtData(l.assignedAt)}</div>}
-        </div>
-      </div>
-      {podeTransferir&&!transferindo&&<button onClick={()=>setTransferindo(true)}
-        style={{marginTop:9,background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 13px",fontSize:12,fontWeight:700,
-          cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}>
-        <Icon n="transfer" size={13}/> Transferir lead</button>}
-      {podeTransferir&&transferindo&&<div style={{marginTop:10,marginBottom:-14}}><RepasseDoCorretor lead={l} acoes={acoes} session={session}/></div>}
+  // As tarefas, para as três linhas da aba Lead.
+  const lista=l.listaTarefas||[];
+  const agora=Date.now();
+  const cad=lista.filter(t=>t.da_cadencia);
+  const cadPend=cad.filter(t=>!t.feito_em), cadVenc=cadPend.filter(t=>t.quando<agora), cadFeitas=cad.filter(t=>t.feito_em);
+  const comuns=lista.filter(t=>!t.da_cadencia&&!t.tipo&&!t.feito_em).sort((a,b)=>a.quando-b.quando);
+  const encontros=lista.filter(t=>!t.da_cadencia&&t.tipo&&!t.feito_em).sort((a,b)=>a.quando-b.quando);
 
-      {rotuloP("Funil")}
-      <div style={{color:C.ink,fontSize:13,fontWeight:600,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px"}}>{pipe?pipe.name:"—"}</div>
-      <MoverParaOutroFunil lead={l} acoes={acoes} session={session}/>
+  const resumo=<aside style={{background:"#f5f8ef",border:"1px solid #e1e9d7",borderRadius:14,padding:17,height:"fit-content"}}>
+    <span style={{width:42,height:42,display:"inline-flex",alignItems:"center",justifyContent:"center",background:"#e8f3ea",color:"#17704a",borderRadius:"50%",fontSize:11,fontWeight:800}}>{initials(l.nome||"?")}</span>
+    <h3 style={{fontFamily:DISPLAY,fontSize:17,margin:"10px 0 0",color:C.ink,overflowWrap:"anywhere"}}>{l.nome}</h3>
+    <p style={{fontSize:10,color:"#8a977e",margin:"7px 0 17px"}}>Contato · {ocultar?"••••":`•••• ${final4||"—"}`}</p>
+    {temp?<span style={{display:"inline-flex",padding:"5px 8px",borderRadius:8,fontSize:9.5,background:"#f4eddd",color:"#9a803d",fontWeight:600}}>{temp.label}</span>
+      :<span style={{display:"inline-flex",padding:"5px 8px",borderRadius:8,fontSize:9.5,background:"#eef1ec",color:C.faint,fontWeight:600}}>Sem temperatura</span>}
 
-      {rotuloP("Etapa")}
-      <select value={etapaKey} onChange={e=>{const alvo=etapas.find(x=>(x.id||x.name)===e.target.value); if(alvo) acoes.mudarEtapa(l.id,alvo.name,alvo.id?{stage_id:alvo.id}:undefined);}}
-        aria-label="Etapa do lead"
-        style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,color:C.ink,background:C.card,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 10px",cursor:"pointer"}}>
+    <div style={{marginTop:15}}>
+      <label style={rotCaixa}>RESPONSÁVEL</label>
+      <select value={donoSel||l.assignedTo||""} disabled={!podeTransferir} onChange={e=>setDonoSel(e.target.value===l.assignedTo?"":e.target.value)} style={sel}>
+        {!l.assignedTo&&<option value="">Na fila, sem responsável</option>}
+        {l.assignedTo&&!(opcoesDono||[]).some(o=>o.id===l.assignedTo)&&<option value={l.assignedTo}>{l.assignedName||"—"}</option>}
+        {(opcoesDono||[]).map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>
+    </div>
+    {podeTransferir&&<button onClick={transferir} disabled={transferindo} style={{...tiny,marginTop:10}}>{transferindo?"Transferindo…":"Transferir lead"}</button>}
+    {erroDono&&<div style={{color:C.hot,fontSize:10.5,marginTop:6}}>{erroDono}</div>}
+
+    <div style={{marginTop:15}}>
+      <label style={rotCaixa}>FUNIL</label>
+      <select value={l.pipelineId||""} onChange={e=>mudarFunil(e.target.value)} style={sel}>
+        {!pipe&&<option value="">—</option>}
+        {pipelines.filter(p=>p.is_active!==0&&p.is_active!==false||p.id===l.pipelineId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>
+    <div style={{marginTop:15}}>
+      <label style={rotCaixa}>ETAPA</label>
+      <select value={etapaAtual?(etapaAtual.id||etapaAtual.name):""} aria-label="Etapa do lead"
+        onChange={e=>{const alvo=etapas.find(x=>(x.id||x.name)===e.target.value); if(alvo) acoes.mudarEtapa(l.id,alvo.name,alvo.id?{stage_id:alvo.id}:undefined);}} style={sel}>
         {!etapaAtual&&<option value="">{l.status||"—"}</option>}
         {etapas.map(e=><option key={e.id||e.name} value={e.id||e.name}>{e.name}</option>)}
       </select>
-
-      {!lead_semImovel()&&<div style={{marginTop:14}}><QualificacaoValorNegociacao lead={l} acoes={acoes}/></div>}
-
-      {!l.venda&&<div style={{display:"flex",gap:7,marginTop:14,flexWrap:"wrap"}}>
-        <button onClick={()=>{setAba("imoveis");setSimulando(false);setPerdendo(false);}}
-          style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer",boxShadow:SOMBRA}}>Vendi</button>
-        {etapaPerda&&!(etapaAtual&&etapaAtual.id===etapaPerda.id)&&<button onClick={()=>setPerdendo(true)}
-          style={{background:C.card,color:C.ink,border:`1px solid ${C.line}`,borderRadius:10,padding:"8px 16px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Não vendi</button>}
-      </div>}
     </div>
 
-    <div style={{padding:"16px 4px 0"}}>
-      <div style={{color:C.sub,fontSize:10.5,fontWeight:700,textTransform:"uppercase",letterSpacing:.6,marginBottom:8}}>Origem do lead</div>
-      {[["Canal",canal],["Campanha",l.campanha],["Mídia",l.anuncio||l.formulario],["Criado em",l.createdAt?fmtData(l.createdAt):null],["Entrada na etapa",l.etapaDesde?fmtData(l.etapaDesde):null]]
-        .map(([r,v])=><div key={r} style={{display:"flex",gap:10,fontSize:12,padding:"5px 0",borderBottom:`1px solid ${C.line}`}}>
-          <span style={{color:C.faint,width:110,flexShrink:0}}>{r}</span>
-          <span style={{color:v?C.ink:C.faint,minWidth:0,overflowWrap:"anywhere"}}>{v||"—"}</span></div>)}
-    </div>
-  </div>;
+    {!lead_semImovel()&&!l.venda&&<React.Fragment>
+      <p style={{fontSize:10,color:"#849278",margin:"15px 0 0"}}>Em negociação</p>
+      {editandoValor
+        ?<div style={{marginTop:6}}><QualificacaoValorNegociacao lead={l} acoes={acoes}/>
+          <button onClick={()=>setEditandoValor(false)} style={{...tiny,marginTop:-4}}>Fechar</button></div>
+        :<button onClick={()=>setEditandoValor(true)} title="Editar o valor em negociação"
+          style={{display:"block",background:"transparent",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:DISPLAY,fontSize:21,fontWeight:800,color:C.ink,margin:"7px 0"}}>
+          {l.negociacao?fmtMoeda(l.negociacao):"—"}</button>}
+    </React.Fragment>}
+    {l.venda&&<p style={{fontSize:11,color:C.greenDeep,fontWeight:700,margin:"15px 0 0"}}>Venda registrada</p>}
 
-  const abasBarra=<div style={{display:"flex",alignItems:"center",gap:8,borderBottom:`1px solid ${C.line}`,padding:isMobile?"0 10px":"0 4px",margin:isMobile?0:"0 22px",flexShrink:0,flexWrap:"wrap"}}>
-    <div role="tablist" style={{display:"flex",gap:isMobile?2:10,flex:1,minWidth:0,flexWrap:"wrap"}}>
-      {ABAS_FICHA.map(([k,t])=><button key={k} role="tab" aria-selected={aba===k} onClick={()=>{setAba(k);setSimulando(false);}}
-        style={{border:"none",background:"transparent",padding:isMobile?"11px 9px":"14px 12px",cursor:"pointer",whiteSpace:"nowrap",
-          fontSize:13,fontWeight:aba===k?700:500,color:aba===k?C.greenDeep:C.sub,
-          borderBottom:`2px solid ${aba===k?C.green:"transparent"}`,marginBottom:-1}}>{t}</button>)}
-    </div>
-  </div>;
-
-  const conteudo=<div style={{padding:isMobile?"12px 15px":"18px 22px"}}>
-    {perdendo&&etapaPerda&&<div style={{background:C.hotSoft,border:`1px solid ${C.hot}44`,borderRadius:11,padding:"10px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-      <span style={{flex:1,minWidth:160,color:C.ink,fontSize:12.5}}>Mover este lead para <b>{etapaPerda.name}</b>?</span>
-      <button onClick={async()=>{setPerdendo(false);await acoes.mudarEtapa(l.id,etapaPerda.name,{stage_id:etapaPerda.id});}}
-        style={{background:C.hot,color:"#fff",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Confirmar</button>
-      <button onClick={()=>setPerdendo(false)} style={{background:"transparent",border:"none",color:C.sub,fontSize:12,cursor:"pointer"}}>cancelar</button>
+    {!l.venda&&<div style={{display:"flex",gap:9,flexWrap:"wrap",marginTop:8}}>
+      <button onClick={()=>{setAba("imoveis");setSimulando(false);setPerdendo(false);}} style={tinyPrim}>Vendi</button>
+      {etapaPerda&&!(etapaAtual&&etapaAtual.id===etapaPerda.id)&&<button onClick={()=>setPerdendo(true)} style={tiny}>Não vendi</button>}
     </div>}
-    {!l.carregado&&<div style={{color:C.faint,fontSize:12.5,padding:"10px 0",display:"flex",alignItems:"center",gap:7}}>
-      <Icon n="loader" size={14} spin/> Buscando o lead…</div>}
+    {perdendo&&etapaPerda&&<div style={{marginTop:10,background:"#fff",border:`1px solid ${C.line}`,borderRadius:10,padding:10}}>
+      <div style={{fontSize:11.5,color:C.ink,marginBottom:8}}>Mover para <b>{etapaPerda.name}</b>?</div>
+      <div style={{display:"flex",gap:7}}>
+        <button onClick={async()=>{setPerdendo(false);await acoes.mudarEtapa(l.id,etapaPerda.name,{stage_id:etapaPerda.id});}} style={tinyPrim}>Confirmar</button>
+        <button onClick={()=>setPerdendo(false)} style={tiny}>Cancelar</button>
+      </div></div>}
+  </aside>;
+
+  const ABAS=[["lead","Lead"],["dados","Dados"],["imoveis","Imóveis"],["perfil","Perfil de busca"],["historico","Histórico"],["whatsapp","WhatsApp"]];
+  const abas=<div role="tablist" style={{display:"flex",gap:4,borderBottom:`1px solid ${C.line}`,margin:"-7px -5px 23px",overflowX:"auto",flexShrink:0}}>
+    {ABAS.map(([k,t])=><button key={k} role="tab" aria-selected={aba===k} onClick={()=>{setAba(k);setSimulando(false);}}
+      style={{padding:"12px 16px",background:"transparent",border:"none",borderBottom:`2px solid ${aba===k?"#218252":"transparent"}`,
+        color:aba===k?"#155d3b":"#7c8b7d",fontSize:11.5,fontWeight:aba===k?700:400,whiteSpace:"nowrap",cursor:"pointer"}}>{t}</button>)}
+  </div>;
+
+  const grade={display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"0 18px"};
+  const conteudo=<div>
+    {!l.carregado&&<div style={{color:C.faint,fontSize:12,padding:"0 0 12px",display:"flex",alignItems:"center",gap:7}}><Icon n="loader" size={14} spin/> Buscando o lead…</div>}
+
     {aba==="lead"&&<React.Fragment>
-      <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
-      <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
-      <Observacoes lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
-      <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:"12px 12px 0",marginBottom:12}}>
-        <AnexosDoLead lead={l} acoes={acoes} session={session}/>
-        <TagsDoLead lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
+      <div style={grade}>
+        <div style={{marginBottom:12}}>
+          <label style={rot}>Etiquetas</label>
+          <div style={{...campo,padding:"7px 11px 0"}}><TagsDoLead lead={l} acoes={acoes} session={session} isMobile={isMobile}/></div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={rot}>Temperatura</label>
+          <select value={l.prio||""} onChange={e=>acoes.mudarTemperatura(l.id,e.target.value||null)} style={sel}>
+            <option value="">Sem temperatura</option><option value="FRIO">Frio</option><option value="MORNO">Morno</option><option value="QUENTE">Quente</option>
+          </select>
+        </div>
+        <div style={{marginBottom:12,gridColumn:"1/-1"}}>
+          <label style={rot}>Anotações gerais</label>
+          <textarea value={nota} onChange={e=>setNota(e.target.value)} placeholder="Escreva uma anotação sobre este lead…"
+            style={{...campo,minHeight:85,resize:"vertical",fontFamily:"inherit"}}/>
+          {obs.lista.length>0&&<div style={{display:"flex",flexDirection:"column",gap:5,marginTop:8}}>
+            {obs.lista.slice(0,5).map(o=><div key={o.id} style={{background:"#f8faf5",border:"1px solid #e8eee1",borderRadius:10,padding:"7px 10px"}}>
+              <div style={{fontSize:11.5,color:C.ink,whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{o.texto}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:10,color:C.faint,marginTop:3}}>
+                <span style={{flex:1}}>{o.autor?first(o.autor)+" · ":""}{fmtQuando(o.created_at)}</span>
+                {(o.autor_id===session.id||supervisor)&&<button onClick={()=>obs.apagar(o.id)} style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:12,padding:0}}>×</button>}
+              </div></div>)}
+            {obs.lista.length>5&&<div style={{fontSize:10.5,color:C.faint}}>e mais {obs.lista.length-5} anotação(ões) no Histórico.</div>}
+          </div>}
+          {obs.erro&&<div style={{color:C.hot,fontSize:10.5,marginTop:5}}>{obs.erro}</div>}
+        </div>
+      </div>
+
+      {regra("Tarefas workflow",cad.length?`${cadPend.length} pendente(s) · ${cadVenc.length} vencida(s) · ${cadFeitas.length} concluída(s)`:"Nenhuma tarefa da cadência desta etapa",
+        <button onClick={()=>setTarefasAbertas(x=>x&&!x.n?null:{tipo:"",n:0})} style={tiny}>Ver tarefas</button>)}
+      {regra("Tarefas agendadas",comuns.length?`${comuns[0].titulo} · ${fmtTarefa(comuns[0].quando)}${comuns.length>1?` · +${comuns.length-1}`:""}`:"Nenhuma tarefa marcada",
+        <button onClick={()=>setTarefasAbertas({tipo:"",n:Date.now()})} style={tiny}>+ Nova tarefa</button>)}
+      {regra("Visitas e videochamadas",encontros.length?`${encontros[0].titulo} · ${fmtTarefa(encontros[0].quando)}${encontros.length>1?` · +${encontros.length-1}`:""}`:"Próximos encontros com data, imóvel e responsável",
+        <button onClick={()=>setTarefasAbertas({tipo:"visita",n:Date.now()})} style={tiny}>+ Nova visita</button>)}
+      {tarefasAbertas&&<div style={{marginBottom:10}}><TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile} abrirCom={tarefasAbertas}/></div>}
+
+      {anexosAbertos&&<div style={{border:"1px solid #e1e8d6",borderRadius:12,padding:"12px 12px 0",marginBottom:10}}><AnexosDoLead lead={l} acoes={acoes} session={session}/></div>}
+      <div style={{height:20}}/>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={()=>setAnexosAbertos(v=>!v)} style={tiny}>{anexosAbertos?"Fechar anexos":"Adicionar anexo"}</button>
+        <button onClick={salvarNota} disabled={!nota.trim()||obs.salvando} style={{...tinyPrim,opacity:nota.trim()?1:.55}}>{obs.salvando?"Salvando…":"Salvar anotação"}</button>
+      </div>
+    </React.Fragment>}
+
+    {aba==="dados"&&<React.Fragment>
+      <div style={grade}>
+        <div style={{marginBottom:12}}><label style={rot}>Nome completo</label><div style={{...campo,padding:"6px 11px"}}><NomeDoLead lead={l} acoes={acoes}/></div></div>
+        <div style={{marginBottom:12}}><label style={rot}>Telefone</label><div style={{...campo,padding:"8px 11px"}}>{ocultar?"Escondido (o olho do Funil está fechado)":<TelefoneDoLead lead={l} acoes={acoes}/>}</div></div>
+        <div style={{marginBottom:12}}><label style={rot}>E-mail</label><div style={{...campo,padding:"8px 11px"}}>{ocultar?"Escondido":<EmailDoLead lead={l} acoes={acoes}/>}</div></div>
+        {caixaLeitura("Canal de aquisição",canal)}
+        {caixaLeitura("Campanha",l.campanha)}
+        {caixaLeitura("Conjunto de anúncios",l.conjunto)}
+        {caixaLeitura("Anúncio / criativo",l.anuncio)}
+        {caixaLeitura("Formulário",l.formulario)}
+        {caixaLeitura("Criado em",l.createdAt?fmtData(l.createdAt):null)}
+        {caixaLeitura("Entrada na etapa",l.etapaDesde?fmtData(l.etapaDesde):null)}
       </div>
       {!contaInterna()&&<FichaDoCliente lead={l} acoes={acoes} secoes={["Dados pessoais"]} titulo="Dados pessoais" todasAbertas/>}
       <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
         <CamposPersonalizadosDoLead lead={l} acoes={acoes} session={session}/>
       </div>
     </React.Fragment>}
+
     {aba==="imoveis"&&(simulando
       ?<Simulacao lead={l} acoes={acoes} isMobile={isMobile} aoFechar={()=>setSimulando(false)}/>
       :<React.Fragment>
-        <div style={{border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:12}}>
+        <div style={{border:"1px solid #e1e8d6",borderRadius:12,padding:15,marginBottom:12}}>
           <ImovelDeInteresse lead={l} acoes={acoes}/>
-          {/* Os imóveis enviados ao cliente, pelo registro da conversa. */}
           {(()=>{const env=(l.msgs||[]).filter(m=>/^\[Imóvel enviado\]/.test(m.text||""));
             return env.length?<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:3}}>
               <div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>Enviados na conversa</div>
@@ -12125,43 +12215,39 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
         <ImoveisEPropostas lead={l} acoes={acoes} isMobile={isMobile}/>
         <SimulacaoEVenda lead={l} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
       </React.Fragment>)}
-    {aba==="historico"&&<LinhaDoTempo lead={l} acoes={acoes} isMobile={isMobile} abertaDeInicio/>}
-    {aba==="whatsapp"&&<ConversaSoLeitura lead={l} isMobile={isMobile}/>}
+
     {aba==="perfil"&&(contaInterna()
       ?<div style={{color:C.faint,fontSize:12}}>Esta conta não usa o perfil de busca de imóvel.</div>
       :<FichaDoCliente lead={l} acoes={acoes} titulo="Perfil de busca" todasAbertas
         secoes={["Interesse","Motivação","Imóvel desejado","Capacidade de investimento","Prazo"]}/>)}
+
+    {aba==="historico"&&<LinhaDoTempo lead={l} acoes={acoes} isMobile={isMobile} abertaDeInicio/>}
+
+    {aba==="whatsapp"&&<React.Fragment>
+      <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
+      <ConversaSoLeitura lead={l} isMobile={isMobile}/>
+      <div style={{height:20}}/>
+      <button onClick={()=>{aoFechar();abrirConversa(l.id);}}
+        style={{padding:"10px 15px",borderRadius:10,fontSize:11.5,fontWeight:700,cursor:"pointer",background:"linear-gradient(135deg,#109c66,#087b4f)",color:"#fff",border:"1px solid #1fb273",display:"inline-flex",alignItems:"center",gap:7}}>
+        <Icon n="whatsapp" size={14}/> Continuar conversa no atendimento</button>
+    </React.Fragment>}
   </div>;
 
-  /* `maxHeight:100%` em vez de 90vh: a caixa de fora JÁ tem a altura certa da
-     tela (classe `tela-cheia`). A folha para ACIMA da barra de navegação do
-     celular, para o botão do WhatsApp não ficar por baixo dela. */
-  return <div onClick={aoFechar} className="tela-cheia" style={{zIndex:70,background:"rgba(10,20,16,.5)",
+  return <div onClick={aoFechar} className="tela-cheia" style={{zIndex:70,background:"rgba(6,27,21,.65)",backdropFilter:"blur(5px)",
     display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",
-    padding:isMobile?0:20,paddingBottom:isMobile?alturaBarra:20}}>
-    <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:isMobile?"16px 16px 0 0":16,overflow:"hidden",
-      width:"100%",maxWidth:1180,maxHeight:"100%",height:isMobile?"100%":"min(880px,100%)",display:"flex",flexDirection:"column",minHeight:0}}>
-
-      <div style={{padding:isMobile?"12px 15px":"16px 22px",display:"flex",alignItems:"center",gap:10,flexShrink:0,borderBottom:`1px solid ${C.line}`,background:C.card}}>
-        <div style={{flex:1,color:C.ink,fontFamily:DISPLAY,fontSize:isMobile?16:18,fontWeight:700,letterSpacing:-.2}}>Ficha do lead</div>
-        <button onClick={()=>{aoFechar();abrirConversa(l.id);}}
-          style={{background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"7px 12px",
-            fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          <Icon n="whatsapp" size={15}/>{isMobile?"Conversa":"Abrir a conversa"}</button>
-        <button onClick={aoFechar} aria-label="Fechar" style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,
-          width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>
+    padding:isMobile?0:"5vh 4vw",paddingBottom:isMobile?alturaBarra:"5vh"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",border:"1px solid #dae5d1",borderRadius:isMobile?"16px 16px 0 0":16,overflow:"hidden",
+      width:isMobile?"100%":"min(1190px,96vw)",maxHeight:isMobile?"100%":"90vh",height:isMobile?"100%":undefined,display:"flex",flexDirection:"column",minHeight:0,boxShadow:"0 25px 100px rgba(0,0,0,.25)"}}>
+      <div style={{padding:isMobile?17:"21px 26px",borderBottom:"1px solid #e6ecdf",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <h2 style={{flex:1,margin:0,fontFamily:DISPLAY,fontSize:17,letterSpacing:-.4,color:C.ink}}>Ficha do lead</h2>
+        <button onClick={aoFechar} aria-label="Fechar" style={{width:44,height:44,borderRadius:12,border:`1px solid ${C.line}`,background:"#fff",color:C.sub,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon n="x" size={17}/></button>
       </div>
-
-      {isMobile
-        ?<div style={{flex:1,overflowY:"auto",minHeight:0}}>{esquerda}{abasBarra}{conteudo}</div>
-        :<div style={{flex:1,display:"flex",minHeight:0}}>
-          <div style={{width:400,flexShrink:0,overflowY:"auto",background:C.card}}>{esquerda}</div>
-          <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",minHeight:0}}>
-            {abasBarra}
-            <div style={{flex:1,overflowY:"auto",minHeight:0}}>{conteudo}</div>
-          </div>
-        </div>}
-
+      <div style={{padding:isMobile?"20px 16px":"24px 26px",overflowY:"auto",minHeight:0,flex:1}}>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"235px 1fr",gap:26,alignItems:"start"}}>
+          {resumo}
+          <div style={{minWidth:0}}>{abas}{conteudo}</div>
+        </div>
+      </div>
     </div>
   </div>;
 }
@@ -12304,7 +12390,7 @@ function AnexosDoLead({lead,acoes,session}){
 }
 const mimeDoNome=(n)=>({pdf:"application/pdf",doc:"application/msword",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",xls:"application/vnd.ms-excel",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",ppt:"application/vnd.ms-powerpoint",pptx:"application/vnd.openxmlformats-officedocument.presentationml.presentation",odt:"application/vnd.oasis.opendocument.text",ods:"application/vnd.oasis.opendocument.spreadsheet",rtf:"application/rtf",txt:"text/plain",csv:"text/csv",zip:"application/zip",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",heic:"image/heic"})[String(n).split(".").pop().toLowerCase()]||"";
 
-function TarefasDoLead({lead,acoes,isMobile}){
+function TarefasDoLead({lead,acoes,isMobile,abrirCom}){
   const [lista,setLista]=useState(lead.listaTarefas||[]);
   const [titulo,setTitulo]=useState("");
   const [quando,setQuando]=useState("");
@@ -12333,6 +12419,8 @@ function TarefasDoLead({lead,acoes,isMobile}){
     catch(e){ setErro(e.message); } finally{ setOcupado(""); } };
 
   function abrir(t){ setTipo(t); setMeet(t==="videochamada"&&!!(google&&google.configurado)); setAbrindo(true); setErro(""); }
+  // A ficha do Funil abre o formulário pelo botão dela ("+ Nova tarefa" / "+ Nova visita").
+  useEffect(()=>{ if(abrirCom&&abrirCom.n) abrir(abrirCom.tipo||""); },[abrirCom&&abrirCom.n]);
 
   async function criar(){
     const im=(imoveis||[]).find(p=>p.id===produtoId);
