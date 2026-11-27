@@ -146,5 +146,21 @@ assert.equal(r.status, 403);
 r = await api(`/${vendaBruno}/status`, { method: "POST", body: JSON.stringify({ status: "ativo" }) });
 assert.equal(r.status, 200, "a gestão continua mudando qualquer situação");
 
+console.log("10. Venda e aluguel no mesmo imóvel (27/11/2026)");
+const ambos = await cria({ titulo: "Casa que vende e aluga", valor: 400000, valor_aluguel: 2500, captador_id: corretor });
+let p10 = (await api(`/${ambos}`)).body;
+assert.equal(p10.finalidade, "venda");
+assert.equal(p10.valor_aluguel, 2500);
+r = await api("/?finalidade=aluguel");
+const ids = (r.body.produtos || r.body).map(x => x.id);
+assert.ok(ids.includes(ambos), "o filtro Aluguel também traz o imóvel que vende e aluga");
+assert.ok(!ids.includes(vendaGestora), "e não traz o que só vende");
+r = await api(`/${ambos}`, { method: "PATCH", body: JSON.stringify({ titulo: "Casa que vende e aluga" }) });
+assert.equal(r.body.valor_aluguel, 2500, "editar outra coisa não apaga o aluguel");
+r = await apiC(`/${ambos}/status`, { status: "alugado" });
+assert.equal(r.status, 200, "o captador pode marcar como alugado");
+r = await api(`/${ambos}`, { method: "PATCH", body: JSON.stringify({ finalidade: "aluguel" }) });
+assert.equal(r.body.valor_aluguel, null, "virando só aluguel, o segundo valor sai");
+
 console.log("\nTudo certo ✅");
 process.exit(0);

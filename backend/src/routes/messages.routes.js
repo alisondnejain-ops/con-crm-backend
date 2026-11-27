@@ -660,6 +660,7 @@ export function textoDoProduto(p) {
   const garantias = lista(p.garantias).map(x => ROTULO_GARANTIA[x]).filter(Boolean);
   if (garantias.length && p.finalidade === "aluguel") linhas.push(`🔑 Garantias: ${garantias.join(", ")}`);
   if (p.valor) linhas.push(`💰 ${moeda(p.valor)}${p.finalidade === "aluguel" ? "/mês" : ""}`);
+  if (p.finalidade !== "aluguel" && p.valor_aluguel > 0) linhas.push(`🔑 Também para alugar: ${moeda(p.valor_aluguel)}/mês`);
   if (p.condominio) linhas.push(`🏢 Condomínio: ${moeda(p.condominio)}/mês`);
   if (p.tour_url) linhas.push(`🎥 Tour virtual: ${p.tour_url}`);
   /* A descrição do anúncio é o texto escrito para o cliente. As observações

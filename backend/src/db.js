@@ -3072,6 +3072,9 @@ CREATE INDEX IF NOT EXISTS idx_niveis_org ON estrutura_niveis(org_id);`);
   const p = db.prepare("PRAGMA table_info(produtos)").all().map(c => c.name);
   if (!p.includes("publicar_site")) db.exec("ALTER TABLE produtos ADD COLUMN publicar_site INTEGER");
   if (!p.includes("titulo_portal")) db.exec("ALTER TABLE produtos ADD COLUMN titulo_portal TEXT");
+  // Venda e locação no mesmo imóvel (27/11/2026): imóvel de VENDA com valor de
+  // aluguel também é oferecido para alugar. Nulo = só venda, como sempre.
+  if (!p.includes("valor_aluguel")) db.exec("ALTER TABLE produtos ADD COLUMN valor_aluguel REAL");
   const m = db.prepare("PRAGMA table_info(produto_midias)").all().map(c => c.name);
   if (!m.includes("legenda")) db.exec("ALTER TABLE produto_midias ADD COLUMN legenda TEXT");
   if (!m.includes("planta")) db.exec("ALTER TABLE produto_midias ADD COLUMN planta INTEGER");

@@ -112,7 +112,7 @@ export function ligarFichaACatraca(orgId, catracaId, fichaId) {
 function textoDoCatalogo(orgId, produtoId) {
   const p = produtoId && db.prepare("SELECT * FROM produtos WHERE id = ? AND org_id = ?").get(produtoId, orgId);
   if (!p) return "";
-  const l = [`Imóvel do catálogo: ${p.titulo}`, `${p.finalidade === "aluguel" ? "Para alugar" : "À venda"} · ${p.tipo === "terreno" ? "terreno" : "casa"}`];
+  const l = [`Imóvel do catálogo: ${p.titulo}`, `${p.finalidade === "aluguel" ? "Para alugar" : p.valor_aluguel > 0 ? "À venda e também para alugar" : "À venda"} · ${p.tipo === "terreno" ? "terreno" : "casa"}`];
   const local = [p.bairro, p.cidade].filter(Boolean).join(", ");
   if (local) l.push(`Local: ${local}`);
   const comodos = [p.quartos && `${p.quartos} quarto(s)`, p.suites && `${p.suites} suíte(s)`, p.banheiros && `${p.banheiros} banheiro(s)`, p.vagas && `${p.vagas} vaga(s)`].filter(Boolean);
