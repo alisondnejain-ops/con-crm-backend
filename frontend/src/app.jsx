@@ -13748,6 +13748,15 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
           :prox?<>É a vez de <b>{prox.name}</b>{ehPrincipal?` · ${novos.length} na fila`:` · ${c.leads_abertos} em aberto`}</>
           :c&&!c.membros.length?"Sem corretores — os leads vão pela principal."
           :"Ninguém disponível agora."}</div>
+      {/* Quem participa, como no protótipo (27/11/2026): na principal, os
+          corretores; nas de produto, os membros dela. */}
+      {(()=>{const gente=ehPrincipal?corretores:corretores.filter(p=>(c.membros||[]).includes(p.id));
+        if(!gente.length) return null; const mostra=gente.slice(0,6);
+        return <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:12}}>
+          {mostra.map(p=><span key={p.id} title={p.name} style={{background:"#e6f1e9",color:"#47805b",fontSize:10.5,fontWeight:600,padding:"4px 8px",borderRadius:5,
+            opacity:p.available?1:.55}}>{first(p.name)}</span>)}
+          {gente.length>mostra.length&&<span style={{color:C.faint,fontSize:10.5,fontWeight:600,padding:"4px 2px"}}>+{gente.length-mostra.length}</span>}
+        </div>;})()}
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
         {(ehPrincipal||c.ativa)&&<button onClick={()=>setAba(ehPrincipal?"principal":c.id)} style={botaoPeq}>Abrir catraca</button>}
         {!ehPrincipal&&podeEditarCatracas&&<button onClick={()=>setEditando(c.id)} style={botaoPeq}>Configurar</button>}
@@ -13767,13 +13776,25 @@ function Catraca({fila,pessoas,disponiveis,toggleAvail,acoes,isMobile,podeConfig
       {abaAtual==="visao"&&<>
         {editando==="nova"&&<div style={{marginBottom:18}}><EditorDeCatraca inicial={caixaNova} pessoas={corretores} isMobile={isMobile} acoes={acoes} nomesDasCatracas={nomes}
           onSalvar={(x)=>salvar("nova",x)} onCancelar={()=>setEditando(null)}/></div>}
+        {/* Os números do alto, como no protótipo. */}
+        {/* No celular os três ficam numa linha, sem a frase de baixo. */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:isMobile?8:18,marginBottom:18}}>
+          <KpiCatraca isMobile={isMobile} rotulo={isMobile?"Aguardando":"Aguardando captura"} valor={novos.length} sub={isMobile?null:FILA_POR_ETAPA?"na primeira etapa do funil":"leads na fila, sem dono"}/>
+          <KpiCatraca isMobile={isMobile} rotulo={isMobile?"Disponíveis":"Corretores disponíveis"} valor={`${corretores.filter(p=>p.available).length} de ${corretores.length}`} sub={isMobile?null:"prontidão da equipe hoje"}/>
+          <KpiCatraca isMobile={isMobile} rotulo="Catracas ativas" valor={ativas.length+1} sub={isMobile?null:ativas.length?"a principal e as de produto":"só a principal"}/>
+        </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:18,marginBottom:18}}>
           {cartao(null)}
           {ativas.map(cartao)}
           {verDesativadas&&desativadas.map(cartao)}
+          {/* Sem catraca de produto, o lugar dela vira o convite para criar. */}
+          {!ativas.length&&podeEditarCatracas&&editando!=="nova"&&<button onClick={()=>setEditando("nova")}
+            style={{border:"1.5px dashed #cfdcc8",background:"transparent",borderRadius:12,padding:isMobile?18:22,cursor:"pointer",textAlign:"left",fontFamily:FONT,minHeight:isMobile?0:150,
+              display:"flex",flexDirection:"column",justifyContent:"center",gap:6}}>
+            <span style={{color:C.greenDeep,fontFamily:DISPLAY,fontSize:16,fontWeight:700}}>+ Criar catraca</span>
+            <span style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>Por produto, canal ou formulário. Sem nenhuma, todos os leads usam a principal.</span>
+          </button>}
         </div>
-        {!ativas.length&&podeEditarCatracas&&editando!=="nova"&&<div style={{color:C.faint,fontSize:12,marginBottom:18}}>
-          Nenhuma catraca de produto ainda — todos os leads usam a principal.</div>}
         {desativadas.length>0&&<button onClick={()=>setVerDesativadas(v=>!v)} style={{border:"none",background:"none",color:C.sub,
           fontSize:11.5,fontWeight:600,cursor:"pointer",padding:"0 0 18px"}}>{verDesativadas?"Esconder":"Ver"} desativadas ({desativadas.length})</button>}
         <SemResposta acoes={acoes} isMobile={isMobile} podeConfigurar={podeConfigurarExpediente}/>
