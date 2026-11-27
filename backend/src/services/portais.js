@@ -168,7 +168,7 @@ export function feedVRSync(orgId, base) {
     return `    <Listing>
       <ListingID>${esc(p.id)}</ListingID>
       <Title>${cdata((p.titulo_portal || p.titulo).slice(0, 100))}</Title>
-      <TransactionType>${aluguel ? "For Rent" : "For Sale"}</TransactionType>
+      <TransactionType>${aluguel ? "For Rent" : p.valor_aluguel > 0 ? "Sale/Rent" : "For Sale"}</TransactionType>
       <PublicationType>STANDARD</PublicationType>
       <Media>
 ${fotos.slice(0, 50).map((u, i) => `        <Item medium="image"${i === 0 ? ' primary="true"' : ""}>${esc(absoluta(u, base))}</Item>`).join("\n")}
@@ -177,7 +177,7 @@ ${fotos.slice(0, 50).map((u, i) => `        <Item medium="image"${i === 0 ? ' pr
         <UsageType>Residential</UsageType>
         <PropertyType>${tipo}</PropertyType>
         <Description>${cdata(p.descricao)}</Description>
-        ${aluguel ? `<RentalPrice currency="BRL" period="Monthly">${num(p.valor)}</RentalPrice>` : `<ListPrice currency="BRL">${num(p.valor)}</ListPrice>`}
+        ${aluguel ? `<RentalPrice currency="BRL" period="Monthly">${num(p.valor)}</RentalPrice>` : `<ListPrice currency="BRL">${num(p.valor)}</ListPrice>`}${!aluguel && p.valor_aluguel > 0 ? `\n        <RentalPrice currency="BRL" period="Monthly">${num(p.valor_aluguel)}</RentalPrice>` : ""}
 ${p.condominio > 0 ? `        <PropertyAdministrationFee currency="BRL">${num(p.condominio)}</PropertyAdministrationFee>\n` : ""}${p.iptu > 0 ? `        <YearlyTax currency="BRL">${num(p.iptu)}</YearlyTax>\n` : ""}${p.tipo === "casa" && p.area_util > 0 ? `        <LivingArea unit="square metres">${num(p.area_util)}</LivingArea>\n` : ""}${p.metragem > 0 ? `        <LotArea unit="square metres">${num(p.metragem)}</LotArea>\n` : ""}${p.tipo === "casa" ? `        <Bedrooms>${num(p.quartos)}</Bedrooms>
         <Bathrooms>${num(p.banheiros)}</Bathrooms>
 ${p.suites > 0 ? `        <Suites>${num(p.suites)}</Suites>\n` : ""}${p.vagas > 0 ? `        <Garage type="Parking Space">${num(p.vagas)}</Garage>\n` : ""}` : ""}      </Details>
@@ -229,9 +229,9 @@ export function feedChavesNaMao(orgId, base) {
     const fotosOk = fotos.map(u => absoluta(u, base)).filter(u => /\.(jpe?g|webp|gif)(\?|$)/i.test(u)).slice(0, 30);
     const v = {
       referencia: esc(p.id), codigo_cliente: esc(p.id), titulo: cdata(p.titulo_portal || p.titulo),
-      transacao: aluguel ? "L" : "V", finalidade: "RE", destaque: "0",
+      transacao: aluguel ? "L" : "V", transacao2: !aluguel && p.valor_aluguel > 0 ? "L" : "", finalidade: "RE", destaque: "0",
       tipo: p.tipo === "terreno" ? "Terreno" : "Casa",
-      valor: aluguel ? "" : num(p.valor), valor_locacao: aluguel ? num(p.valor) : "",
+      valor: aluguel ? "" : num(p.valor), valor_locacao: aluguel ? num(p.valor) : p.valor_aluguel > 0 ? num(p.valor_aluguel) : "",
       valor_iptu: p.iptu > 0 ? num(p.iptu) : "", valor_condominio: p.condominio > 0 ? num(p.condominio) : "",
       area_total: num(p.metragem), area_util: p.tipo === "casa" ? num(p.area_util) : "",
       quartos: p.tipo === "casa" ? num(p.quartos) : "", suites: num(p.suites), garagem: num(p.vagas),
@@ -244,7 +244,7 @@ export function feedChavesNaMao(orgId, base) {
       fotos_imovel: "\n" + fotosOk.map(u => `        <foto>\n          <url>${esc(u)}</url>\n          <data_atualizacao>${quando}</data_atualizacao>\n        </foto>`).join("\n") + "\n      ",
       data_atualizacao: quando,
       latitude: geo ? String(geo.lat) : "", longitude: geo ? String(geo.lng) : "",
-      periodo_locacao: aluguel ? "Mensal" : "",
+      periodo_locacao: aluguel || p.valor_aluguel > 0 ? "Mensal" : "",
     };
     return `    <imovel>\n${TAGS_CNM.map(t => `      <${t}>${v[t] ?? ""}</${t}>`).join("\n")}\n    </imovel>`;
   });

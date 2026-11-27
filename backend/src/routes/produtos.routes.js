@@ -150,7 +150,9 @@ r.get("/", (req, res) => {
   if (moeda && MOEDAS.includes(moeda)) { where.push("COALESCE(p.moeda,'BRL') = ?"); args.push(moeda); }
   if (area_min) { where.push("COALESCE(p.area_max, p.area_util, p.metragem) >= ?"); args.push(Number(area_min)); }
   if (area_max) { where.push("COALESCE(p.area_min, p.area_util, p.metragem) <= ?"); args.push(Number(area_max)); }
-  if (finalidade) { where.push("p.finalidade = ?"); args.push(finalidade); }
+  // "Aluguel" também traz o imóvel de venda que aceita locação.
+  if (finalidade === "aluguel") where.push("(p.finalidade = 'aluguel' OR COALESCE(p.valor_aluguel,0) > 0)");
+  else if (finalidade) { where.push("p.finalidade = ?"); args.push(finalidade); }
   if (cidade) { where.push("p.cidade LIKE ?"); args.push(`%${cidade}%`); }
   if (bairro) { where.push("p.bairro LIKE ?"); args.push(`%${bairro}%`); }
   if (quartos) { where.push("p.quartos >= ?"); args.push(Number(quartos)); }
@@ -232,6 +234,11 @@ function gravarCamposPortal(id, b, user, anterior = 0) {
   // com a linha antiga misturada, e nulo ali não é escolha de ninguém).
   if (supervisiona(user) && b.publicar_site !== undefined)
     db.prepare("UPDATE produtos SET publicar_site = ? WHERE id = ?").run(b.publicar_site === false || b.publicar_site === 0 ? 0 : null, id);
+  // Venda e locação: só imóvel de venda tem um "também aluga".
+  if (b.valor_aluguel !== undefined || b.finalidade === "aluguel") {
+    const va = b.finalidade === "aluguel" ? null : numero(b.valor_aluguel);
+    db.prepare("UPDATE produtos SET valor_aluguel = ? WHERE id = ?").run(va > 0 ? va : null, id);
+  }
   db.prepare("UPDATE produtos SET titulo_portal = ? WHERE id = ?").run(limpar(b.titulo_portal) ? String(b.titulo_portal).trim().slice(0, 100) : null, id);
   db.prepare(`UPDATE produtos SET publicar_portais=@publicar_portais, descricao=@descricao, uf=@uf, cep=@cep,
     numero_end=@numero_end, complemento=@complemento, latitude=@latitude, longitude=@longitude, vagas=@vagas,
@@ -296,6 +303,7 @@ function validar(b) {
   for (const c of ["area_min", "area_max"]) if (b[c] != null && b[c] !== "" && (numero(b[c]) == null || numero(b[c]) < 0)) return "Área inválida.";
   if (numero(b.area_min) != null && numero(b.area_max) != null && numero(b.area_min) > numero(b.area_max)) return "A área mínima é maior que a máxima.";
   if (b.valor != null && b.valor !== "" && numero(b.valor) == null) return "Valor inválido.";
+  if (b.valor_aluguel != null && b.valor_aluguel !== "" && (numero(b.valor_aluguel) == null || numero(b.valor_aluguel) < 0)) return "Valor do aluguel inválido.";
   if (b.maps_url && !/^https?:\/\//i.test(b.maps_url)) return "O link de geolocalização precisa começar com https://";
   if (limpar(b.uf) && !/^[A-Za-z]{2}$/.test(String(b.uf).trim())) return "Estado (UF) são duas letras, ex.: PE.";
   if (limpar(b.cep) && String(b.cep).replace(/\D/g, "").length !== 8) return "O CEP tem 8 números.";
@@ -407,6 +415,7 @@ r.patch("/:id", (req, res) => {
    sai do catálogo, do site e dos portais, e reabrir é decisão da gestão. */
 export function corretorPodeFechar(user, p, status) {
   if (!p || p.captador_id !== user.id || p.status !== "ativo") return false;
+  if (p.finalidade !== "aluguel" && p.valor_aluguel > 0) return status === "vendido" || status === "alugado";
   return status === (p.finalidade === "aluguel" ? "alugado" : "vendido");
 }
 

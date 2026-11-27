@@ -20099,10 +20099,10 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
                   sempre, e "sem selo = venda" é a mesma régua de "sem
                   temperatura = sem pastilha": marcar o padrão gastaria a
                   linha mais visível do card para dizer o óbvio. */}
-              {p.finalidade==="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenMid,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>Aluguel</span>}
+              {(p.finalidade==="aluguel"||p.valor_aluguel>0)&&<span style={{position:"absolute",top:8,right:8,background:C.greenMid,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.finalidade==="aluguel"?"Aluguel":"Venda e aluguel"}</span>}
               {(()=>{/* O selo do card: MCMV primeiro (é o que mais se procura), depois o programa local, depois "Financia". */
                 const pg=p.pagamentos||[], selo=pg.includes("mcmv")?"MCMV":p.programa_local||(pg.includes("financiamento")?"Financia":null);
-                return selo&&p.finalidade!=="aluguel"&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999,maxWidth:"60%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selo}</span>;})()}
+                return selo&&p.finalidade!=="aluguel"&&!(p.valor_aluguel>0)&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999,maxWidth:"60%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selo}</span>;})()}
             </div>
             <div style={{padding:12,display:"flex",flexDirection:"column",gap:5,flex:1}}>
               <div style={{color:C.ink,fontSize:14,fontWeight:600,lineHeight:1.3}}>{p.titulo}</div>
@@ -20110,6 +20110,7 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
               {p.tipo==="casa"&&<div style={{color:C.sub,fontSize:11.5}}>{[p.quartos&&`${p.quartos} quarto(s)`,p.banheiros&&`${p.banheiros} banheiro(s)`,p.metragem&&`${p.metragem} m²`].filter(Boolean).join(" · ")}</div>}
               {p.tipo==="terreno"&&p.metragem&&<div style={{color:C.sub,fontSize:11.5}}>{p.metragem} m²</div>}
               <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.unidades_resumo&&p.valor?"a partir de ":""}{p.valor?fmtValorMoeda(p.valor,p.moeda)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
+              {p.finalidade!=="aluguel"&&p.valor_aluguel>0&&<div style={{color:C.sub,fontSize:12}}>aluguel {fmtValorMoeda(p.valor_aluguel,p.moeda)}/mês</div>}
               {p.unidades_resumo&&p.unidades_resumo.total>0&&<div style={{color:C.sub,fontSize:11.5}}>{p.unidades_resumo.disponiveis} de {p.unidades_resumo.total} unidade(s) disponível(is)</div>}
               <div style={{marginTop:"auto",paddingTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                 <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
@@ -20873,7 +20874,9 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
   const normal=(p)=>({...p,finalidade:p.finalidade||"venda",exibir_endereco:p.exibir_endereco||"bairro",categoria:p.categoria||"casa",
     moeda:p.moeda||"BRL",estagio:p.estagio||"",proprietario:p.proprietario||"",entrega:p.entrega||"",
     pagamentos:p.pagamentos||[],garantias:p.garantias||[],caracteristicas:p.caracteristicas||[],detalhes:p.detalhes||{},
-    iptu_periodo:p.iptu_periodo||"anual",programa_local:p.programa_local||"",referencia:p.referencia||""});
+    iptu_periodo:p.iptu_periodo||"anual",programa_local:p.programa_local||"",referencia:p.referencia||"",
+    // Venda e locação no mesmo imóvel (27/11/2026): imóvel de venda com valor de aluguel.
+    tambem_aluga:p.finalidade!=="aluguel"&&p.valor_aluguel>0,valor_aluguel:p.valor_aluguel>0?p.valor_aluguel:""});
   const [f,setF]=useState(()=>produto?normal(produto):normal({
     tipo:"casa",categoria:"casa",estagio:"",moeda:"BRL",area_min:"",area_max:"",proprietario:"",entrega:"",finalidade:"venda",titulo:"",formato:"solta",quartos:"",banheiros:"",construtor:"",valor:"",metragem:"",
     cidade:"",bairro:"",endereco:"",maps_url:"",comissao_pct:"",captador_id:"",observacoes:"",
@@ -20903,7 +20906,8 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         valor:numeroBR(f.valor), quartos:numeroBR(f.quartos), banheiros:numeroBR(f.banheiros),
         metragem:numeroBR(f.metragem), comissao_pct:numeroBR(f.comissao_pct),
         vagas:numeroBR(f.vagas), suites:numeroBR(f.suites), area_util:numeroBR(f.area_util),
-        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu), area_min:numeroBR(f.area_min), area_max:numeroBR(f.area_max),
+        condominio:numeroBR(f.condominio), iptu:numeroBR(f.iptu),
+        valor_aluguel:f.finalidade!=="aluguel"&&f.tambem_aluga?numeroBR(f.valor_aluguel):null, area_min:numeroBR(f.area_min), area_max:numeroBR(f.area_max),
         lavabos:numeroBR(f.lavabos), salas:numeroBR(f.salas), area_total:numeroBR(f.area_total), andar:numeroBR(f.andar),
         ano_construcao:numeroBR(f.ano_construcao), comissao_corretor_pct:numeroBR(f.comissao_corretor_pct)}, id);
       setId(salvo.id); setCategoriaSalva(salvo.categoria); setF(normal(salvo)); setPortal(salvo.portal||null);
@@ -21093,9 +21097,10 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
             </div>
           </div>
           <div style={{display:"flex",gap:8}}>
-            {[["venda","Venda"],["aluguel","Aluguel"]].map(([v,t])=>
-              <button key={v} type="button" onClick={()=>setF({...f,finalidade:v})} style={{flex:1,padding:"11px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",
-                border:`1px solid ${f.finalidade===v?C.green:C.line}`,background:f.finalidade===v?C.greenSoft:C.surface,color:f.finalidade===v?C.greenDeep:C.sub}}>{t}</button>)}
+            {[["venda","Venda",false],["aluguel","Aluguel",false],["venda","Venda e aluguel",true]].map(([v,t,amb])=>{
+              const on=f.finalidade===v&&(v==="aluguel"||!!f.tambem_aluga===amb);
+              return <button key={t} type="button" onClick={()=>setF({...f,finalidade:v,tambem_aluga:amb})} style={{flex:1,padding:"11px 6px",borderRadius:10,fontSize:isMobile?13:14,fontWeight:600,cursor:"pointer",
+                border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:C.surface,color:on?C.greenDeep:C.sub}}>{t}</button>;})}
           </div>
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"2fr 1fr",gap:10}}>
             <div>{rotulo("Nome do imóvel")}<input value={f.titulo} onChange={set("titulo")} placeholder="Ex.: Apartamento 3 quartos com varanda" style={entrada}/></div>
@@ -21117,6 +21122,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
 
         {secao("valores","Valores",[f.valor&&fmtValorMoeda(numeroBR(f.valor),f.moeda),f.condominio&&`cond. ${fmtMoeda(numeroBR(f.condominio))}`].filter(Boolean).join(" · "),<React.Fragment>
           <div>{rotulo(aluguel?"Valor do aluguel (mensal)":COM_UNIDADES_IMOVEL.has(f.categoria)?"Valor a partir de":"Valor do imóvel")}<CampoMoeda moeda={f.moeda} valor={f.valor} onChange={v=>setF({...f,valor:v})} placeholder={aluguel?"1.800,00":"285.000,00"} isMobile={isMobile}/></div>
+          {!aluguel&&f.tambem_aluga&&<div>{rotulo("Valor do aluguel (mensal)")}<CampoMoeda moeda={f.moeda} valor={f.valor_aluguel} onChange={v=>setF({...f,valor_aluguel:v})} placeholder="1.800,00" isMobile={isMobile}/></div>}
           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr",gap:10}}>
             <div>{rotulo("Condomínio (mensal)")}<CampoMoeda valor={f.condominio} onChange={v=>setF({...f,condominio:v})} placeholder="opcional" isMobile={isMobile}/></div>
             <div>{rotulo("IPTU")}<CampoMoeda valor={f.iptu} onChange={v=>setF({...f,iptu:v})} placeholder="opcional" isMobile={isMobile}/></div>
@@ -21371,6 +21377,7 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
             {v.map(([k,val])=><div key={k} style={{minWidth:0}}><div style={{color:C.faint,fontSize:11}}>{k}</div><div style={{color:C.ink,fontSize:13,fontWeight:600}}>{val}</div></div>)}</div>:null;};
         const det=p.detalhes||{}, dt=(k)=>det[k]&&F.DETALHES[k]?F.DETALHES[k].opcoes[det[k]]:null;
         const valores=grade([[aluguel?"Aluguel":p.unidades_resumo?"A partir de":"Valor",p.valor?fmtValorMoeda(p.valor,p.moeda)+(aluguel?"/mês":""):null],
+          ["Aluguel",!aluguel&&p.valor_aluguel>0?fmtValorMoeda(p.valor_aluguel,p.moeda)+"/mês":null],
           ["Condomínio",p.condominio?fmtMoeda(p.condominio)+"/mês":null],["IPTU",p.iptu?`${fmtMoeda(p.iptu)} ${F.IPTU_PERIODOS[p.iptu_periodo]||"por ano"}`:null]]);
         const basicas=grade([["Tipo",CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno")],["Código",p.referencia],["Estágio",ESTAGIOS_IMOVEL[p.estagio]],
           ["Entrega prevista",p.entrega],["Quartos",p.quartos],["Suítes",p.suites],["Banheiros",p.banheiros],["Lavabos",p.lavabos],["Salas",p.salas],
@@ -21441,6 +21448,9 @@ function DetalheProduto({produto:p,acoes,isMobile,supervisor,session,aoFechar,ao
           <button onClick={()=>{aoMudarSituacao(p,"ativo");aoFechar();}} style={{flex:1,minWidth:130,background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Aprovar</button>
           <button onClick={()=>{aoMudarSituacao(p,"recusado");aoFechar();}} style={{flex:1,minWidth:130,background:C.card,color:C.hot,border:`1px solid ${C.hot}55`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Recusar</button>
         </React.Fragment>}
+        {(supervisor||p.captador_id===session?.id)&&p.status==="ativo"&&p.finalidade!=="aluguel"&&p.valor_aluguel>0&&<button onClick={()=>{
+            if(!supervisor&&!window.confirm(`Marcar "${p.titulo}" como alugado?\n\nEle sai do catálogo, do site e dos portais. Para desfazer, só a gestão.`)) return;
+            aoMudarSituacao(p,"alugado");aoFechar();}} style={{flex:1,minWidth:130,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}66`,borderRadius:10,padding:"12px",fontSize:13.5,fontWeight:600,cursor:"pointer"}}>Marcar como alugado</button>}
         {(supervisor||p.captador_id===session?.id)&&p.status==="ativo"&&<button onClick={()=>{
             /* O corretor fecha o imóvel que ELE captou (12/10/2026); desfazer é
                da gestão, então ele confirma antes. A regra mora no servidor. */

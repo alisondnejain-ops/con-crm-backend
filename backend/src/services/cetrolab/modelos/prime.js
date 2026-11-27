@@ -655,7 +655,7 @@ export function paginaImovel(ctx, i) {
     info: zap(ctx, `Olá! Quero mais informações sobre o imóvel ${sobre} que vi no site: ${url}`),
   };
   const specs = caracteristicas(i, false).map(([ic, v, r]) => `<div>${ICO[ic]}<span><b>${esc(v)}</b><span>${esc(r || "área")}</span></span></div>`).join("");
-  const custos = [i.condominio ? `Condomínio: <b>${moeda(i.condominio)}/mês</b>` : "", i.iptu ? `IPTU: <b>${moeda(i.iptu)}/ano</b>` : ""].filter(Boolean);
+  const custos = [i.valor_aluguel ? `Aluguel: <b>${moeda(i.valor_aluguel)}/mês</b>` : "", i.condominio ? `Condomínio: <b>${moeda(i.condominio)}/mês</b>` : "", i.iptu ? `IPTU: <b>${moeda(i.iptu)}/ano</b>` : ""].filter(Boolean);
   const fotos = i.fotos;
   const outros = F.catalogo(org.id, F.filtrosDe({ finalidade: i.finalidade })).itens.filter(x => x.id !== i.id).slice(0, 8);
   const mosaico = fotos.slice(0, 5);

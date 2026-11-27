@@ -500,6 +500,8 @@ export function publico(p) {
     // solta): é o que o modelo Institucional mostra como lançamento.
     empreendimento: p.tipo === "casa" && p.formato === "empreendimento",
     valor: p.valor > 0 ? p.valor : null,
+    // Venda e locação no mesmo imóvel: o aluguel mensal, quando também aluga.
+    valor_aluguel: !aluguel && p.valor_aluguel > 0 ? p.valor_aluguel : null,
     condominio: p.condominio > 0 ? p.condominio : null,
     iptu: p.iptu > 0 ? p.iptu : null,
     quartos: p.quartos > 0 ? p.quartos : null,
@@ -584,7 +586,8 @@ export function filtrosDe(q = {}) {
 
 export function catalogo(orgId, f) {
   const where = ["org_id = ?", "status = 'ativo'", "COALESCE(publicar_site,1) = 1"], args = [orgId];
-  if (f.finalidade) { where.push("COALESCE(finalidade,'venda') = ?"); args.push(f.finalidade); }
+  if (f.finalidade === "aluguel") where.push("(finalidade = 'aluguel' OR COALESCE(valor_aluguel,0) > 0)");
+  else if (f.finalidade) { where.push("COALESCE(finalidade,'venda') = ?"); args.push(f.finalidade); }
   if (f.tipo) { where.push("tipo = ?"); args.push(f.tipo); }
   if (f.cidade) { where.push("cidade = ?"); args.push(f.cidade); }
   if (f.bairro) { where.push("bairro = ?"); args.push(f.bairro); }
@@ -1106,6 +1109,7 @@ export function paginaImovel(ctx, i) {
   const fotos = i.fotos;
   const ficha = caracteristicas(i, false).map(([ic, v, r]) => `<div>${ICO[ic]}<b>${esc(v)}</b><span>${esc(r || "")}</span></div>`).join("");
   const custos = [
+    i.valor_aluguel ? `<div><span>Aluguel</span><b>${moeda(i.valor_aluguel, i.moeda)}/mês</b></div>` : "",
     i.condominio ? `<div><span>Condomínio</span><b>${moeda(i.condominio)}/mês</b></div>` : "",
     i.iptu ? `<div><span>IPTU</span><b>${moeda(i.iptu)}/ano</b></div>` : "",
   ].join("");
@@ -1129,7 +1133,7 @@ export function paginaImovel(ctx, i) {
   ${galeria}
   <div class="corpo">
     <article>
-      <div class="etiquetas"><span class="etiqueta">${i.finalidade === "aluguel" ? "Para alugar" : "À venda"}</span>${i.modalidade ? `<span class="etiqueta">Aceita ${esc(i.modalidade)}</span>` : ""}</div>
+      <div class="etiquetas"><span class="etiqueta">${i.finalidade === "aluguel" ? "Para alugar" : i.valor_aluguel ? "Venda e aluguel" : "À venda"}</span>${i.modalidade ? `<span class="etiqueta">Aceita ${esc(i.modalidade)}</span>` : ""}</div>
       <h1>${esc(i.titulo)}</h1>
       ${i.local.linha ? `<p class="onde">${ICO.pino}${esc(i.local.linha)}</p>` : ""}
       <div class="preco-cel"><div class="preco">${precoDe(i)}</div>${custos ? `<div class="custos">${custos}</div>` : ""}</div>
