@@ -24819,7 +24819,16 @@ function FunisConfig({acoes,session,isMobile}){
     {/* Criar um funil não muda nada sozinho enquanto os leads continuarem
         entrando no de sempre. Por isso esta seção fica ANTES da montagem das
         etapas: é ela que liga o funil novo à operação. */}
-    <QuemEntraOndeFunis acoes={acoes} isMobile={isMobile}/>
+    {/* "FUNIS DA OPERAÇÃO" (27/11/2026, protótipo CETRO): os funis, a criação e
+        as etapas num cartão só, com "Novo funil" no cabeçalho. */}
+    <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18,display:"flex",flexDirection:"column",gap:14}}>
+    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{color:C.ink,fontSize:14,fontWeight:700,fontFamily:DISPLAY}}>Funis da operação</div>
+        <div style={{color:"#85937b",fontSize:11.5,marginTop:2}}>Etapas configuráveis, prazos e ações de entrada</div>
+      </div>
+      <button onClick={()=>setCriando(a=>!a)} style={BOTAO_PRIMARIO}>+ Novo funil</button>
+    </div>
 
     {/* Os funis, em pastilhas. Quem tem um só vê um; quem tem cinco troca aqui. */}
     <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
@@ -24832,9 +24841,6 @@ function FunisConfig({acoes,session,isMobile}){
         {p.is_default&&<span style={{fontSize:9,fontWeight:700,color:C.greenMid}}>PADRÃO</span>}
         {!p.is_active&&<span style={{fontSize:9,color:C.faint}}>desligado</span>}
       </button>)}
-      <button onClick={()=>setCriando(a=>!a)}
-        style={{fontSize:12,fontWeight:600,padding:"7px 13px",borderRadius:999,cursor:"pointer",
-          border:`1px dashed ${C.line}`,background:"transparent",color:C.sub}}>+ Novo funil</button>
     </div>
 
     {criando&&<div style={{...caixa,display:"flex",flexDirection:"column",gap:10}}>
@@ -24876,7 +24882,7 @@ function FunisConfig({acoes,session,isMobile}){
       </div>
     </div>}
 
-    {pipe&&<div style={{...caixa,display:"flex",flexDirection:"column",gap:12}}>
+    {pipe&&<div style={{display:"flex",flexDirection:"column",gap:12,borderTop:"1px solid #edf1e6",paddingTop:14}}>
       <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
         <input value={pipe.name} onChange={e=>{
             const v=e.target.value;
@@ -24917,6 +24923,11 @@ function FunisConfig({acoes,session,isMobile}){
         style={{background:"transparent",border:`1px dashed ${C.line}`,borderRadius:10,padding:"10px",
           fontSize:12.5,fontWeight:600,color:C.sub,cursor:"pointer"}}>+ Adicionar etapa</button>
     </div>}
+    </div>
+
+    {/* Criar um funil não muda nada sozinho enquanto os leads continuarem
+        entrando no de sempre: esta seção liga o funil novo à operação. */}
+    <QuemEntraOndeFunis acoes={acoes} isMobile={isMobile}/>
 
     <CamposConfig acoes={acoes} campos={campos} isMobile={isMobile}
       aoMudar={()=>acoes.camposPersonalizados().then(r=>setCampos(r.campos||[])).catch(()=>{})}/>
@@ -25111,9 +25122,9 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
     <div style={{color:C.faint,fontSize:10.5,fontWeight:600}}>{t}</div>
     {ajuda&&<div style={{color:C.faint,fontSize:10,lineHeight:1.4,marginTop:1}}>{ajuda}</div>}</div>;
 
-  return <div style={{border:`1px solid ${aberta?C.green+"55":C.line}`,borderRadius:11,
-    background:aberta?C.greenSoft+"55":C.surface,opacity:etapa.is_active?1:.55}}>
-    <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 11px"}}>
+  return <div style={{border:`1px solid ${aberta?C.green+"55":"#e0e7db"}`,borderRadius:11,
+    background:aberta?C.greenSoft+"55":"#fff",opacity:etapa.is_active?1:.55}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"11px 12px"}}>
       <span style={{background:etapa.color||"#64748B",width:9,height:9,borderRadius:"50%",flexShrink:0}}/>
       <button onClick={aoAbrir} style={{flex:1,textAlign:"left",background:"transparent",border:"none",
         cursor:"pointer",padding:0,minWidth:0}}>
@@ -25130,6 +25141,7 @@ function EtapaLinha({etapa,indice,total,campos,isMobile,aberta,aoAbrir,acoes,aoM
           {!etapa.is_active?" · desativada":""}
         </div>
       </button>
+      {!isMobile&&<button onClick={aoAbrir} style={{...BOTAO_SECUNDARIO,padding:"6px 11px",fontSize:11.5,flexShrink:0}}>{aberta?"Fechar":"Configurar etapa"}</button>}
       <div style={{display:"flex",gap:2,flexShrink:0}}>
         <button onClick={()=>aoMover(-1)} disabled={indice===0} title="Subir"
           style={{background:"transparent",border:"none",color:indice===0?C.line:C.sub,cursor:"pointer",padding:3}}>▲</button>
@@ -25582,17 +25594,18 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
 
   if(!lista) return <div style={{color:C.faint,fontSize:13,padding:20,textAlign:"center"}}>Carregando…</div>;
 
-  return <React.Fragment>
-    <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:isMobile?13:16,marginBottom:14}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-        <Icon n="zap" size={15} color={C.greenMid}/>
-        <span style={{color:C.ink,fontSize:13.5,fontWeight:700,flex:1}}>Mensagens automáticas</span>
-        <button onClick={()=>abrir(null)}
-          style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-          + Nova mensagem</button>
-      </div>
-      <div style={{color:C.faint,fontSize:11.5,lineHeight:1.55}}>
-        Use <b style={{color:C.sub}}>{"{nome}"}</b> para o primeiro nome do cliente. As da etapa do lead aparecem primeiro na conversa.
+  /* "MENSAGENS PRONTAS" (27/11/2026, protótipo CETRO): um cartão só, com uma
+     linha por mensagem — nome e o começo do texto à esquerda, ações à direita. */
+  return <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:18}}>
+    <div style={{marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{color:C.ink,fontSize:14,fontWeight:700,fontFamily:DISPLAY}}>Mensagens prontas</div>
+          <div style={{color:"#85937b",fontSize:11.5,lineHeight:1.55,marginTop:2}}>
+            Use <b style={{color:C.sub}}>{"{nome}"}</b> para o primeiro nome do cliente. As da etapa do lead aparecem primeiro na conversa.
+          </div>
+        </div>
+        <button onClick={()=>abrir(null)} style={BOTAO_PRIMARIO}>+ Nova mensagem</button>
       </div>
     </div>
 
@@ -25606,7 +25619,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
         aoSalvar={salvar} aoCancelar={()=>{setEditando(null);setErro("");}}/>
     </div>}
 
-    <div style={{display:"flex",flexDirection:"column",gap:9}}>
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {lista.length===0&&<div style={{color:C.faint,fontSize:13,textAlign:"center",padding:20}}>Nenhuma mensagem cadastrada.</div>}
       {lista.map((m,i)=>editando===m.id
         /* Editar abre AQUI, no lugar do cartão: o campo nasce onde o dedo
@@ -25615,20 +25628,21 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
           <FormMensagem {...{titulo,setTitulo,corpo,setCorpo,etapas,setEtapas,pipelines,erro,salvando,isMobile}}
             aoSalvar={salvar} aoCancelar={()=>{setEditando(null);setErro("");}}/>
         </div>
-        :<div key={m.id} style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,
-        padding:isMobile?12:14,opacity:m.ativo?1:.6}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
-          <Icon n="zap" size={12} color={m.ativo?C.greenMid:C.faint}/>
-          <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0}}>{m.titulo}</span>
+        :<div key={m.id} style={{background:"#fff",border:"1px solid #e0e7db",borderRadius:11,
+        padding:isMobile?"11px 12px":"11px 14px",opacity:m.ativo?1:.6,display:"flex",gap:12,alignItems:"flex-start",flexDirection:isMobile?"column":"row"}}>
+        <div style={{flex:1,minWidth:0,width:isMobile?"100%":undefined}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+          <span style={{color:C.ink,fontSize:13,fontWeight:700,minWidth:0}}>{m.titulo}</span>
           {!m.ativo&&<span style={{background:C.coolSoft,color:C.cool,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>desligada</span>}
         </div>
-        <div style={{color:C.sub,fontSize:12,lineHeight:1.5,marginBottom:6,whiteSpace:"pre-wrap"}}>{m.corpo}</div>
-        <div style={{color:C.faint,fontSize:11,marginBottom:9}}>
+        <div title={m.corpo} style={{color:C.sub,fontSize:11.5,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.corpo}</div>
+        <div style={{color:"#85937b",fontSize:10.5,margin:"3px 0 6px"}}>
           {(m.etapas||[]).length
             ?<React.Fragment>Aparece primeiro em: <b style={{color:C.sub}}>{m.etapas.map(id=>nomeDaEtapa[id]||"etapa desativada").join(", ")}</b></React.Fragment>
             :"Geral — aparece em todas as etapas"}</div>
         <ArquivoDaMensagem m={m} acoes={acoes} aoMudar={aplicar} aoErro={setErro}/>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",flexShrink:0,justifyContent:isMobile?"flex-start":"flex-end",alignItems:"center"}}>
           <button onClick={()=>abrir(m)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}44`,borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>Editar</button>
           <button onClick={()=>acao(()=>acoes.editarMensagem2(m.id,{ativo:!m.ativo}))}
             style={{background:C.card,color:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 12px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
@@ -25637,7 +25651,6 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
             style={{background:C.card,color:i===0?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===0?"default":"pointer"}}>↑</button>
           <button onClick={()=>acao(()=>acoes.moverMensagem(m.id,"baixo"))} disabled={i===lista.length-1} title="Descer"
             style={{background:C.card,color:i===lista.length-1?C.line:C.sub,border:`1px solid ${C.line}`,borderRadius:10,padding:"6px 10px",fontSize:11.5,fontWeight:600,cursor:i===lista.length-1?"default":"pointer"}}>↓</button>
-          <span style={{flex:1}}/>
           {apagando===m.id
             ?<React.Fragment>
               <span style={{color:C.hot,fontSize:11.5,alignSelf:"center"}}>apagar de vez?</span>
@@ -25651,7 +25664,7 @@ function MensagensAutomaticas({acoes,session,isMobile,aoMudar}){
         </div>
       </div>)}
     </div>
-  </React.Fragment>;
+  </div>;
 }
 
 /* Conexão do WhatsApp: qual provedor, como está, e como contratar.
