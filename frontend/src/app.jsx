@@ -20234,118 +20234,104 @@ function Imoveis({acoes,session,pessoas,equipeToda,isMobile,supervisor}){
   if(aberto) return <DetalheProduto produto={aberto} acoes={acoes} isMobile={isMobile} supervisor={supervisor} session={session}
     aoFechar={()=>setAberto(null)} aoEditar={()=>{setEditando(aberto);setAberto(null);}} aoMudarSituacao={decidir} aoApagar={apagar}/>;
 
-  const campo=(label,valor,chave,opts)=><select value={valor} onChange={e=>setF({...f,[chave]:e.target.value})}
-    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
-      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
-    <option value="">{label}</option>
-    {opts.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
-  </select>;
 
-  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"28px 32px"}}>
+  /* Layout do protótipo (27/11/2026): botões no alto, uma linha de filtros
+     (busca, tipo, finalidade, Mais filtros) e o catálogo em três colunas. Os
+     outros filtros e as ferramentas da Caixa continuam, recolhidos. */
+  const sel={height:36,minWidth:isMobile?0:150,flex:isMobile?1:"0 0 auto",border:"1px solid #dce4db",borderRadius:10,background:"#fff",padding:"0 11px",
+    color:"#4a6250",fontSize:isMobile?16:12,outline:"none"};
+  const selAtivo=v=>v?{...sel,background:C.greenSoft,borderColor:C.green+"66",color:C.ink}:sel;
+  const maisAtivos=[f.cidade,f.bairro,f.quartos,f.valor_max,f.pagamento,f.status,f.estagio,f.moeda,f.area_min,f.disponivel].filter(Boolean).length;
+  const pastilha=(t,c,bg)=><span style={{display:"inline-block",fontSize:10.5,fontWeight:700,color:c||"#47805b",background:bg||"#e6f1e9",borderRadius:6,padding:"3px 8px",whiteSpace:"nowrap"}}>{t}</span>;
+
+  return <div style={{height:"100%",overflowY:"auto",padding:isMobile?14:"22px 20px"}}>
     <div style={{maxWidth:1440,margin:"0 auto"}}>
-      <CabecalhoTela isMobile={isMobile} titulo="O imóvel certo, com a informação certa." sub="Catálogo, unidades e condições de pagamento conectados ao site."/>
-      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12}}>{erro}</div>}
+      <CabecalhoTela isMobile={isMobile} acoes={<>
+        {/* Portais é decisão da gestão: pôr anúncio na internet com o nome da
+            imobiliária não é algo que cada corretor liga por conta própria. */}
+        {/* Ferramentas da Caixa: o corretor abre no meio da conversa, sem sair do CRM. */}
+        {[[CALCULADORA_CAIXA,"Poder de compra","zap","Estimativa em 1 minuto pela renda ou pela parcela"],
+          [SIMULADOR_CAIXA,"Simulação completa","chart","Simulação oficial da Caixa, com todos os dados"]]
+          .map(([url,texto,icone,dica])=>
+          <a key={texto} href={url} target="_blank" rel="noreferrer" title={dica+" — abre em outra aba"}
+            style={{...BOTAO_SECUNDARIO,textDecoration:"none",color:C.greenDeep}}><Icon n={icone} size={13}/>{texto}</a>)}
+        {gestor&&<button onClick={()=>setPortais(true)} style={BOTAO_SECUNDARIO}><Icon n="link" size={14}/>Portais</button>}
+        <button onClick={()=>setEditando("novo")} style={BOTAO_PRIMARIO}><Icon n="plus" size={14}/>Cadastrar imóvel</button>
+      </>}/>
+      {erro&&<div style={{background:C.hotSoft,color:C.hot,fontSize:12.5,borderRadius:10,padding:"10px 12px",marginBottom:12,clear:"both"}}>{erro}</div>}
 
-      <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:13,marginBottom:16,display:"flex",flexDirection:"column",gap:9}}>
-        <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-          <div style={{flex:1,display:"flex",alignItems:"center",gap:8,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"0 11px",minWidth:0}}>
-            <Icon n="search" size={15} color={C.faint}/>
-            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, bairro, cidade ou construtora"
-              style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:13,padding:"10px 0",color:C.ink,minWidth:0}}/>
-          </div>
-          <button onClick={()=>setEditando("novo")} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
-            <Icon n="userplus" size={15}/> Cadastrar
-          </button>
-          {/* Portais é decisão da gestão: pôr anúncio na internet com o nome da
-              imobiliária não é algo que cada corretor liga por conta própria. */}
-          {gestor&&<button onClick={()=>setPortais(true)} style={{background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,borderRadius:10,padding:"11px 16px",fontSize:13.5,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexShrink:0}}>
-            <Icon n="link" size={15}/> Portais
-          </button>}
+      <div style={{display:"flex",gap:9,alignItems:"center",flexWrap:"wrap",marginBottom:filtrosAbertos?10:18}}>
+        <div style={{flex:1,minWidth:isMobile?"100%":220,height:36,display:"flex",alignItems:"center",gap:8,border:"1px solid #dce4db",background:"#fff",borderRadius:10,padding:"0 11px"}}>
+          <Icon n="search" size={14} color={C.faint}/>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar imóvel por nome, código ou cidade"
+            style={{flex:1,border:"none",outline:"none",background:"transparent",fontSize:isMobile?16:12,color:C.ink,minWidth:0}}/>
         </div>
-        {/* Ferramentas da Caixa em linha própria: o corretor abre no meio da
-            conversa com o cliente, sem sair do CRM. */}
-        <div style={{display:"flex",gap:8}}>
-          {[[CALCULADORA_CAIXA,"Poder de compra","zap","Estimativa em 1 minuto pela renda ou pela parcela"],
-            [SIMULADOR_CAIXA,"Simulação completa","chart","Simulação oficial da Caixa, com todos os dados"]]
-            .map(([url,texto,icone,dica])=>
-            <a key={texto} href={url} target="_blank" rel="noreferrer" title={dica+" — abre em outra aba"}
-              style={{flex:1,textDecoration:"none",background:C.surface,color:C.greenDeep,border:`1px solid ${C.green}55`,
-                borderRadius:10,padding:isMobile?"10px 8px":"10px 14px",fontSize:isMobile?12.5:13,fontWeight:600,
-                display:"flex",alignItems:"center",justifyContent:"center",gap:6,textAlign:"center"}}>
-              <Icon n={icone} size={14}/>{texto}
-            </a>)}
-        </div>
-
-        {/* Mesmo tratamento que os filtros das conversas receberam: abertos, os
-            sete seletores empurravam o catálogo para fora da tela no celular.
-            O contador ao lado do botão avisa quando algum ficou ligado. */}
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={()=>setFiltrosAbertos(a=>!a)}
-            style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,padding:"7px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer"}}>
-            <Icon n="sliders" size={13}/>Filtros
-            {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
-            <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}><Icon n="chevron" size={13}/></span>
-          </button>
-          {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",pagamento:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""})}
-            style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar</button>}
-          <span style={{marginLeft:"auto",color:C.faint,fontSize:11}}>{lista===null?"Buscando…":`${lista.length} produto(s)`}</span>
-        </div>
-        {filtrosAbertos&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {campo("Tipo do imóvel",f.categoria,"categoria",Object.entries(CATEGORIAS_IMOVEL).map(([v,t])=>({v,t})))}
-          {campo("Estágio",f.estagio,"estagio",Object.entries(ESTAGIOS_IMOVEL).map(([v,t])=>({v,t})))}
-          {campo("Moeda",f.moeda,"moeda",[{v:"BRL",t:"Real (R$)"},{v:"USD",t:"Dólar (US$)"}])}
-          {campo("Área",f.area_min,"area_min",[50,80,120,200,360,500].map(v=>({v,t:`${v} m² ou mais`})))}
-          {campo("Disponibilidade",f.disponivel,"disponivel",[{v:"1",t:"Só disponíveis"}])}
-          {/* Venda ou aluguel (21/09/2026, pedido do Ali: a captação só tinha
-              venda). Mesmo lugar dos outros filtros — sem filtro, os dois
-              catálogos aparecem juntos, do jeito que sempre apareceram. */}
-          {campo("Venda ou aluguel",f.finalidade,"finalidade",[{v:"venda",t:"Venda"},{v:"aluguel",t:"Aluguel"}])}
-          {campo("Cidade",f.cidade,"cidade",opcoes.cidades.map(c=>({v:c,t:c})))}
-          {campo("Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c})))}
-          {campo("Quartos",f.quartos,"quartos",[1,2,3,4].map(n=>({v:n,t:`${n}+ quartos`})))}
-          {campo("Até R$",f.valor_max,"valor_max",[100000,150000,200000,300000,500000].map(v=>({v,t:"até "+fmtMoeda(v)})))}
-          {campo("Pagamento",f.pagamento,"pagamento",FICHA_IMOVEL.PAGAMENTOS.map(x=>({v:x.v,t:x.t})))}
-          {supervisor&&campo("Situação",f.status,"status",Object.entries(SITUACAO_PRODUTO).map(([v,s])=>({v,t:s.t})))}
-        </div>}
+        <select value={f.categoria} onChange={e=>setF({...f,categoria:e.target.value})} style={selAtivo(f.categoria)} aria-label="Tipo de imóvel">
+          <option value="">Todos os tipos</option>
+          {Object.entries(CATEGORIAS_IMOVEL).map(([v,t])=><option key={v} value={v}>{t}</option>)}
+        </select>
+        {/* Venda ou aluguel (21/09/2026): sem filtro, os dois catálogos juntos. */}
+        <select value={f.finalidade} onChange={e=>setF({...f,finalidade:e.target.value})} style={selAtivo(f.finalidade)} aria-label="Finalidade">
+          <option value="">Venda e locação</option><option value="venda">Venda</option><option value="aluguel">Locação</option>
+        </select>
+        <button onClick={()=>setFiltrosAbertos(a=>!a)} style={{...BOTAO_SECUNDARIO,padding:"8px 12px",fontSize:11.5,...(maisAtivos?{background:C.greenSoft,borderColor:C.green+"66",color:C.greenDeep}:{})}}>
+          <Icon n="sliders" size={13}/>Mais filtros
+          {maisAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{maisAtivos}</span>}
+        </button>
+        {filtrosAtivos>0&&<button onClick={()=>setF({...f,tipo:"",finalidade:"",cidade:"",bairro:"",quartos:"",valor_max:"",modalidade:"",pagamento:"",status:"",categoria:"",estagio:"",moeda:"",area_min:"",disponivel:""})}
+          style={{border:"none",background:"transparent",color:C.faint,fontSize:11.5,cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
       </div>
+      {filtrosAbertos&&<div style={{display:"flex",gap:8,flexWrap:"wrap",background:C.card,border:"1px solid #e0e7db",borderRadius:14,padding:12,marginBottom:18}}>
+        {[["Estágio",f.estagio,"estagio",Object.entries(ESTAGIOS_IMOVEL).map(([v,t])=>({v,t}))],
+          ["Moeda",f.moeda,"moeda",[{v:"BRL",t:"Real (R$)"},{v:"USD",t:"Dólar (US$)"}]],
+          ["Área",f.area_min,"area_min",[50,80,120,200,360,500].map(v=>({v,t:`${v} m² ou mais`}))],
+          ["Disponibilidade",f.disponivel,"disponivel",[{v:"1",t:"Só disponíveis"}]],
+          ["Cidade",f.cidade,"cidade",opcoes.cidades.map(c=>({v:c,t:c}))],
+          ["Bairro",f.bairro,"bairro",opcoes.bairros.map(c=>({v:c,t:c}))],
+          ["Quartos",f.quartos,"quartos",[1,2,3,4].map(n=>({v:n,t:`${n}+ quartos`}))],
+          ["Até R$",f.valor_max,"valor_max",[100000,150000,200000,300000,500000].map(v=>({v,t:"até "+fmtMoeda(v)}))],
+          ["Pagamento",f.pagamento,"pagamento",FICHA_IMOVEL.PAGAMENTOS.map(x=>({v:x.v,t:x.t}))],
+          ...(supervisor?[["Situação",f.status,"status",Object.entries(SITUACAO_PRODUTO).map(([v,s])=>({v,t:s.t}))]]:[])]
+          .map(([label,valor,chave,opts])=><select key={chave} value={valor} onChange={e=>setF({...f,[chave]:e.target.value})} style={{...selAtivo(valor),flex:isMobile?"1 1 45%":"0 0 auto"}}>
+            <option value="">{label}</option>{opts.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
+          </select>)}
+      </div>}
+      <div style={{color:C.faint,fontSize:11,margin:"-8px 0 10px",clear:"both"}}>{lista===null?"Buscando…":`${lista.length} imóve${lista.length===1?"l":"is"}`}</div>
 
-      {lista&&lista.length===0&&<div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:16,boxShadow:SOMBRA,padding:34,textAlign:"center"}}>
+      {lista&&lista.length===0&&<div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:34,textAlign:"center"}}>
         <Icon n="pin" size={26} color={C.faint}/>
-        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>Nenhum produto encontrado</div>
+        <div style={{color:C.ink,fontSize:14,fontWeight:600,marginTop:10}}>Nenhum imóvel encontrado</div>
         <div style={{color:C.faint,fontSize:12.5,marginTop:6,lineHeight:1.5}}>Ajuste os filtros ou cadastre o primeiro imóvel.</div>
       </div>}
 
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fill,minmax(300px,1fr))",gap:18}}>
         {(lista||[]).map(p=>{const capa=(p.midias||[]).find(m=>m.tipo==="foto"),s=SITUACAO_PRODUTO[p.status]||SITUACAO_PRODUTO.ativo;
-          return <button key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:C.card,border:`1px solid ${C.line}`,borderRadius:14,boxShadow:SOMBRA,padding:0,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
-            <div style={{height:150,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+          const tipoTxt=(CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno"))+(p.estagio?` · ${ESTAGIOS_IMOVEL[p.estagio]}`:"");
+          const pg=p.pagamentos||[], seloPg=pg.includes("mcmv")?"MCMV":p.programa_local||(pg.includes("financiamento")?"Financia":null);
+          return <article key={p.id} onClick={()=>setAberto(p)} style={{textAlign:"left",background:"#fff",border:"1px solid #e0e7db",borderRadius:14,boxShadow:SOMBRA,overflow:"hidden",cursor:"pointer",display:"flex",flexDirection:"column"}}>
+            <div style={{height:165,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
               {capa?<img src={capa.miniatura||capa.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                    :<Icon n={p.tipo==="casa"?"grid":"pin"} size={30} color={C.faint}/>}
-              <span style={{position:"absolute",top:8,left:8,background:C.card,color:C.sub,fontSize:10.5,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{CATEGORIAS_IMOVEL[p.categoria]||(p.tipo==="casa"?"Casa":"Terreno")}{p.estagio?` · ${ESTAGIOS_IMOVEL[p.estagio]}`:""}</span>
-              {/* Aluguel ganha selo — venda é o padrão do catálogo desde
-                  sempre, e "sem selo = venda" é a mesma régua de "sem
-                  temperatura = sem pastilha": marcar o padrão gastaria a
-                  linha mais visível do card para dizer o óbvio. */}
-              {(p.finalidade==="aluguel"||p.valor_aluguel>0)&&<span style={{position:"absolute",top:8,right:8,background:C.greenMid,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999}}>{p.finalidade==="aluguel"?"Aluguel":"Venda e aluguel"}</span>}
-              {(()=>{/* O selo do card: MCMV primeiro (é o que mais se procura), depois o programa local, depois "Financia". */
-                const pg=p.pagamentos||[], selo=pg.includes("mcmv")?"MCMV":p.programa_local||(pg.includes("financiamento")?"Financia":null);
-                return selo&&p.finalidade!=="aluguel"&&!(p.valor_aluguel>0)&&<span style={{position:"absolute",top:8,right:8,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:999,maxWidth:"60%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{selo}</span>;})()}
+              {/* Aluguel ganha selo; venda é o padrão e não precisa. */}
+              {(p.finalidade==="aluguel"||p.valor_aluguel>0)&&<span style={{position:"absolute",top:10,right:10,background:C.greenMid,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6}}>{p.finalidade==="aluguel"?"Aluguel":"Venda e aluguel"}</span>}
+              {seloPg&&p.finalidade!=="aluguel"&&!(p.valor_aluguel>0)&&<span style={{position:"absolute",top:10,right:10,background:C.greenDeep,color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,maxWidth:"60%",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{seloPg}</span>}
             </div>
-            <div style={{padding:12,display:"flex",flexDirection:"column",gap:5,flex:1}}>
-              <div style={{color:C.ink,fontSize:14,fontWeight:600,lineHeight:1.3}}>{p.titulo}</div>
-              <div style={{color:C.faint,fontSize:11.5}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")||"sem localização"}</div>
-              {p.tipo==="casa"&&<div style={{color:C.sub,fontSize:11.5}}>{[p.quartos&&`${p.quartos} quarto(s)`,p.banheiros&&`${p.banheiros} banheiro(s)`,p.metragem&&`${p.metragem} m²`].filter(Boolean).join(" · ")}</div>}
-              {p.tipo==="terreno"&&p.metragem&&<div style={{color:C.sub,fontSize:11.5}}>{p.metragem} m²</div>}
-              <div style={{color:C.greenDeep,fontFamily:MONO,fontSize:16,fontWeight:700,marginTop:2}}>{p.unidades_resumo&&p.valor?"a partir de ":""}{p.valor?fmtValorMoeda(p.valor,p.moeda)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
-              {p.finalidade!=="aluguel"&&p.valor_aluguel>0&&<div style={{color:C.sub,fontSize:12}}>aluguel {fmtValorMoeda(p.valor_aluguel,p.moeda)}/mês</div>}
-              {p.unidades_resumo&&p.unidades_resumo.total>0&&<div style={{color:C.sub,fontSize:11.5}}>{p.unidades_resumo.disponiveis} de {p.unidades_resumo.total} unidade(s) disponível(is)</div>}
-              <div style={{marginTop:"auto",paddingTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                <Pill c={s.c} bg={s.bg}>{s.t}</Pill>
-                {p.publicar_portais&&<Pill c={p.portal&&p.portal.pronto?C.greenDeep:C.amber} bg={p.portal&&p.portal.pronto?C.greenSoft:C.amberSoft}>{p.portal&&p.portal.pronto?"nos portais":"portais: falta dado"}</Pill>}
-                <span style={{color:C.faint,fontSize:10.5}}>captou: {first(p.captador_nome||"—")}</span>
+            <div style={{padding:17,display:"flex",flexDirection:"column",flex:1}}>
+              <div>{pastilha(tipoTxt)}</div>
+              <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:14,fontWeight:700,lineHeight:1.3,margin:"8px 0"}}>{p.titulo}</div>
+              <div style={{color:"#85937b",fontSize:11}}>{[p.bairro,p.cidade].filter(Boolean).join(" · ")||"sem localização"}</div>
+              <div style={{color:"#85937b",fontSize:11,marginTop:6}}>{[p.metragem&&`${p.metragem} m²`,p.tipo==="casa"&&p.quartos&&`${p.quartos} quarto(s)`,p.tipo==="casa"&&p.banheiros&&`${p.banheiros} banheiro(s)`].filter(Boolean).join(" · ")}</div>
+              {p.unidades_resumo&&p.unidades_resumo.total>0&&<div style={{color:"#85937b",fontSize:11,marginTop:4}}>{p.unidades_resumo.disponiveis} de {p.unidades_resumo.total} unidade(s) disponível(is)</div>}
+              <div style={{color:C.ink,fontFamily:DISPLAY,fontSize:20,fontWeight:800,margin:"12px 0 4px"}}>{p.unidades_resumo&&p.valor?<span style={{fontSize:11,fontWeight:600,color:"#85937b"}}>a partir de </span>:null}{p.valor?fmtValorMoeda(p.valor,p.moeda)+(p.finalidade==="aluguel"?"/mês":""):"valor a combinar"}</div>
+              {p.finalidade!=="aluguel"&&p.valor_aluguel>0&&<div style={{color:"#85937b",fontSize:11.5}}>aluguel {fmtValorMoeda(p.valor_aluguel,p.moeda)}/mês</div>}
+              <div style={{color:C.faint,fontSize:10.5,marginTop:6,marginBottom:14}}>captou: {first(p.captador_nome||"—")}</div>
+              <div style={{marginTop:"auto",paddingTop:14,borderTop:"1px solid #edf1e6",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                {pastilha(s.t,s.c,s.bg)}
+                {p.publicar_portais&&pastilha(p.portal&&p.portal.pronto?"nos portais":"portais: falta dado",p.portal&&p.portal.pronto?C.greenDeep:C.amber,p.portal&&p.portal.pronto?C.greenSoft:C.amberSoft)}
+                <span style={{marginLeft:"auto",...BOTAO_SECUNDARIO,padding:"6px 10px",fontSize:11}}>Abrir imóvel <Icon n="chevron" size={12}/></span>
               </div>
             </div>
-          </button>;})}
+          </article>;})}
       </div>
     </div>
   </div>;
