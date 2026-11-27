@@ -9985,7 +9985,7 @@ function PreviaColagem({arquivos,legenda,enviando,onRemover,onEnviar,onCancelar,
    20/08/2026 era o que acontecia com todo mundo, atendente e corretor: parou
    de gravar, foi. A Vanessa reclamou que não conseguia apagar nem corrigir, e
    estava certa: não dava mesmo. */
-function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
+function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,onAgendar,isMobile}){
   if(!audio) return null;
   const mm=String(Math.floor((audio.segundos||0)/60)).padStart(2,"0");
   const ss=String((audio.segundos||0)%60).padStart(2,"0");
@@ -10004,6 +10004,8 @@ function PreviaAudio({audio,enviando,onDescartar,onRegravar,onEnviar,isMobile}){
         <Icon n={enviando?"loader":"send"} size={13} spin={enviando}/>{enviando?"Enviando…":"Enviar áudio"}</button>
       <button onClick={onRegravar} disabled={enviando}
         style={{...botao,border:`1px solid ${C.line}`,background:C.card,color:C.sub}}>Gravar de novo</button>
+      {onAgendar&&<button onClick={onAgendar} disabled={enviando}
+        style={{...botao,border:`1px solid ${C.line}`,background:C.card,color:C.greenDeep,display:"flex",alignItems:"center",gap:5}}><Icon n="clock" size={13}/>Agendar</button>}
       <button onClick={onDescartar} disabled={enviando}
         style={{...botao,border:`1px solid ${C.line}`,background:C.card,color:C.hot,marginLeft:"auto"}}>Descartar</button>
     </div>
@@ -11238,7 +11240,8 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
           onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
         <PreviaAudio audio={gravado.audio} enviando={gravado.enviando} isMobile={isMobile}
           onDescartar={gravado.descartar} onRegravar={()=>{gravado.descartar();gravarDeNovo.current&&gravarDeNovo.current();}}
-          onEnviar={gravado.enviar}/>
+          onEnviar={gravado.enviar}
+          onAgendar={()=>{const a=gravado.audio; ag.setArquivo({base64:a.base64,mime:a.mime,nome:"audio."+(a.mime.split("/")[1]||"webm"),tam:Math.round(a.base64.length*3/4)}); gravado.descartar(); ag.setAberto(true);}}/>
         {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
         {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
         <FaixaAgendadas ag={ag} lead={sel} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
@@ -16399,13 +16402,16 @@ function FaixaFluxo({fx,acoes,isMobile}){
 function usarAgendamento(lead,acoes){
   const [lista,setLista]=useState([]);
   const [aberto,setAberto]=useState(false);
+  /* O arquivo da agendada mora aqui (e não na faixa) para o áudio gravado na
+     hora poder ser entregue ao agendamento pela prévia (27/11/2026). */
+  const [arquivo,setArquivo]=useState(null);
   const id=lead&&lead.id;
   const ler=React.useCallback(()=>{ if(!id) return;
     acoes.agendadas(id).then(r=>setLista(r.agendadas||[])).catch(()=>{}); },[id,acoes]);
-  useEffect(()=>{ setLista([]); setAberto(false); ler();
+  useEffect(()=>{ setLista([]); setAberto(false); setArquivo(null); ler();
     // De minuto em minuto: a que saiu some da faixa e aparece na conversa.
     const t=setInterval(ler,60000); return()=>clearInterval(t); },[id]);
-  return {lista,setLista,aberto,setAberto,ler,leadId:id};
+  return {lista,setLista,aberto,setAberto,ler,leadId:id,arquivo,setArquivo};
 }
 
 /* ===== A IA SUGERE A PRÓXIMA MENSAGEM (31/10/2026, pedido do Fernando) =====
@@ -16495,9 +16501,9 @@ function FaixaAgendadas({ag,lead,acoes,draft,setDraft,isMobile}){
   /* UM ARQUIVO NA AGENDADA (07/11/2026, pedido do Fernando): foto, áudio,
      vídeo ou documento. O texto do campo vira a legenda (no áudio, sai logo
      depois). Lido no navegador como base64, como o anexo da conversa. */
-  const [arquivo,setArquivo]=useState(null);
+  const arquivo=ag.arquivo, setArquivo=ag.setArquivo;
   const entradaArq=useRef(null);
-  useEffect(()=>{setQuando("");setErro("");setArquivo(null);},[ag.leadId]);
+  useEffect(()=>{setQuando("");setErro("");},[ag.leadId]);
   function escolher(e){
     const f=e.target.files&&e.target.files[0]; e.target.value="";
     if(!f) return;
@@ -16658,7 +16664,8 @@ function ComporADM({lead,session,acoes,isMobile,citando,setCitando,editando,setE
       onEnviar={enviarColados} onCancelar={()=>setColados([])}/>
     <PreviaAudio audio={gravado.audio} enviando={gravado.enviando} isMobile={isMobile}
       onDescartar={gravado.descartar} onRegravar={()=>{gravado.descartar();gravarDeNovo.current&&gravarDeNovo.current();}}
-      onEnviar={gravado.enviar}/>
+      onEnviar={gravado.enviar}
+          onAgendar={()=>{const a=gravado.audio; ag.setArquivo({base64:a.base64,mime:a.mime,nome:"audio."+(a.mime.split("/")[1]||"webm"),tam:Math.round(a.base64.length*3/4)}); gravado.descartar(); ag.setAberto(true);}}/>
     {editando&&<BarraEdicao texto={editando.texto} erro={erroEdicao} isMobile={isMobile} aoCancelar={cancelarEdicao}/>}
     {citando&&<Citacao c={citando} aoFechar={()=>setCitando(null)}/>}
     <FaixaAgendadas ag={ag} lead={lead} acoes={acoes} draft={draft} setDraft={setDraft} isMobile={isMobile}/>
