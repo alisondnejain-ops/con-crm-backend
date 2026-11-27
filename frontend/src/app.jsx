@@ -19720,7 +19720,13 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
   const [lista,setLista]=useState(null);
   const [busca,setBusca]=useState("");
   const [sel,setSel]=useState(null);
-  const [opc,setOpc]=useState({fotos:true,video:false,localizacao:false});
+  const [opc,setOpc]=useState({fotos:true,video:false,localizacao:false,link_site:false});
+  /* O formato (27/11/2026, protótipo CETRO): completo (o de sempre) ou
+     resumido; e, em empreendimento/loteamento, a unidade com o fluxo de
+     pagamento calculado pelo servidor. */
+  const [formato,setFormato]=useState("completo");
+  const [unidades,setUnidades]=useState(null);
+  const [unidade,setUnidade]=useState("");
   const [enviando,setEnviando]=useState(false);
   const [erro,setErro]=useState("");
   /* Quais fotos vão. `null` = todas, que é o padrão e o caso mais comum.
@@ -19729,7 +19735,10 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
   const [escolhendo,setEscolhendo]=useState(false);
   // Trocar de imóvel zera a escolha: foto do apartamento anterior não tem nada
   // a ver com este, e mandar a errada não tem desfazer no WhatsApp.
-  useEffect(()=>{ setEscolhidas(null); setEscolhendo(false); },[sel&&sel.id]);
+  useEffect(()=>{ setEscolhidas(null); setEscolhendo(false); setUnidade(""); setUnidades(null);
+    if(sel&&sel.unidades_resumo&&sel.unidades_resumo.total>0)
+      acoes.unidadesProduto(sel.id).then(r=>setUnidades((r.unidades||[]).filter(u=>u.status==="disponivel"))).catch(()=>setUnidades([]));
+  },[sel&&sel.id]);
 
   useEffect(()=>{let vivo=true;
     const t=setTimeout(()=>acoes.produtos({status:"ativo",q:busca}).then(r=>vivo&&setLista(r)).catch(e=>vivo&&setErro(e.message)),300);
@@ -19739,7 +19748,8 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
     if(!sel||enviando) return;
     setEnviando(true); setErro("");
     try{
-      await acoes.enviarProduto(lead.id,{produto_id:sel.id,...opc,
+      await acoes.enviarProduto(lead.id,{produto_id:sel.id,...opc,formato,
+        ...(unidade?{unidade_id:unidade}:{}),
         ...(opc.fotos&&escolhidas?{fotos_ids:escolhidas}:{})});
       aoFechar();
     }
@@ -19786,6 +19796,16 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
       </div>
 
       {sel&&<div style={{padding:"12px 16px",borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:7}}>
+        <div style={{display:"flex",gap:6}}>
+          {[["completo","Texto completo"],["resumido","Resumido"]].map(([v,t])=><button key={v} onClick={()=>setFormato(v)}
+            style={{flex:1,padding:"8px",borderRadius:10,fontSize:12.5,fontWeight:600,cursor:"pointer",
+              border:`1px solid ${formato===v?C.green:C.line}`,background:formato===v?C.greenSoft:C.surface,color:formato===v?C.greenDeep:C.sub}}>{t}</button>)}
+        </div>
+        {unidades&&unidades.length>0&&<select value={unidade} onChange={e=>setUnidade(e.target.value)}
+          style={{fontSize:isMobile?16:13,border:`1px solid ${unidade?C.green:C.line}`,borderRadius:10,padding:"9px 10px",background:C.card,color:C.ink}}>
+          <option value="">Sem unidade específica</option>
+          {unidades.map(u=><option key={u.id} value={u.id}>{[u.bloco,u.identificacao].filter(Boolean).join(" · ")}{u.tipologia?` · ${u.tipologia}`:""}{u.preco?` · ${fmtValorMoeda(u.preco,u.moeda)}`:""}{u.fluxo?" · com fluxo":""}</option>)}
+        </select>}
         {(()=>{const fotosDoAnuncio=(sel.midias||[]).filter(m=>m.tipo==="foto");
           const quantas=escolhidas?escolhidas.length:fotosDoAnuncio.length;
           return <React.Fragment>
@@ -19838,6 +19858,7 @@ function EnviarImovel({lead,acoes,isMobile,aoFechar}){
             </React.Fragment>}
           </React.Fragment>;})()}
         {(sel.midias||[]).some(m=>m.tipo==="video")&&marca("video","Enviar o vídeo")}
+        {sel.site_path&&sel.publicar_site!==false&&marca("link_site","Enviar o link do imóvel no site")}
         {sel.maps_url&&marca("localizacao","Enviar a localização","Fica desmarcado de propósito — mandar endereço sem querer não tem desfazer.")}
         {erro&&<div style={{color:C.hot,background:C.hotSoft,fontSize:12,borderRadius:10,padding:"8px 10px"}}>{erro}</div>}
         <button onClick={enviar} disabled={enviando} style={{background:enviando?C.faint:C.green,color:"#fff",border:"none",borderRadius:11,padding:"13px",fontSize:14.5,fontWeight:600,cursor:enviando?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>

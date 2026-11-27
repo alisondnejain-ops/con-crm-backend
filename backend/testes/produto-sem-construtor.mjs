@@ -105,5 +105,27 @@ const rProd = await fetch(`http://127.0.0.1:${porta}/produtos/${prod}`, { header
 assert.equal(rProd.status, 200);
 assert.equal(rProd.corpo.construtor, "Construtora Horizonte Ltda", "a tela interna de captação continua mostrando o campo");
 
+console.log("5. Formato resumido, unidade com fluxo de pagamento e unidade vendida (27/11/2026)");
+const env = (corpo) => { enviadas.length = 0; return fetch(`http://127.0.0.1:${porta}/leads/${leadId}/produto`, { method: "POST",
+  headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify(corpo) })
+  .then(async x => ({ status: x.status, corpo: await x.json() })); };
+let r5 = await env({ produto_id: prod, fotos: false, formato: "resumido" });
+assert.equal(r5.status, 200);
+const resumido = textoEnviado();
+assert.ok(resumido.includes("Residencial Orla") && /350/.test(resumido), "nome e valor vão");
+assert.ok(resumido.split("\n").length <= 5, "resumido é curto");
+db.prepare(`INSERT INTO produto_unidades (id,org_id,produto_id,identificacao,bloco,tipologia,area,status,moeda,preco,fluxo_json,ordem,created_at)
+  VALUES ('un1',?,?,'101','Torre A','2 quartos',62,'disponivel','BRL',300000,?,0,?)`)
+  .run(org, prod, JSON.stringify({ sinal: { pct: 10, qtd: 1, valor: 30000, parcela: 30000 }, mensais: { pct: 30, qtd: 36, valor: 90000, parcela: 2500 }, financiar: { pct: 60, valor: 180000 } }), Date.now());
+db.prepare(`INSERT INTO produto_unidades (id,org_id,produto_id,identificacao,status,moeda,preco,ordem,created_at)
+  VALUES ('un2',?,?,'102','vendido','BRL',310000,1,?)`).run(org, prod, Date.now());
+r5 = await env({ produto_id: prod, fotos: false, unidade_id: "un1" });
+assert.equal(r5.status, 200);
+const comUnidade = textoEnviado();
+console.log("   " + comUnidade.split("\n").slice(-5).join("\n   "));
+assert.ok(comUnidade.includes("Torre A · 101") && comUnidade.includes("36x"), "unidade e fluxo vão no texto");
+r5 = await env({ produto_id: prod, fotos: false, unidade_id: "un2" });
+assert.equal(r5.status, 409, "unidade vendida não é oferecida");
+
 srv.close();
 console.log("\nTudo certo ✅");
