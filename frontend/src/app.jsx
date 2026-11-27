@@ -11469,6 +11469,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const {tags:tagsDaCasa}=usarTags(acoes,session);
   const [filtrosAbertos,setFiltrosAbertos]=useState(false);
   const filtrosAtivos=[f.dono,f.prioridade,f.tag,f.situacao,f.origem,f.de,f.ate].filter(Boolean).length;
+  // No computador, corretor/temperatura/origem ficam à vista; o número do botão conta só o que está na gaveta.
+  const filtrosGaveta=isMobile?filtrosAtivos:[f.tag,f.situacao,f.de,f.ate].filter(Boolean).length;
+  const origensFunil=useMemo(()=>[...new Set(leads.map(l=>l.origem).filter(Boolean))].sort(),[leads]);
 
   /* SÓ OS LEADS DESTE FUNIL.
 
@@ -11529,9 +11532,12 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const algumaNegociacao=visiveis.some(l=>!l.venda&&l.negociacao);
 
   const limpar=()=>setF({dono:"",prioridade:"",tag:"",situacao:"",origem:"",de:"",ate:""});
+  // Os selects no desenho do protótipo: brancos, 36px, borda clara.
+  const seloEstilo=(ativo)=>({fontSize:isMobile?16:11.5,fontWeight:500,color:ativo?C.ink:"#4a6250",background:ativo?C.greenSoft:"#fff",
+      border:`1px solid ${ativo?C.green+"66":"#dce4db"}`,borderRadius:10,padding:"0 11px",height:isMobile?42:36,outline:"none",maxWidth:"100%",
+      minWidth:isMobile?0:130,cursor:"pointer",fontFamily:FONT});
   const selo=(label,valor,campo,opcoes)=><select value={valor} onChange={e=>setF({...f,[campo]:e.target.value})}
-    style={{fontSize:isMobile?16:12.5,fontWeight:500,color:valor?C.ink:C.sub,background:valor?C.greenSoft:C.surface,
-      border:`1px solid ${valor?C.green+"66":C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",maxWidth:"100%"}}>
+    style={seloEstilo(!!valor)}>
     <option value="">{label}</option>
     {opcoes.map(o=><option key={o.v} value={o.v}>{o.t}</option>)}
   </select>;
@@ -11540,7 +11546,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   // por vez e o fundo escuro é da tela inteira.
   const [aberto,setAberto]=useState(null);
   const abrirCard=(l)=>setAberto(l.id);
-  const colW=isMobile?"82vw":212;
+  const colW=isMobile?"82vw":228;
   const [arrasto,setArrasto]=useState(null);   // {id,nome,de,x,y}
   const [alvo,setAlvo]=useState(null);         // etapa sob o dedo
   const colunas=useRef({});                    // etapa -> elemento, para medir onde soltou
@@ -11611,9 +11617,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
               :onde==="lead"?"Buscar por nome do lead"
               :onde==="corretor"?"Buscar por nome do corretor"
               :"Buscar por lead ou corretor"}
-            style={{width:"100%",fontSize:isMobile?16:12.5,padding:isMobile?"10px 32px 10px 30px":"8px 32px 8px 30px",
-              borderRadius:10,border:`1px solid ${busca?C.green+"66":C.line}`,background:busca?C.greenSoft:C.surface,
-              color:C.ink,outline:"none"}}/>
+            style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:11.5,height:isMobile?42:36,padding:"0 32px 0 30px",
+              borderRadius:10,border:`1px solid ${busca?C.green+"66":"#dce4db"}`,background:busca?C.greenSoft:"#fff",
+              color:C.ink,outline:"none",fontFamily:FONT}}/>
           {busca&&<button onClick={()=>setBusca("")} aria-label="Limpar busca"
             style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",border:"none",background:"transparent",
               color:C.faint,cursor:"pointer",fontSize:15,lineHeight:1,padding:4}}>×</button>}
@@ -11624,9 +11630,9 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         <button onClick={()=>setOcultar(o=>!o)} aria-pressed={ocultar}
           aria-label={ocultar?"Mostrar telefone e e-mail dos leads":"Esconder telefone e e-mail dos leads"}
           title={ocultar?"Telefone e e-mail escondidos — clique para mostrar":"Esconder telefone e e-mail (para gravar a tela ou tirar print)"}
-          style={{width:isMobile?42:36,height:isMobile?42:34,flexShrink:0,borderRadius:10,cursor:"pointer",
+          style={{width:isMobile?42:36,height:isMobile?42:36,flexShrink:0,borderRadius:10,cursor:"pointer",
             display:"flex",alignItems:"center",justifyContent:"center",
-            border:`1px solid ${ocultar?C.hot+"66":C.line}`,background:ocultar?C.hotSoft:C.surface,color:ocultar?C.hot:C.sub}}>
+            border:`1px solid ${ocultar?C.hot+"66":"#dce4db"}`,background:ocultar?C.hotSoft:"#fff",color:ocultar?C.hot:"#4a6250"}}>
           <Icon n={ocultar?"olhoFechado":"olho"} size={16}/></button>
         {/* EM QUAL DOS DOIS PROCURAR.
 
@@ -11639,10 +11645,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             busca tem alvo, que é justamente o que este seletor veio contar. */}
         {mostrarDono&&<select value={onde} onChange={e=>setOnde(e.target.value)}
           title="Onde procurar o que você digitou"
-          style={{fontSize:isMobile?16:12.5,fontWeight:600,flexShrink:0,cursor:"pointer",
-            color:onde==="tudo"?C.sub:C.greenDeep,background:onde==="tudo"?C.surface:C.greenSoft,
-            border:`1px solid ${onde==="tudo"?C.line:C.green+"66"}`,borderRadius:10,
-            padding:isMobile?"10px 8px":"8px 9px",outline:"none"}}>
+          style={{...seloEstilo(onde!=="tudo"),flexShrink:0,minWidth:0}}>
           <option value="tudo">Lead ou corretor</option>
           <option value="lead">Só o lead</option>
           <option value="corretor">Só o corretor</option>
@@ -11668,18 +11671,23 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             um clique no meio do atendimento. */}
         {pipelines.length>0&&<select value={pipeAtual?pipeAtual.id:""}
           onChange={e=>{ if(e.target.value==="__novo"){setCriandoFunil(true);} else setPipeSel(e.target.value); }}
-          style={{border:`1px solid ${C.green}55`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,
-            padding:isMobile?"10px 11px":"8px 11px",fontSize:isMobile?13:12,fontWeight:700,
-            cursor:"pointer",flexShrink:0,outline:"none",maxWidth:isMobile?170:230}}>
+          style={{...seloEstilo(false),fontWeight:600,color:C.ink,flexShrink:0,maxWidth:isMobile?170:230}}>
           {pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
           {podeCriarFunil&&<option value="__novo">+ Criar outro funil…</option>}
         </select>}
+        {/* No computador, corretor, temperatura e origem ficam à vista, como no
+            protótipo; o resto vai em "Filtros avançados". */}
+        {!isMobile&&mostrarDono&&<SeletorDePessoas valor={f.dono} mudar={v=>setF(a=>({...a,dono:v||""}))} isMobile={isMobile} rotuloTodos="Toda a equipe"
+          pessoas={pessoas.map(p=>({id:p.id,name:session&&p.id===session.id?`${p.name} (eu)`:p.name}))}
+          estilo={seloEstilo(!!f.dono)}/>}
+        {!isMobile&&selo("Temperatura",f.prioridade,"prioridade",[{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
+        {!isMobile&&origensFunil.length>1&&selo("Origem",f.origem,"origem",origensFunil.map(o=>({v:o,t:o})))}
         <button onClick={()=>setFiltrosAbertos(a=>!a)}
-          style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosAtivos?C.green+"66":C.line}`,
-            background:filtrosAtivos?C.greenSoft:C.surface,color:filtrosAtivos?C.greenDeep:C.sub,borderRadius:10,
-            padding:isMobile?"10px 13px":"8px 12px",fontSize:isMobile?13:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>
-          <Icon n="sliders" size={13}/>Filtros
-          {filtrosAtivos>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,
+          style={{display:"flex",alignItems:"center",gap:6,border:`1px solid ${filtrosGaveta?C.green+"66":"#dce4db"}`,
+            background:filtrosGaveta?C.greenSoft:"#fff",color:filtrosGaveta?C.greenDeep:"#4a6250",borderRadius:10,
+            padding:"0 12px",height:isMobile?42:36,fontSize:isMobile?13:11.5,fontWeight:600,cursor:"pointer",flexShrink:0,fontFamily:FONT}}>
+          <Icon n="sliders" size={13}/>{isMobile?"Filtros":"Filtros avançados"}
+          {filtrosGaveta>0&&<span style={{minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:C.green,
             color:"#fff",fontSize:10.5,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{filtrosAtivos}</span>}
           <span style={{display:"inline-flex",transform:filtrosAbertos?"rotate(90deg)":"none",transition:"transform .15s"}}>
             <Icon n="chevron" size={13}/></span>
@@ -11775,17 +11783,16 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
 
       {filtrosAbertos&&<div style={{display:"flex",flexDirection:"column",gap:9,paddingBottom:2}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          {mostrarDono&&<SeletorDePessoas valor={f.dono} mudar={v=>setF(a=>({...a,dono:v||""}))} isMobile={isMobile} rotuloTodos="Todo mundo"
+          {isMobile&&mostrarDono&&<SeletorDePessoas valor={f.dono} mudar={v=>setF(a=>({...a,dono:v||""}))} isMobile={isMobile} rotuloTodos="Toda a equipe"
             pessoas={pessoas.map(p=>({id:p.id,name:session&&p.id===session.id?`${p.name} (eu)`:p.name}))}
-            estilo={{fontSize:isMobile?16:12.5,fontWeight:500,color:C.sub,background:C.surface,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 10px",outline:"none",cursor:"pointer"}}/>}
-          {selo("Temperatura",f.prioridade,"prioridade",
+            estilo={seloEstilo(!!f.dono)}/>}
+          {isMobile&&selo("Temperatura",f.prioridade,"prioridade",
             [{v:"QUENTE",t:"Quente"},{v:"MORNO",t:"Morno"},{v:"FRIO",t:"Frio"}])}
           {/* Só aparece quando a casa tem tag: um seletor vazio é um filtro
               que promete uma peneira que não existe. */}
           {!!tagsDaCasa.length&&selo("Tag",f.tag,"tag",tagsDaCasa.map(t=>({v:t.id,t:t.nome})))}
           {selo("Situação",f.situacao,"situacao",SITUACOES)}
-          {(()=>{const os=[...new Set(leads.map(l=>l.origem).filter(Boolean))].sort();
-            return os.length>1?selo("Origem",f.origem,"origem",os.map(o=>({v:o,t:o}))):null;})()}
+          {isMobile&&origensFunil.length>1&&selo("Origem",f.origem,"origem",origensFunil.map(o=>({v:o,t:o})))}
           {filtrosAtivos>0&&<button onClick={limpar}
             style={{marginLeft:"auto",border:"none",background:"transparent",color:C.faint,fontSize:11.5,
               cursor:"pointer",textDecoration:"underline"}}>limpar filtros</button>}
@@ -11827,7 +11834,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
       scrollSnapType:isMobile&&!arrasto?"x mandatory":"none",touchAction:arrasto?"none":"auto"}}>
     {!funisCarregados&&<div style={{display:"flex",alignItems:"center",gap:8,color:C.faint,fontSize:13,padding:"18px 4px"}}>
       <Icon n="loader" size={14} spin/> Carregando o funil…</div>}
-    <div style={{display:"flex",gap:12,height:"100%",minWidth:isMobile?"auto":colunas2.length*226}}>
+    <div style={{display:"flex",gap:12,height:"100%",alignItems:arrasto?"stretch":"flex-start",minWidth:isMobile?"auto":colunas2.length*240}}>
       {colunas2.map(col=>{const st=col.name;
         /* Casa pelo VINCULO quando os dois lados o têm, e pelo nome quando
            não. Só pelo nome, dois funis com uma etapa "Visita" misturariam os
@@ -11838,34 +11845,39 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
         const corCol=corDaEtapa(col,st);
         // O VGV em aberto da coluna: soma do valor em negociação de quem ainda não vendeu.
         const emNegociacao=items.reduce((t,l)=>t+(!l.venda&&l.negociacao?l.negociacao:0),0);
-        return <div key={st} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 12px 10px",background:destacada?corCol+"14":C.panel,border:`1px solid ${destacada?corCol:C.line}`,borderBottom:"none",borderRadius:"12px 12px 0 0"}}><div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><span style={{background:corCol,width:8,height:8,borderRadius:"50%",flexShrink:0}}/><span style={{color:C.ink,fontSize:12,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st}</span></div><span style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{color:C.faint,fontFamily:MONO,fontSize:11,fontWeight:600}}>{items.length}</span>
-            {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Prazo e consequência de "+st}
-              aria-label={"Prazo e consequência de "+st}
-              style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:9,width:26,height:26,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
-                color:col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}}>
-              <Icon n="gear" size={12} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:C.faint}/></button>}</span></div>
+        /* A COLUNA DO PROTÓTIPO (27/11/2026): uma caixa só, verde-clara, com o
+           quadradinho da cor da etapa, o nome, a contagem à direita e a
+           engrenagem do gestor. Os cards rolam dentro dela. */
+        const bordaCol=destacada?corCol:"#dfe7dc", fundoCol=destacada?corCol+"14":"#eaf0e7";
+        return <div key={st} ref={el=>{colunas.current[st]=el;}} style={{width:colW,flexShrink:0,scrollSnapAlign:isMobile&&!arrasto?"start":"none",display:"flex",flexDirection:"column",minHeight:0,maxHeight:"100%",boxSizing:"border-box",
+          background:fundoCol,border:`1px solid ${bordaCol}`,borderRadius:12,padding:9,transition:"background .12s,border-color .12s"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 4px 12px",flexShrink:0}}>
+            <i style={{width:8,height:8,borderRadius:2,background:corCol,flexShrink:0}}/>
+            <span style={{color:C.ink,fontSize:11.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{st}</span>
+            <span style={{marginLeft:"auto",color:"#8a9983",fontSize:11,fontWeight:600,flexShrink:0}}>{items.length}</span>
+            {gestorFunil&&col.id&&<button onClick={()=>setEngrenagem(col)} title={"Configurar etapa · "+st}
+              aria-label={"Configurar etapa "+st}
+              style={{border:"none",background:"transparent",width:22,height:22,padding:0,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Icon n="gear" size={12} color={col.prazo_acao&&col.prazo_acao!=="marcar"?C.greenDeep:"#8a9983"}/></button>}
+          </div>
           {algumaNegociacao&&<div title={emNegociacao>0?"Soma do valor em negociação dos leads desta coluna (sem os vendidos)":undefined}
-            style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,padding:"0 12px 6px",height:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",background:destacada?corCol+"14":C.panel,borderLeft:`1px solid ${destacada?corCol:C.line}`,borderRight:`1px solid ${destacada?corCol:C.line}`}}>
+            style={{color:C.greenDeep,fontSize:10.5,fontWeight:600,padding:"0 4px 8px",marginTop:-6,height:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",flexShrink:0}}>
             {emNegociacao>0?`${fmtMoedaCurta(emNegociacao)} em negociação`:""}</div>}
-          <div ref={el=>{colunas.current[st]=el;}}
-            style={{flex:1,borderRadius:"0 0 12px 12px",border:`1px solid ${destacada?corCol:C.line}`,borderTop:"none",
-              background:destacada?corCol+"14":C.panel,padding:"2px 10px 10px",overflowY:arrasto?"hidden":"auto",
-              display:"flex",flexDirection:"column",gap:8,transition:"background .12s,border-color .12s"}}>
+          <div
+            style={{flex:1,minHeight:0,overflowY:arrasto?"hidden":"auto",display:"flex",flexDirection:"column",gap:9,paddingBottom:2}}>
             {items.slice(0,limitesColuna[st]||60).map(l=>{
               const sendoArrastado=arrasto&&arrasto.id===l.id;
               return <CardFunil key={l.id} l={l} mostrarDono={mostrarDono} arrastando={!!arrasto} ocultar={ocultar}
                 opaco={sendoArrastado} aoPressionar={aoPressionar} moveu={moveu} camposCard={camposCard}
                 aoAbrir={()=>{ if(!moveu.current) abrirCard(l); }}/>;})}
-            {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
+
             <MostrarMais total={items.length} mostrando={limitesColuna[st]||60} passo={60}
               aoClicar={()=>setLimitesColuna(m=>({...m,[st]:(m[st]||60)+60}))}/>
             {/* Cadastrar direto na etapa, como no protótipo: o lead que chegou
                 por telefone já entra onde ele está, sem passar pelo Atender. */}
             {acoes&&acoes.criarLead&&col.id&&!arrasto&&<button onClick={()=>setNovoNaEtapa(col.id)}
-              style={{border:`1px dashed ${C.line}`,background:"transparent",color:C.faint,borderRadius:10,padding:"7px 0",
-                fontSize:11.5,fontWeight:600,cursor:"pointer",fontFamily:FONT,flexShrink:0}}>+ Adicionar lead</button>}
+              style={{border:"1px solid #dce5d4",background:"transparent",color:"#4a6250",borderRadius:10,padding:"7px 0",
+                fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:FONT,flexShrink:0,marginTop:items.length?0:2}}>+ Adicionar lead</button>}
           </div>
         </div>;})}
     </div>
@@ -12559,89 +12571,65 @@ function CardFunil({l,mostrarDono,arrastando,opaco,aoPressionar,moveu,aoAbrir,ca
   const sla=l.sla;
   const urgencia=(sla&&CORES_SLA[sla.status])||(sla?null:corDeUrgencia(l));
   const tar=l.tarefas;
-  const linha=(icone,texto,cor)=><div style={{display:"flex",alignItems:"center",gap:4,marginTop:3}}>
-    <Icon n={icone} size={9} color={cor||C.faint}/>
-    <span title={typeof texto==="string"?texto:undefined} style={{color:cor||C.faint,fontSize:9.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{texto}</span>
+  const linha=(icone,texto,cor)=><div style={{display:"flex",alignItems:"center",gap:4,margin:"4px 0"}}>
+    <Icon n={icone} size={9} color={cor||"#8b9887"}/>
+    <span title={typeof texto==="string"?texto:undefined} style={{color:cor||"#8b9887",fontSize:9.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{texto}</span>
   </div>;
 
+  /* O CARD NO DESENHO DO PROTÓTIPO (27/11/2026): nome, linhas pequenas em
+     cinza (contato, etapa, última interação), pastilhas quadradinhas
+     (temperatura, origem, tags) e o responsável no pé, com as iniciais. */
+  const pastilha=(texto,bg,cor,key)=><span key={key} title={texto}
+    style={{display:"inline-flex",alignItems:"center",background:bg,color:cor,borderRadius:5,padding:"3px 6px",fontSize:9,fontWeight:600,
+      margin:"3px 3px 0 0",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{texto}</span>;
+  const iniciais=(n)=>String(n||"").trim().split(/\s+/).slice(0,2).map(p=>p[0]||"").join("").toUpperCase()||"—";
+  const [sobre,setSobre]=useState(false);
   return <div
     onPointerDown={(e)=>aoPressionar(e,l)}
+    onMouseEnter={()=>setSobre(true)} onMouseLeave={()=>setSobre(false)}
     onContextMenu={(e)=>e.preventDefault()}   /* segurar no celular abriria o menu do sistema */
-    /* `flexShrink:0` NÃO é ajuste fino — sem ele o funil quebra.
-
-       A coluna é um flex em coluna. Normalmente um item de flex não encolhe
-       abaixo do tamanho do próprio conteúdo (`min-height:auto`), e a coluna
-       rola. Mas a regra do CSS tem uma exceção: quando o item tem `overflow`
-       diferente de `visible`, esse mínimo automático passa a ser ZERO.
-
-       O `overflow:hidden` entrou aqui só para a faixa de urgência respeitar o
-       canto arredondado — e levou junto a proteção contra encolher. Com 96
-       leads numa etapa, os 96 cards viraram tiras de 3px empilhadas. */
-    style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:10,overflow:"hidden",flexShrink:0,boxShadow:"0 2px 6px rgba(23,60,40,.04)",
+    /* `flexShrink:0` NÃO é ajuste fino — sem ele o funil quebra: com
+       `overflow:hidden` o mínimo automático do item de flex vira zero e 96
+       cards numa etapa viram tiras de 3px. */
+    style={{background:"#fff",border:`1px solid ${sobre&&!arrastando?"#aac49d":"#e0e7db"}`,borderRadius:10,overflow:"hidden",flexShrink:0,
+      boxShadow:sobre&&!arrastando?"0 6px 15px rgba(25,61,24,.08)":"0 3px 8px rgba(25,61,24,.02)",
+      transform:sobre&&!arrastando?"translateY(-2px)":"none",transition:"transform .15s,box-shadow .15s,border-color .15s",
       opacity:opaco?.35:1,cursor:arrastando?"grabbing":"grab",touchAction:"pan-x",userSelect:"none"}}>
     {/* A faixa de urgência no topo: some quando está tudo bem. */}
     {urgencia&&<div style={{height:3,background:urgencia}}/>}
-    <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:"12px 13px"}}>
-      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
-        <span style={{color:C.ink,fontSize:13,fontWeight:700,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</span>
-        {/* Sem temperatura, sem pastilha. Escrever "sem temperatura" num card
-            de 160px é gastar a linha mais visível para dizer que não se sabe —
-            e no funil inteiro vira um carimbo repetido que o olho aprende a
-            pular. A ausência já comunica. */}
-        {l.prio&&<span style={{background:prioDe(l.prio).bg,color:prioDe(l.prio).c,fontSize:8.5,fontWeight:700,
-          borderRadius:999,padding:"1px 6px",flexShrink:0,textTransform:"uppercase",letterSpacing:.3}}>{prioDe(l.prio).label}</span>}
-      </div>
-
-      {/* O CONTATO (07/10/2026, pedido do Ali): o número sempre, o e-mail só
-          quando existe. Deixa o card um pouco mais alto em todo quadro — foi
-          aceito. O olho ao lado da busca troca os dois por pontos. */}
-      {l.tel&&linha("phone", ocultar?CONTATO_OCULTO:fmtTel(l.tel), C.sub)}
-      {l.email&&linha("mail", ocultar?CONTATO_OCULTO:l.email, C.sub)}
-
-      {/* Desde quando está NESTA etapa. Sem histórico ainda, diz "—" em vez de
-          usar a data de entrada do lead, que quase nunca é a mesma coisa. */}
+    <button onClick={aoAbrir} style={{width:"100%",textAlign:"left",border:"none",background:"transparent",cursor:"inherit",padding:14,fontFamily:FONT}}>
+      <div style={{color:C.ink,fontSize:12.5,fontWeight:700,marginBottom:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.nome}</div>
+      {l.tel&&linha("phone", ocultar?CONTATO_OCULTO:fmtTel(l.tel))}
+      {l.email&&linha("mail", ocultar?CONTATO_OCULTO:l.email)}
       {linha("calendar", `criado em ${l.createdAt?fmtData(l.createdAt):"—"}`)}
-      {linha("target", `entrada na etapa ${l.etapaDesde?fmtData(l.etapaDesde):"—"}`)}
-
-      {/* "Falou" é a ÚLTIMA INTERAÇÃO de verdade (CETRO 09.1): mensagem de
-          gente ou ligação — disparo e automação não contam. */}
-      {(()=>{const t=l.ultimaInteracao||l.lastAt; return linha("msg", t?`falou ${fmtQuando(t)}`:"sem conversa", urgencia);})()}
+      {linha("target", `nesta etapa desde ${l.etapaDesde?fmtData(l.etapaDesde):"—"}`)}
+      {/* "Última interação" é de verdade (CETRO 09.1): mensagem de gente ou
+          ligação — disparo e automação não contam. */}
+      {(()=>{const t=l.ultimaInteracao||l.lastAt; return linha("msg", t?`última interação ${fmtQuando(t)}`:"sem conversa", urgencia);})()}
       {l.negociacao&&!l.venda&&linha("trend", `${fmtMoedaCurta(l.negociacao)} em negociação`, C.greenDeep)}
-
-      {/* O cronômetro, escrito. A faixa colorida diz QUE está atrasado; esta
-          linha diz HÁ QUANTO — e é a diferença entre o gestor olhar e agir, ou
-          olhar e ter que abrir o lead para descobrir o tamanho do problema. */}
-      {sla&&sla.status!=="ok"&&linha(sla.status==="overdue"?"flame":"clock",
-        textoSla(sla), CORES_SLA[sla.status])}
-
+      {sla&&sla.status!=="ok"&&linha(sla.status==="overdue"?"flame":"clock", textoSla(sla), CORES_SLA[sla.status])}
       {tar&&tar.abertas>0&&linha(tar.atrasada?"flame":"calendar",
         `${tar.titulo}${tar.abertas>1?` +${tar.abertas-1}`:""} · ${fmtTarefa(tar.proxima)}`,
         tar.atrasada?C.hot:C.greenMid)}
-
-      {/* AS TAGS, em pastilha. Não é linha de texto como o resto: a tag existe
-          para ser reconhecida de relance, no meio de sessenta cards — e é isso
-          que a cor faz. O nome vai escrito junto de qualquer jeito, porque
-          duas tags podem ter a mesma cor e porque cor sozinha não é leitura
-          para todo mundo. */}
-      {!!(l.tags||[]).length&&<div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:5}}>
-        {l.tags.map(t=><span key={t.id} title={t.nome}
-          style={{display:"inline-flex",alignItems:"center",gap:3,background:t.cor+"1F",color:t.cor,
-            border:`1px solid ${t.cor}44`,borderRadius:999,padding:"1px 6px",fontSize:8.5,fontWeight:700,
-            maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.nome}</span>)}
+      {/* Pastilhas: temperatura (dourada quando quente), origem (azul) e as
+          tags com o nome escrito — cor sozinha não é leitura para todo mundo. */}
+      {(l.prio||l.origem||(l.tags||[]).length>0)&&<div style={{display:"flex",flexWrap:"wrap",marginTop:6}}>
+        {l.prio&&pastilha(prioDe(l.prio).label, l.prio==="QUENTE"?"#f4eddd":"#e6f1e9", l.prio==="QUENTE"?"#9a803d":"#47805b","p")}
+        {l.origem&&pastilha(l.origem,"#e7edf6","#5f7eaa","o")}
+        {(l.tags||[]).map(t=>pastilha(t.nome,t.cor+"1F",t.cor,t.id))}
       </div>}
-
-      {/* Campos personalizados marcados "no card" (Configurações → Funis e
-          etapas → Campos do lead). Sem valor, sem linha — mesma régua da
-          temperatura: card cheio de "—" vira ruído que o olho aprende a
-          pular. */}
+      {/* Campos personalizados marcados "no card". Sem valor, sem linha. */}
       {camposCard.map(def=>{
         const v=(l.campos||{})[def.key];
         const vazio=v===undefined||v===null||v===""||(Array.isArray(v)&&!v.length);
-        return vazio?null:<React.Fragment key={def.id}>{linha("lista",`${def.name}: ${fmtCampoCard(v,def.type)}`)}</React.Fragment>;
+        return vazio?null:<div key={def.id} style={{color:"#4e7554",fontSize:10,marginTop:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+          title={`${def.name}: ${fmtCampoCard(v,def.type)}`}>{def.name}: {fmtCampoCard(v,def.type)}</div>;
       })}
-
-      {mostrarDono&&<div style={{color:C.faint,fontSize:9.5,marginTop:4,paddingTop:4,borderTop:`1px solid ${C.line}`,
-        overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</div>}
+      {mostrarDono&&<div style={{display:"flex",alignItems:"center",gap:6,borderTop:"1px solid #e1e8db",paddingTop:9,marginTop:10,minWidth:0}}>
+        <span style={{width:20,height:20,borderRadius:"50%",background:l.assignedName?"#e8f3ea":"#f1f3ee",color:l.assignedName?"#17704a":C.faint,
+          fontSize:7.5,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{l.assignedName?iniciais(l.assignedName):"—"}</span>
+        <span style={{color:"#83917e",fontSize:9.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.assignedName||"na fila"}</span>
+      </div>}
     </button>
   </div>;
 }
