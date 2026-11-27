@@ -1834,6 +1834,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS google_contas (
   if (!cols.includes("google_event_id")) db.exec("ALTER TABLE tarefas ADD COLUMN google_event_id TEXT");
   if (!cols.includes("google_meet")) db.exec("ALTER TABLE tarefas ADD COLUMN google_meet TEXT");
   if (!cols.includes("google_erro")) db.exec("ALTER TABLE tarefas ADD COLUMN google_erro TEXT");
+  /* Tipo e imóvel (27/11/2026, protótipo CETRO): a tarefa pode ser uma VISITA
+     ou uma VIDEOCHAMADA com o cliente, e pode apontar o imóvel do catálogo.
+     Nulo = tarefa comum, como sempre foi. Não muda número nenhum: a visita
+     dos relatórios continua sendo a etapa do funil. */
+  if (!cols.includes("tipo")) db.exec("ALTER TABLE tarefas ADD COLUMN tipo TEXT");
+  if (!cols.includes("produto_id")) db.exec("ALTER TABLE tarefas ADD COLUMN produto_id TEXT");
 }
 db.exec(`
 /* Quem escreveu e ainda não foi decidido. Guarda o MÍNIMO — nome, número,

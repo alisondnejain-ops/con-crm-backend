@@ -17,7 +17,9 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import db, { emLotes } from "../db.js";
-import { authRequired, podeVerLead } from "../auth.js";
+import { authRequired, podeVerLead, supervisiona } from "../auth.js";
+
+const TIPOS = new Set(["visita", "videochamada"]);
 import { eventoDaTarefa, apagarEvento, moverEvento } from "../services/google-agenda.js";
 
 /* DOIS routers, com caminhos EXPLÍCITOS na hora de montar.
@@ -41,8 +43,10 @@ const doLead = (id) => db.prepare("SELECT * FROM leads WHERE id = ?").get(id);
 export const listar = (leadId) => db.prepare(`
   SELECT t.id, t.titulo, t.quando, t.feito_em, t.user_id, u.name AS de_quem,
     t.google_event_id IS NOT NULL AS na_agenda, t.google_meet AS meet, t.google_erro AS agenda_erro,
-    t.cadencia_passo_id IS NOT NULL AS da_cadencia, t.criterio, t.instrucao, t.concluida_por, t.evidencia
+    t.cadencia_passo_id IS NOT NULL AS da_cadencia, t.criterio, t.instrucao, t.concluida_por, t.evidencia,
+    t.tipo, t.produto_id, p.titulo AS produto_titulo
   FROM tarefas t LEFT JOIN users u ON u.id = t.user_id
+  LEFT JOIN produtos p ON p.id = t.produto_id AND p.org_id = t.org_id
   WHERE t.lead_id = ? ORDER BY t.feito_em IS NOT NULL, t.quando ASC`).all(leadId);
 
 r.get("/:id/tarefas", (req, res) => {
@@ -66,10 +70,24 @@ r.post("/:id/tarefas", async (req, res) => {
   /* A tarefa é de quem está com o lead, não de quem a escreveu. O gestor que
      combina algo na reunião está criando trabalho para o corretor — se ficasse
      no nome do gestor, não apareceria para quem tem que fazer. */
-  const dono = lead.assigned_to || req.user.id;
+  let dono = lead.assigned_to || req.user.id;
+  /* Quem supervisiona pode pôr a tarefa no nome de outra pessoa ativa da
+     conta (a visita que outro corretor faz no plantão). O corretor, não. */
+  if (req.body?.user_id && req.body.user_id !== dono && supervisiona(req.user)) {
+    const u = db.prepare("SELECT id FROM users WHERE id = ? AND org_id = ? AND status = 'ativo'").get(req.body.user_id, lead.org_id);
+    if (!u) return res.status(400).json({ error: "Essa pessoa não está ativa nesta conta." });
+    dono = u.id;
+  }
+  const tipo = TIPOS.has(req.body?.tipo) ? req.body.tipo : null;
+  let produto = null;
+  if (req.body?.produto_id) {
+    const p = db.prepare("SELECT id FROM produtos WHERE id = ? AND org_id = ?").get(req.body.produto_id, lead.org_id);
+    if (!p) return res.status(400).json({ error: "Imóvel não encontrado nesta conta." });
+    produto = p.id;
+  }
   const id = "tf_" + randomUUID();
-  db.prepare(`INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,created_at)
-    VALUES (?,?,?,?,?,?,?,?)`).run(id, lead.org_id, lead.id, dono, req.user.id, titulo, quando, Date.now());
+  db.prepare(`INSERT INTO tarefas (id,org_id,lead_id,user_id,criado_por,titulo,quando,tipo,produto_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, lead.org_id, lead.id, dono, req.user.id, titulo, quando, tipo, produto, Date.now());
   /* Com o Google ligado por quem é a tarefa, ela vira evento na agenda dele
      (e, se pedido, com link do Meet). Nunca impede a tarefa de existir. */
   const agenda = await eventoDaTarefa(id, { meet: !!req.body?.meet });

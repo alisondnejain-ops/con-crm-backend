@@ -12188,84 +12188,123 @@ function GoogleAgenda({acoes,session,isMobile}){
 }
 
 const CRITERIOS_CADENCIA={mensagem:"Mensagem enviada",ligacao:"Ligação realizada",conversa:"Conversa efetiva",manual:"Marcar à mão"};
+/* TAREFA, VISITA OU VIDEOCHAMADA (27/11/2026, protótipo CETRO): o mesmo
+   compromisso com data e hora, agora com um tipo e, se quiser, o imóvel do
+   catálogo. Visita e videochamada aparecem numa lista à parte ("Visitas e
+   videochamadas"), porque é o que se procura de relance antes de falar com
+   o cliente. Quem supervisiona escolhe de quem é (a visita do plantão). */
+const TIPOS_TAREFA=[{v:"",t:"Tarefa",i:"calendar"},{v:"visita",t:"Visita",i:"pin"},{v:"videochamada",t:"Videochamada",i:"phone"}];
 function TarefasDoLead({lead,acoes,isMobile}){
   const [lista,setLista]=useState(lead.listaTarefas||[]);
   const [titulo,setTitulo]=useState("");
   const [quando,setQuando]=useState("");
+  const [tipo,setTipo]=useState("");
+  const [produtoId,setProdutoId]=useState("");
+  const [dono,setDono]=useState("");
   const [abrindo,setAbrindo]=useState(false);
   const [erro,setErro]=useState("");
   const [ocupado,setOcupado]=useState("");
   const [meet,setMeet]=useState(false);
   const [avisoAgenda,setAvisoAgenda]=useState("");
+  const [imoveis,setImoveis]=useState(null);
+  const [pessoas,setPessoas]=useState(null);
   const google=usarGoogleEstado(acoes);
 
   useEffect(()=>{ setLista(lead.listaTarefas||[]); },[lead.id,lead.listaTarefas]);
-  useEffect(()=>{ setAbrindo(false); setTitulo(""); setQuando(""); setErro(""); },[lead.id]);
+  useEffect(()=>{ setAbrindo(false); setTitulo(""); setQuando(""); setErro(""); setProdutoId(""); setDono(""); },[lead.id]);
+  // O catálogo e a equipe só são buscados quando o formulário abre.
+  useEffect(()=>{ if(!abrindo) return;
+    if(imoveis===null&&acoes.produtos) acoes.produtos({}).then(r=>setImoveis((Array.isArray(r)?r:(r&&r.produtos)||[]).filter(p=>p.status!=="recusado"))).catch(()=>setImoveis([]));
+    if(pessoas===null&&acoes.equipe) acoes.equipe().then(r=>setPessoas((Array.isArray(r)?r:(r&&r.users)||[]).filter(u=>u.status==="ativo"&&!u.master))).catch(()=>setPessoas([]));
+  },[abrindo]);
 
   const roda=async(nome,fn)=>{ setOcupado(nome); setErro("");
     try{ const r=await fn(); if(r&&r.tarefas) setLista(r.tarefas); }
     catch(e){ setErro(e.message); } finally{ setOcupado(""); } };
 
+  function abrir(t){ setTipo(t); setMeet(t==="videochamada"&&!!(google&&google.configurado)); setAbrindo(true); setErro(""); }
+
   async function criar(){
-    if(!titulo.trim()) return setErro("Escreva o que precisa ser feito.");
+    const im=(imoveis||[]).find(p=>p.id===produtoId);
+    const nomeTipo=(TIPOS_TAREFA.find(x=>x.v===tipo)||{}).t;
+    // Visita e videochamada podem ir sem texto: o tipo e o imóvel já dizem o que é.
+    const texto=titulo.trim()||(tipo?`${nomeTipo}${im?" · "+im.titulo:""}`:"");
+    if(!texto) return setErro("Escreva o que precisa ser feito.");
     if(!quando) return setErro("Escolha o dia e a hora.");
     setAvisoAgenda("");
-    await roda("nova",async()=>{ const r=await acoes.criarTarefa(lead.id,{titulo,quando:new Date(quando).toISOString(),meet});
-      if(r&&r.agenda&&r.agenda.erro) setAvisoAgenda("A tarefa foi marcada, mas não entrou no Google Agenda: "+r.agenda.erro);
+    await roda("nova",async()=>{ const r=await acoes.criarTarefa(lead.id,{titulo:texto.slice(0,120),quando:new Date(quando).toISOString(),meet,tipo:tipo||null,produto_id:produtoId||null,user_id:dono||null});
+      if(r&&r.agenda&&r.agenda.erro) setAvisoAgenda("Marcado, mas não entrou no Google Agenda: "+r.agenda.erro);
       return r; });
-    setTitulo(""); setQuando(""); setMeet(false); setAbrindo(false);
+    setTitulo(""); setQuando(""); setMeet(false); setProdutoId(""); setDono(""); setAbrindo(false);
   }
 
   const abertas=lista.filter(t=>!t.feito_em), feitas=lista.filter(t=>t.feito_em);
+  const encontros=abertas.filter(t=>t.tipo), comuns=abertas.filter(t=>!t.tipo);
+  const campo={fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none",minWidth:0};
+  const linkMais={border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:2};
+
+  const linha=t=>{const atrasada=t.quando<Date.now(); const tp=TIPOS_TAREFA.find(x=>x.v===(t.tipo||""));
+    return <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"7px 9px"}}>
+      <button onClick={()=>roda(t.id,()=>acoes.marcarTarefa(t.id,true))} disabled={!!ocupado}
+        aria-label={t.tipo?"Marcar como realizada":"Marcar como feita"} title={t.tipo?"Marcar como realizada":"Marcar como feita"}
+        style={{width:19,height:19,borderRadius:8,border:`1.5px solid ${atrasada?C.hot:C.faint}`,background:"transparent",cursor:"pointer",flexShrink:0}}/>
+      <div style={{minWidth:0,flex:1}}>
+        <div style={{color:C.ink,fontSize:12,lineHeight:1.35,display:"flex",alignItems:"center",gap:5}}>
+          {t.tipo&&tp?<Icon n={tp.i} size={11} color={C.greenMid}/>:null}<span style={{minWidth:0,overflowWrap:"anywhere"}}>{t.titulo}</span></div>
+        <div style={{color:atrasada?C.hot:C.faint,fontSize:10.5,fontWeight:atrasada?700:400,marginTop:1}}>
+          {atrasada?"venceu ":""}{fmtTarefa(t.quando)}
+          {t.de_quem?` · ${first(t.de_quem)}`:""}
+          {t.na_agenda?" · na agenda":""}
+        </div>
+        {t.produto_titulo&&!String(t.titulo).includes(t.produto_titulo)&&<div style={{color:C.sub,fontSize:10.5,marginTop:1}}>Imóvel: {t.produto_titulo}</div>}
+        {t.da_cadencia?<div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:3}}>
+          <span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,padding:"1px 6px",borderRadius:999}}>cadência</span>
+          <span style={{color:C.faint,fontSize:10}}>{t.criterio&&t.criterio!=="manual"?`conclui sozinha com: ${CRITERIOS_CADENCIA[t.criterio]||t.criterio}`:"marcar à mão"}</span>
+        </div>:null}
+        {t.instrucao&&<div style={{color:C.sub,fontSize:10.5,lineHeight:1.4,marginTop:3,whiteSpace:"pre-wrap"}}>{t.instrucao}</div>}
+        {t.meet&&<a href={t.meet} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>Entrar no Meet</a>}
+      </div>
+      {!t.da_cadencia&&<button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
+        aria-label="Apagar" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>}
+    </div>;};
 
   return <div style={{background:C.card,border:`1px solid ${C.line}`,borderRadius:12,padding:12,marginBottom:14}}>
-    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:abertas.length?8:5}}>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:comuns.length?8:5}}>
       <Icon n="calendar" size={14} color={C.greenMid}/>
-      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Tarefas com este cliente</span>
-      {!abrindo&&<button onClick={()=>setAbrindo(true)}
-        style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:2}}>
-        + marcar</button>}
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Tarefas</span>
+      {!abrindo&&<button onClick={()=>abrir("")} style={linkMais}>+ tarefa</button>}
     </div>
+    {comuns.length===0&&!(abrindo&&!tipo)&&<div style={{color:C.faint,fontSize:11.5}}>Nenhuma tarefa.</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>{comuns.map(linha)}</div>
 
-    {abertas.length===0&&!abrindo&&<div style={{color:C.faint,fontSize:11.5,lineHeight:1.5}}>
-      Nenhuma tarefa.
-    </div>}
-
-    <div style={{display:"flex",flexDirection:"column",gap:5}}>
-      {abertas.map(t=>{const atrasada=t.quando<Date.now();
-        return <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"7px 9px"}}>
-          <button onClick={()=>roda(t.id,()=>acoes.marcarTarefa(t.id,true))} disabled={!!ocupado}
-            aria-label="Marcar como feita" title="Marcar como feita"
-            style={{width:19,height:19,borderRadius:8,border:`1.5px solid ${atrasada?C.hot:C.faint}`,background:"transparent",
-              cursor:"pointer",flexShrink:0}}/>
-          <div style={{minWidth:0,flex:1}}>
-            <div style={{color:C.ink,fontSize:12,lineHeight:1.35}}>{t.titulo}</div>
-            <div style={{color:atrasada?C.hot:C.faint,fontSize:10.5,fontWeight:atrasada?700:400,marginTop:1}}>
-              {atrasada?"venceu ":""}{fmtTarefa(t.quando)}
-              {t.de_quem?` · ${first(t.de_quem)}`:""}
-              {t.na_agenda?" · na agenda":""}
-            </div>
-            {/* Tarefa da cadência da etapa (CETRO 10): diz o que a conclui sozinha. */}
-            {t.da_cadencia?<div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap",marginTop:3}}>
-              <span style={{background:C.greenSoft,color:C.greenDeep,fontSize:9.5,fontWeight:700,padding:"1px 6px",borderRadius:999}}>cadência</span>
-              <span style={{color:C.faint,fontSize:10}}>{t.criterio&&t.criterio!=="manual"?`conclui sozinha com: ${CRITERIOS_CADENCIA[t.criterio]||t.criterio}`:"marcar à mão"}</span>
-            </div>:null}
-            {t.instrucao&&<div style={{color:C.sub,fontSize:10.5,lineHeight:1.4,marginTop:3,whiteSpace:"pre-wrap"}}>{t.instrucao}</div>}
-            {t.meet&&<a href={t.meet} target="_blank" rel="noopener noreferrer" style={{color:C.greenDeep,fontSize:11,fontWeight:700}}>Entrar no Meet</a>}
-          </div>
-          {/* A da cadência não se apaga: sai sozinha quando o lead deixa a etapa. */}
-          {!t.da_cadencia&&<button onClick={()=>roda(t.id,()=>acoes.apagarTarefa(t.id))} disabled={!!ocupado}
-            aria-label="Apagar a tarefa" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",padding:2,flexShrink:0,fontSize:14}}>×</button>}
-        </div>;})}
+    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:12,paddingTop:10,borderTop:`1px solid ${C.line}`,marginBottom:encontros.length?8:5}}>
+      <Icon n="pin" size={14} color={C.greenMid}/>
+      <span style={{color:C.ink,fontSize:12.5,fontWeight:700,flex:1}}>Visitas e videochamadas</span>
+      {!abrindo&&<button onClick={()=>abrir("visita")} style={linkMais}>+ visita</button>}
     </div>
+    {encontros.length===0&&!(abrindo&&tipo)&&<div style={{color:C.faint,fontSize:11.5}}>Nenhuma marcada.</div>}
+    <div style={{display:"flex",flexDirection:"column",gap:5}}>{encontros.map(linha)}</div>
 
-    {abrindo&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+    {abrindo&&<div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {TIPOS_TAREFA.map(x=><button key={x.v} onClick={()=>{setTipo(x.v); if(x.v==="videochamada"&&google&&google.configurado) setMeet(true);}}
+          style={{display:"flex",alignItems:"center",gap:5,border:`1px solid ${tipo===x.v?C.green+"88":C.line}`,background:tipo===x.v?C.greenSoft:C.card,color:tipo===x.v?C.greenDeep:C.sub,borderRadius:999,padding:"5px 11px",fontSize:11.5,fontWeight:600,cursor:"pointer"}}>
+          <Icon n={x.i} size={11}/>{x.t}</button>)}
+      </div>
       <input value={titulo} onChange={e=>setTitulo(e.target.value)} maxLength={120} autoFocus
-        placeholder="O que precisa ser feito?"
-        style={{fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        placeholder={tipo?"Detalhes (opcional)":"O que precisa ser feito?"} style={campo}/>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <input type="datetime-local" value={quando} onChange={e=>setQuando(e.target.value)}
-          style={{flex:"1 1 160px",minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"8px 10px",color:C.ink,outline:"none"}}/>
+        <input type="datetime-local" value={quando} onChange={e=>setQuando(e.target.value)} style={{...campo,flex:"1 1 160px"}}/>
+        <select value={produtoId} onChange={e=>setProdutoId(e.target.value)} style={{...campo,flex:"1 1 160px"}}>
+          <option value="">{imoveis===null?"Carregando imóveis…":"Imóvel (opcional)"}</option>
+          {(imoveis||[]).map(p=><option key={p.id} value={p.id}>{p.titulo}{p.codigo?` · ${p.codigo}`:""}</option>)}
+        </select>
+        {pessoas&&pessoas.length>1&&<select value={dono} onChange={e=>setDono(e.target.value)} style={{...campo,flex:"1 1 140px"}}>
+          <option value="">{lead.assignedName?`Com ${first(lead.assignedName)} (quem está com o lead)`:"Quem está com o lead"}</option>
+          {pessoas.filter(u=>u.id!==lead.assignedTo).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>}
+      </div>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
         <button onClick={criar} disabled={ocupado==="nova"}
           style={{background:C.greenDeep,color:"#fff",border:"none",borderRadius:10,padding:"9px 15px",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
           {ocupado==="nova"?"…":"Marcar"}</button>
@@ -12274,13 +12313,12 @@ function TarefasDoLead({lead,acoes,isMobile}){
       </div>
       {google&&google.configurado&&<label style={{display:"flex",alignItems:"center",gap:7,color:C.sub,fontSize:11.5,cursor:"pointer"}}>
         <input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/>
-        Criar link do Meet (vai para o Google Agenda de quem é a tarefa, se a pessoa ligou o Google)</label>}
+        Criar link do Meet</label>}
     </div>}
     {avisoAgenda&&<div style={{color:"#8a6d1f",background:C.amberSoft,fontSize:11.5,borderRadius:10,padding:"7px 9px",marginTop:8}}>{avisoAgenda}</div>}
 
     {feitas.length>0&&<div style={{color:C.faint,fontSize:10.5,marginTop:8,paddingTop:7,borderTop:`1px solid ${C.line}`,display:"flex",flexDirection:"column",gap:3}}>
-      <span>{feitas.length} tarefa(s) já feita(s)</span>
-      {/* As últimas, com a origem da conclusão: o sistema viu ou alguém marcou. */}
+      <span>{feitas.length} já feita(s)</span>
       {[...feitas].sort((a,b)=>b.feito_em-a.feito_em).slice(0,3).map(t=><span key={t.id} style={{color:C.sub}}>
         ✓ {t.titulo}<span style={{color:C.faint}}> · {fmtTarefa(t.feito_em)}{t.concluida_por?` · ${t.concluida_por==="manual"?"marcada à mão":"concluída: "+(t.evidencia||CRITERIOS_CADENCIA[t.concluida_por]||t.concluida_por)}`:""}</span></span>)}
     </div>}
