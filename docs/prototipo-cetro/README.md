@@ -25,6 +25,8 @@ nada daqui é servido nem importado.
 
 ## O que o protótipo tem e o CETRO ainda não tinha (lista de 27/11/2026)
 
+Feitos: 1, 3, 6, 7, 8, 9, 10, 14, 16 e 17 (14, 16 e 17 já existiam).
+
 1. Diretorias, gerências e corretores como filtros na barra de todas as telas.
 2. Indicador personalizado no Painel; metas por diretoria/gerência.
 3. "Assumir negociação" num clique.

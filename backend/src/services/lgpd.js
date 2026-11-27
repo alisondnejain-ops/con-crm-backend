@@ -41,6 +41,7 @@
    código. Estão anotados no DEPLOY.md como pendência de quem opera. */
 
 import db from "../db.js";
+import { apagar, chaveDaUrl } from "./storage.js";
 
 /* Tudo que o CRM sabe sobre um lead, num objeto só. */
 export function exportar(orgId, leadId) {
@@ -74,6 +75,7 @@ export function exportar(orgId, leadId) {
     tarefas: db.prepare("SELECT titulo, quando, feito_em FROM tarefas WHERE lead_id = ? ORDER BY quando").all(leadId),
     simulacoes: db.prepare("SELECT * FROM simulacoes WHERE lead_id = ? ORDER BY created_at").all(leadId),
     imoveis_vinculados: db.prepare("SELECT produto_id, vinculo, unidade, obs, created_at FROM lead_imoveis WHERE lead_id = ?").all(leadId),
+    anexos_da_ficha: db.prepare("SELECT nome, mime, tamanho, created_at FROM lead_anexos WHERE lead_id = ?").all(leadId),
     propostas: db.prepare("SELECT produto_id, valor, quando, status, detalhes, created_at FROM lead_propostas WHERE lead_id = ?").all(leadId),
     historico_de_etapas: db.prepare(`SELECT de, para, motivo, created_at FROM lead_etapas
       WHERE lead_id = ? ORDER BY created_at`).all(leadId)
@@ -104,7 +106,10 @@ export function anonimizar(orgId, leadId, { por = null } = {}) {
   const marca = `anonimizado-${leadId.slice(-8)}`;
   const agora = Date.now();
 
+  // Os anexos da ficha (documentos da pessoa) saem inteiros, com o arquivo.
+  const anexos = db.prepare("SELECT url FROM lead_anexos WHERE lead_id = ?").all(leadId);
   const rodar = db.transaction(() => {
+    db.prepare("DELETE FROM lead_anexos WHERE lead_id = ?").run(leadId);
     db.prepare(`UPDATE leads SET
         name = 'Titular anonimizado', phone = ?, email = NULL, qual_json = '{}',
         resumo_json = NULL, etapa_ia_json = NULL, robo_json = NULL, sugestao_etapa = NULL,
@@ -128,6 +133,7 @@ export function anonimizar(orgId, leadId, { por = null } = {}) {
     db.prepare("UPDATE tarefas SET titulo = '[removido a pedido do titular]' WHERE lead_id = ?").run(leadId);
   });
   rodar();
+  for (const a of anexos) { const c = chaveDaUrl(a.url); if (c) apagar(c).catch(() => {}); }
 
   console.log(`[lgpd] atendimento ${leadId} anonimizado a pedido do titular`);
   return { ok: true, quando: agora };

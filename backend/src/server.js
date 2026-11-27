@@ -16,6 +16,7 @@ import msgRoutes from "./routes/messages.routes.js";
 import anexoDownloadRoutes from "./routes/anexo-download.routes.js";
 import tarefasRoutes, { tarefasPorId } from "./routes/tarefas.routes.js";
 import leadImoveisRoutes from "./routes/lead-imoveis.routes.js";
+import leadAnexosRoutes from "./routes/lead-anexos.routes.js";
 import metaWebhook from "./routes/meta.webhook.js";
 import uazapiWebhook from "./routes/uazapi.webhook.js";
 import whatsappOficialWebhook from "./routes/whatsapp-oficial.webhook.js";
@@ -451,6 +452,7 @@ app.use("/anexo-baixar", anexoDownloadRoutes);
    401 e ia para o lixo. É o mesmo tropeço que o comentário acima já descreve. */
 app.use("/leads", cobrando, tarefasRoutes);      // /leads/:id/tarefas
 app.use("/leads", cobrando, leadImoveisRoutes);  // /leads/:id/imoveis-vinculados e /propostas
+app.use("/leads", cobrando, leadAnexosRoutes);   // /leads/:id/anexos
 app.use("/tarefas", cobrando, tarefasPorId);     // /tarefas/:id
 app.use("/webhooks", metaWebhook);              // GET/POST /webhooks/meta (Lead Ads)
 app.use("/webhooks", uazapiWebhook);            // POST /webhooks/uazapi

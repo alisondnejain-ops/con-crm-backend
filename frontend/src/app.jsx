@@ -11322,6 +11322,7 @@ function Atendimento({myLeads,sel,abrir,draft,setDraft,send,enviando,setStatus,c
         </div>}
         <TarefasDoLead lead={sel} acoes={acoes} isMobile={isMobile}/>
         <Observacoes lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
+        <AnexosDoLead lead={sel} acoes={acoes} session={session}/>
         <TagsDoLead lead={sel} acoes={acoes} session={session} isMobile={isMobile}/>
         {/* A simulação é do LEAD, não do imóvel: os números dependem da renda e
             do subsídio de quem vai comprar — por isso mora aqui na ficha. */}
@@ -12071,6 +12072,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
       <ResumoIA lead={l} acoes={acoes} isMobile={isMobile}/>
       <TarefasDoLead lead={l} acoes={acoes} isMobile={isMobile}/>
       <Observacoes lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
+      <AnexosDoLead lead={l} acoes={acoes} session={session}/>
       <TagsDoLead lead={l} acoes={acoes} session={session} isMobile={isMobile}/>
       {!contaInterna()&&<FichaDoCliente lead={l} acoes={acoes} secoes={["Dados pessoais"]} titulo="Dados pessoais" todasAbertas/>}
       <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:12}}>
@@ -12201,6 +12203,81 @@ const CRITERIOS_CADENCIA={mensagem:"Mensagem enviada",ligacao:"Ligação realiza
    videochamadas"), porque é o que se procura de relance antes de falar com
    o cliente. Quem supervisiona escolhe de quem é (a visita do plantão). */
 const TIPOS_TAREFA=[{v:"",t:"Tarefa",i:"calendar"},{v:"visita",t:"Visita",i:"pin"},{v:"videochamada",t:"Videochamada",i:"phone"}];
+/* ANEXOS DA FICHA (27/11/2026, protótipo CETRO): documentos e fotos do lead
+   para a equipe (RG, comprovante, contrato). Não vão ao cliente. Baixar usa o
+   mesmo caminho do anexo da conversa: a rota do CRM com o login, e no celular
+   a folha de compartilhamento do sistema. */
+async function baixarDoCrm(caminho,nome){
+  const resp=await fetch(`${API}${caminho}`,{headers:TOKEN?{authorization:"Bearer "+TOKEN}:{}});
+  if(!resp.ok) throw new Error("Não consegui baixar o arquivo.");
+  const blob=await resp.blob();
+  const arquivo=new File([blob],nome||"arquivo",{type:blob.type||"application/octet-stream"});
+  const ehCelular=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  if(ehCelular&&navigator.canShare&&navigator.canShare({files:[arquivo]})){
+    try{ await navigator.share({files:[arquivo]}); }catch(e){ if(e&&e.name!=="AbortError") throw e; }
+    return;
+  }
+  const u=URL.createObjectURL(blob); const a=document.createElement("a");
+  a.href=u; a.download=nome||"arquivo"; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),30000);
+}
+const tamanhoArquivo=(n)=>n>=1048576?`${(n/1048576).toFixed(1).replace(".",",")} MB`:`${Math.max(1,Math.round(n/1024))} KB`;
+function AnexosDoLead({lead,acoes,session}){
+  const [lista,setLista]=useState(null),[erro,setErro]=useState(""),[ocupado,setOcupado]=useState("");
+  const entrada=useRef(null);
+  useEffect(()=>{ setLista(null); setErro(""); api(`/leads/${lead.id}/anexos`).then(r=>setLista(r.anexos||[])).catch(()=>setLista([])); },[lead.id]);
+  async function escolher(e){
+    const arqs=[...(e.target.files||[])]; e.target.value=""; if(!arqs.length) return;
+    setErro("");
+    for(const f of arqs){
+      if(f.size>15*1048576){ setErro(`"${f.name}" passa de 15 MB.`); continue; }
+      setOcupado("subindo");
+      try{
+        const base64=await new Promise((ok,falhou)=>{const l=new FileReader();l.onload=()=>ok(String(l.result));l.onerror=()=>falhou(new Error("Não consegui ler o arquivo."));l.readAsDataURL(f);});
+        const r=await api(`/leads/${lead.id}/anexos`,{method:"POST",body:{nome:f.name,mime:f.type||mimeDoNome(f.name),base64}});
+        setLista(r.anexos||[]);
+      }catch(err){ setErro(err.message); }
+    }
+    setOcupado("");
+  }
+  async function apagarAnexo(a){
+    if(!confirm(`Apagar "${a.nome}"?`)) return;
+    setOcupado(a.id); setErro("");
+    try{ const r=await api(`/leads/${lead.id}/anexos/${a.id}`,{method:"DELETE"}); setLista(r.anexos||[]); }catch(err){ setErro(err.message); }
+    finally{ setOcupado(""); }
+  }
+  async function baixar(a){
+    setOcupado(a.id); setErro("");
+    try{ await baixarDoCrm(`/leads/${lead.id}/anexos/${a.id}/baixar`,a.nome); }catch(err){ setErro(err.message); }
+    finally{ setOcupado(""); }
+  }
+  const podeApagar=a=>a.user_id===session.id||podeSupervisionar(session);
+  return <div style={{marginBottom:14}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+      <Icon n="clip" size={13} color={C.sub}/><span style={{color:C.sub,fontSize:12,fontWeight:600,flex:1}}>Anexos</span>
+      <button onClick={()=>entrada.current&&entrada.current.click()} disabled={ocupado==="subindo"}
+        style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:2}}>
+        {ocupado==="subindo"?"Enviando…":"+ anexar"}</button>
+      <input ref={entrada} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.rtf,.txt,.csv,.zip" onChange={escolher} style={{display:"none"}}/>
+    </div>
+    {lista===null?<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>
+      :lista.length===0?<div style={{color:C.faint,fontSize:11.5}}>Nenhum anexo.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:4}}>
+        {lista.map(a=><div key={a.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"6px 9px"}}>
+          <button onClick={()=>baixar(a)} disabled={ocupado===a.id} title="Baixar"
+            style={{flex:1,minWidth:0,textAlign:"left",border:"none",background:"transparent",cursor:"pointer",padding:0}}>
+            <div style={{color:C.ink,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.nome}</div>
+            <div style={{color:C.faint,fontSize:10.5}}>{tamanhoArquivo(a.tamanho||0)} · {fmtTarefa(a.created_at)}{a.de_quem?` · ${first(a.de_quem)}`:""}</div>
+          </button>
+          <button onClick={()=>baixar(a)} disabled={ocupado===a.id} aria-label="Baixar" style={{border:"none",background:"transparent",color:C.greenDeep,cursor:"pointer",padding:2}}><Icon n="download" size={14}/></button>
+          {podeApagar(a)&&<button onClick={()=>apagarAnexo(a)} disabled={ocupado===a.id} aria-label="Apagar" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:14,padding:2}}>×</button>}
+        </div>)}
+      </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:5}}>{erro}</div>}
+  </div>;
+}
+const mimeDoNome=(n)=>({pdf:"application/pdf",doc:"application/msword",docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",xls:"application/vnd.ms-excel",xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",ppt:"application/vnd.ms-powerpoint",pptx:"application/vnd.openxmlformats-officedocument.presentationml.presentation",odt:"application/vnd.oasis.opendocument.text",ods:"application/vnd.oasis.opendocument.spreadsheet",rtf:"application/rtf",txt:"text/plain",csv:"text/csv",zip:"application/zip",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",heic:"image/heic"})[String(n).split(".").pop().toLowerCase()]||"";
+
 function TarefasDoLead({lead,acoes,isMobile}){
   const [lista,setLista]=useState(lead.listaTarefas||[]);
   const [titulo,setTitulo]=useState("");
@@ -16043,6 +16120,7 @@ function FichaLead({lead,acoes,session,corretoresDisponiveis,aoVoltar,aoFechar,l
 
       <TarefasDoLead lead={lead} acoes={acoes} isMobile={largura==="100%"}/>
       <Observacoes lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
+      <AnexosDoLead lead={lead} acoes={acoes} session={session}/>
       <TagsDoLead lead={lead} acoes={acoes} session={session} isMobile={largura==="100%"}/>
       <QualificacaoDoLead lead={lead} acoes={acoes} session={session}/>
       <SimulacaoEVenda lead={lead} acoes={acoes} aoSimular={()=>setSimulando(true)}/>
