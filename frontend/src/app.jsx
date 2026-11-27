@@ -2237,6 +2237,7 @@ function ConCRM(){
     apagarMidia:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"DELETE"}),
     // A foto vai para o primeiro lugar — é a capa no site e a que leva a legenda no WhatsApp.
     capaProduto:(id,midiaId)=>api(`/produtos/${id}/midias/${midiaId}/capa`,{method:"POST"}),
+    midiaProduto:(id,midiaId,dados)=>api(`/produtos/${id}/midias/${midiaId}`,{method:"PATCH",body:dados}),
     unidadesProduto:(id)=>api(`/produtos/${id}/unidades`),
     salvarUnidades:(id,unidades)=>api(`/produtos/${id}/unidades`,{method:"PUT",body:{unidades}}),
     enviarProduto:acao((leadId,corpo)=>api(`/leads/${leadId}/produto`,{method:"POST",body:corpo})),
@@ -20737,6 +20738,11 @@ function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
         :<span style={{flexShrink:0,color:ligado?C.greenDeep:C.faint,fontSize:11.5,fontWeight:600}}>{ligado?"publicado pela gestão":"a gestão decide"}</span>}
     </div>
 
+    <div>
+      {rotulo("Título do anúncio nos portais (opcional)")}
+      <input value={f.titulo_portal||""} onChange={e=>setF({...f,titulo_portal:e.target.value.slice(0,100)})} placeholder={f.titulo||"Em branco, vai o nome do imóvel"}
+        style={{width:"100%",boxSizing:"border-box",fontSize:isMobile?16:13,border:`1px solid ${C.line}`,borderRadius:10,padding:"9px 11px",background:C.card,color:C.ink,outline:"none"}}/>
+    </div>
     {desc<50&&<div style={{color:C.amber,fontSize:11.5}}>Os portais pedem uma descrição de pelo menos 50 letras (faltam {50-desc}) — escreva na seção Descrição.</div>}
 
     <div>
@@ -20759,6 +20765,72 @@ function SecaoPortalDoProduto({f,setF,portal,supervisor,salvo,isMobile}){
         </div>
       :portal&&salvo&&portal.pronto&&<div style={{color:C.greenDeep,fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
           <Icon n="check" size={13}/>{ligado?"Completo — entra na próxima leitura dos portais.":"Completo — pronto para publicar."}</div>}
+  </div>;
+}
+
+/* LEGENDA E PLANTA DE CADA FOTO (27/11/2026, protótipo CETRO). Recolhido:
+   quem só sobe foto não precisa ver. A legenda vai ao site como o texto da
+   foto; a planta vai para o fim da galeria. Salva ao sair do campo. */
+function LegendasDasFotos({produtoId,fotos,acoes,aoMudar,isMobile}){
+  const [aberto,setAberto]=useState(false),[erro,setErro]=useState("");
+  const salvar=async(m,dados)=>{ setErro(""); try{ aoMudar(await acoes.midiaProduto(produtoId,m.id,dados)); }catch(e){ setErro(e.message); } };
+  const com=fotos.filter(m=>m.legenda||m.planta).length;
+  return <div style={{marginBottom:9}}>
+    <button type="button" onClick={()=>setAberto(v=>!v)} style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:12,fontWeight:700,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+      Legendas e plantas{com?` (${com})`:""}<span style={{display:"inline-flex",transform:aberto?"rotate(90deg)":"none"}}><Icon n="chevron" size={12}/></span></button>
+    {aberto&&<div style={{display:"flex",flexDirection:"column",gap:6,marginTop:7}}>
+      {fotos.map((m,i)=><div key={m.id} style={{display:"flex",alignItems:"center",gap:8}}>
+        <img src={m.miniatura||m.url} alt="" style={{width:40,height:40,borderRadius:8,objectFit:"cover",flexShrink:0}}/>
+        <input defaultValue={m.legenda||""} maxLength={140} placeholder={`Legenda da foto ${i+1}`}
+          onBlur={e=>{ if((e.target.value||"")!==(m.legenda||"")) salvar(m,{legenda:e.target.value}); }}
+          style={{flex:1,minWidth:0,fontSize:isMobile?16:12.5,border:`1px solid ${C.line}`,borderRadius:10,padding:"7px 9px",background:C.card,color:C.ink,outline:"none"}}/>
+        <label style={{display:"flex",alignItems:"center",gap:5,color:C.sub,fontSize:11.5,flexShrink:0,cursor:"pointer"}}>
+          <input type="checkbox" checked={!!m.planta} onChange={e=>salvar(m,{planta:e.target.checked})}/>Planta</label>
+      </div>)}
+    </div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:4}}>{erro}</div>}
+  </div>;
+}
+
+/* DOCUMENTOS DO IMÓVEL (27/11/2026, protótipo CETRO): matrícula, registro,
+   autorização. Só a gestão, quem cadastrou e quem captou — a quem não pode,
+   o servidor responde 403 e o quadro não aparece. */
+function DocumentosDoImovel({produtoId}){
+  const [lista,setLista]=useState(null),[erro,setErro]=useState(""),[ocupado,setOcupado]=useState("");
+  const entrada=useRef(null);
+  useEffect(()=>{ api(`/produtos/${produtoId}/documentos`).then(r=>setLista(r.documentos||[])).catch(()=>setLista(false)); },[produtoId]);
+  if(lista===false) return null;
+  async function escolher(e){
+    const arqs=[...(e.target.files||[])]; e.target.value=""; setErro("");
+    for(const f of arqs){
+      if(f.size>15*1048576){ setErro(`"${f.name}" passa de 15 MB.`); continue; }
+      setOcupado("subindo");
+      try{ const base64=await new Promise((ok,falhou)=>{const l=new FileReader();l.onload=()=>ok(String(l.result));l.onerror=()=>falhou(new Error("Não consegui ler o arquivo."));l.readAsDataURL(f);});
+        const r=await api(`/produtos/${produtoId}/documentos`,{method:"POST",body:{nome:f.name,mime:f.type||mimeDoNome(f.name),base64}}); setLista(r.documentos||[]); }
+      catch(err){ setErro(err.message); }
+    }
+    setOcupado("");
+  }
+  const baixar=async(d)=>{ setOcupado(d.id); setErro(""); try{ await baixarDoCrm(`/produtos/${produtoId}/documentos/${d.id}/baixar`,d.nome); }catch(err){ setErro(err.message); } finally{ setOcupado(""); } };
+  const apagarDoc=async(d)=>{ if(!confirm(`Apagar "${d.nome}"?`)) return; setOcupado(d.id);
+    try{ const r=await api(`/produtos/${produtoId}/documentos/${d.id}`,{method:"DELETE"}); setLista(r.documentos||[]); }catch(err){ setErro(err.message); } finally{ setOcupado(""); } };
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+      <span style={{color:C.sub,fontSize:11.5,fontWeight:600,flex:1}}>Documentos do imóvel</span>
+      <button type="button" onClick={()=>entrada.current&&entrada.current.click()} disabled={ocupado==="subindo"}
+        style={{border:"none",background:"transparent",color:C.greenDeep,fontSize:11.5,fontWeight:700,cursor:"pointer",padding:2}}>{ocupado==="subindo"?"Enviando…":"+ anexar"}</button>
+      <input ref={entrada} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.odt,.ods,.rtf,.txt,.csv,.zip" onChange={escolher} style={{display:"none"}}/>
+    </div>
+    {lista===null?<div style={{color:C.faint,fontSize:11.5}}>Carregando…</div>
+      :lista.length===0?<div style={{color:C.faint,fontSize:11.5}}>Matrícula, registro, autorização… Nenhum ainda.</div>
+      :<div style={{display:"flex",flexDirection:"column",gap:4}}>{lista.map(d=><div key={d.id} style={{display:"flex",alignItems:"center",gap:8,background:C.surface,borderRadius:10,padding:"6px 9px"}}>
+        <button type="button" onClick={()=>baixar(d)} style={{flex:1,minWidth:0,textAlign:"left",border:"none",background:"transparent",cursor:"pointer",padding:0}}>
+          <div style={{color:C.ink,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.nome}</div>
+          <div style={{color:C.faint,fontSize:10.5}}>{tamanhoArquivo(d.tamanho||0)} · {fmtTarefa(d.created_at)}{d.de_quem?` · ${first(d.de_quem)}`:""}</div></button>
+        <button type="button" onClick={()=>baixar(d)} disabled={ocupado===d.id} aria-label="Baixar" style={{border:"none",background:"transparent",color:C.greenDeep,cursor:"pointer",padding:2}}><Icon n="download" size={14}/></button>
+        <button type="button" onClick={()=>apagarDoc(d)} disabled={ocupado===d.id} aria-label="Apagar" style={{border:"none",background:"transparent",color:C.faint,cursor:"pointer",fontSize:14,padding:2}}>×</button>
+      </div>)}</div>}
+    {erro&&<div style={{color:C.hot,fontSize:11.5,marginTop:4}}>{erro}</div>}
   </div>;
 }
 
@@ -21116,7 +21188,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
         <div>
           {rotulo(`Fotos (${fotos.length}/${limites.foto}) e vídeo (${videos.length}/${limites.video})`)}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
-            {midias.map(m=>{const capa=m.tipo==="foto"&&fotos[0]&&fotos[0].id===m.id, avisos=m.avisos||[];
+            {midias.map(m=>{const primeira=fotos.find(x=>!x.planta)||fotos[0]; const capa=m.tipo==="foto"&&primeira&&primeira.id===m.id&&!m.planta, avisos=m.avisos||[];
               return <div key={m.id} style={{position:"relative",width:80,height:80,borderRadius:10,overflow:"hidden",
                 border:`${m.id===capaSugerida?2:1}px solid ${m.id===capaSugerida?C.green:avisos.length?C.amber:C.line}`,background:C.surface}}
                 title={avisos.length?"Esta foto: "+avisos.map(a=>a.texto).join("; "):undefined}>
@@ -21128,6 +21200,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
               <button onClick={()=>removerMidia(m)} aria-label="Remover" style={{position:"absolute",top:3,right:3,width:20,height:20,borderRadius:999,border:"none",background:"rgba(0,0,0,.6)",color:"#fff",fontSize:12,cursor:"pointer",lineHeight:1}}>×</button>
             </div>;})}
           </div>
+          {id&&fotos.length>0&&<LegendasDasFotos produtoId={id} fotos={fotos} acoes={acoes} aoMudar={(p)=>setMidias(p.midias||[])} isMobile={isMobile}/>}
           {/* O tratamento automático (servidor) gira, limpa e cria as versões
               leves de cada foto, e avisa o que pode prejudicar o anúncio. Só
               avisa: quem decide a foto é quem captou. */}
@@ -21197,6 +21270,7 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
           {avisoPadrao&&<div style={{color:C.faint,fontSize:11.5}}>{avisoPadrao}</div>}
           <div>{rotulo("Observações internas")}<textarea value={f.observacoes||""} onChange={set("observacoes")} rows={3} placeholder="Ex.: dono aceita proposta, visita só com horário marcado" style={{...entrada,resize:"vertical"}}/>
             <div style={{color:C.faint,fontSize:11,marginTop:4,lineHeight:1.45}}>Não vão para o site nem para o portal.{!(f.descricao||"").trim()&&" Enquanto o imóvel não tiver descrição, ainda vão na mensagem ao cliente — escreva a descrição."}</div></div>
+          {id&&<DocumentosDoImovel produtoId={id}/>}
         </React.Fragment>,"Nome e telefone do proprietário só aparecem para a gestão, quem cadastrou e quem captou.")}
 
         {COM_UNIDADES_IMOVEL.has(f.categoria)&&(id&&categoriaSalva===f.categoria
@@ -21206,6 +21280,15 @@ function FormularioProduto({produto,pessoas,equipeToda,acoes,isMobile,aoFechar,s
             <button type="button" disabled={salvando} onClick={salvar} style={{border:`1px solid ${C.green}`,background:C.greenSoft,color:C.greenDeep,borderRadius:10,padding:"8px 12px",fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{salvando?"Salvando…":"Salvar e cadastrar as unidades"}</button>
           </div>)}
 
+        {/* "Publicar no site" (27/11/2026, protótipo CETRO): a gestão tira um imóvel do site sem tirá-lo do catálogo. */}
+        <div style={{border:`1px solid ${C.line}`,background:C.card,borderRadius:14,boxShadow:SOMBRA,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1,minWidth:0}}><div style={{color:C.ink,fontSize:13.5,fontWeight:700}}>Site da imobiliária</div></div>
+          {supervisor
+            ?<button type="button" onClick={()=>setF({...f,publicar_site:f.publicar_site===false})} aria-pressed={f.publicar_site!==false}
+                style={{flexShrink:0,border:`1px solid ${f.publicar_site!==false?C.green:C.line}`,background:f.publicar_site!==false?C.green:C.card,color:f.publicar_site!==false?"#fff":C.sub,borderRadius:999,padding:"8px 14px",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+                {f.publicar_site!==false&&<Icon n="check" size={13}/>}{f.publicar_site!==false?"Publicar: sim":"Publicar: não"}</button>
+            :<span style={{flexShrink:0,color:f.publicar_site!==false?C.greenDeep:C.faint,fontSize:11.5,fontWeight:600}}>{f.publicar_site!==false?"aparece no site":"fora do site"}</span>}
+        </div>
         <SecaoPortalDoProduto f={f} setF={setF} portal={portal} supervisor={supervisor} salvo={!!id} isMobile={isMobile}/>
 
         <div style={{display:"flex",gap:8,padding:isMobile?"4px 64px 4px 0":"4px 0 0"}}>

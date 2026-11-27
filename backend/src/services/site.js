@@ -397,14 +397,17 @@ function lembrarFoto(f) {
   if (INFO_FOTO.size > 5000) INFO_FOTO.clear();
   let variantes = [];
   try { variantes = JSON.parse(f.variantes || "[]"); } catch { variantes = []; }
-  INFO_FOTO.set(f.url, { variantes, largura: f.largura, altura: f.altura, foco_x: f.foco_x, foco_y: f.foco_y });
+  INFO_FOTO.set(f.url, { variantes, largura: f.largura, altura: f.altura, foco_x: f.foco_x, foco_y: f.foco_y,
+    legenda: f.legenda || null, planta: !!f.planta });
 }
-const fotosDe = (id) => db.prepare(`SELECT url, variantes, largura, altura, foco_x, foco_y FROM produto_midias
-  WHERE produto_id = ? AND tipo = 'foto' ORDER BY ordem, created_at`).all(id).map(f => { lembrarFoto(f); return f.url; });
+/* As plantas vão para o fim da galeria (27/11/2026): a capa e as primeiras
+   fotos continuam sendo as do imóvel, e a planta aparece depois delas. */
+const fotosDe = (id) => db.prepare(`SELECT url, variantes, largura, altura, foco_x, foco_y, legenda, planta FROM produto_midias
+  WHERE produto_id = ? AND tipo = 'foto' ORDER BY COALESCE(planta,0), ordem, created_at`).all(id).map(f => { lembrarFoto(f); return f.url; });
 
 function infoDaFoto(url) {
   if (!INFO_FOTO.has(url)) {
-    const f = db.prepare("SELECT url, variantes, largura, altura, foco_x, foco_y FROM produto_midias WHERE url = ? LIMIT 1").get(url);
+    const f = db.prepare("SELECT url, variantes, largura, altura, foco_x, foco_y, legenda, planta FROM produto_midias WHERE url = ? LIMIT 1").get(url);
     if (!f) return null;
     lembrarFoto(f);
   }
@@ -418,7 +421,9 @@ function infoDaFoto(url) {
 export function imgFoto(url, { alt = "", sizes = "100vw", lazy = true, cls = "" } = {}) {
   const info = infoDaFoto(url);
   const v = info?.variantes || [];
-  const attrs = [`alt="${esc(alt)}"`];
+  // A legenda escrita no cadastro vem primeiro no texto da foto; a planta diz que é planta.
+  const rotulo = [info?.planta ? "Planta" : "", info?.legenda || ""].filter(Boolean).join(": ");
+  const attrs = [`alt="${esc(rotulo ? `${rotulo} — ${alt}` : alt)}"`];
   if (cls) attrs.push(`class="${esc(cls)}"`);
   if (v.length) {
     const media = v.find(x => x.l >= 960) || v[v.length - 1];
@@ -578,7 +583,7 @@ export function filtrosDe(q = {}) {
 }
 
 export function catalogo(orgId, f) {
-  const where = ["org_id = ?", "status = 'ativo'"], args = [orgId];
+  const where = ["org_id = ?", "status = 'ativo'", "COALESCE(publicar_site,1) = 1"], args = [orgId];
   if (f.finalidade) { where.push("COALESCE(finalidade,'venda') = ?"); args.push(f.finalidade); }
   if (f.tipo) { where.push("tipo = ?"); args.push(f.tipo); }
   if (f.cidade) { where.push("cidade = ?"); args.push(f.cidade); }
@@ -592,8 +597,8 @@ export function catalogo(orgId, f) {
   const total = db.prepare(`SELECT COUNT(*) n FROM produtos WHERE ${w}`).get(...args).n;
   const linhas = db.prepare(`SELECT * FROM produtos WHERE ${w} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
     .all(...args, POR_PAGINA, (f.p - 1) * POR_PAGINA);
-  const cidades = db.prepare("SELECT DISTINCT cidade FROM produtos WHERE org_id = ? AND status = 'ativo' AND cidade IS NOT NULL AND cidade <> '' ORDER BY cidade").all(orgId).map(r => r.cidade);
-  const disponiveis = db.prepare("SELECT COUNT(*) n FROM produtos WHERE org_id = ? AND status = 'ativo'").get(orgId).n;
+  const cidades = db.prepare("SELECT DISTINCT cidade FROM produtos WHERE org_id = ? AND status = 'ativo' AND COALESCE(publicar_site,1) = 1 AND cidade IS NOT NULL AND cidade <> '' ORDER BY cidade").all(orgId).map(r => r.cidade);
+  const disponiveis = db.prepare("SELECT COUNT(*) n FROM produtos WHERE org_id = ? AND status = 'ativo' AND COALESCE(publicar_site,1) = 1").get(orgId).n;
   return { total, itens: linhas.map(publico), cidades, disponiveis, paginas: Math.max(1, Math.ceil(total / POR_PAGINA)) };
 }
 
@@ -604,6 +609,8 @@ export function imovelDoSite(orgId, id) {
   // não existem. Vendido, alugado e inativo JÁ foram — o link pode estar num
   // anúncio ou numa conversa, e merece uma resposta melhor que "não achei".
   if (["aguardando_aprovacao", "recusado"].includes(p.status)) return { existe: false };
+  // Tirado do site pela gestão ("Publicar no site: não", 27/11/2026).
+  if (p.publicar_site === 0) return { existe: false };
   if (p.status !== "ativo") return { existe: true, disponivel: false, titulo: p.titulo, status: p.status };
   return { existe: true, disponivel: true, imovel: publico(p) };
 }
@@ -1216,7 +1223,7 @@ export const pecas = { caracteristicasHtml, imgFoto, altDaFoto, tituloDoImovel, 
    raiz, que é onde o Google procura; no endereço do CETRO o mapa fica em
    /imoveis/<slug>/sitemap.xml e é informado no Search Console. */
 export function sitemap(ctx) {
-  const itens = db.prepare("SELECT id, titulo, COALESCE(atualizado_em, created_at) AS em FROM produtos WHERE org_id = ? AND status = 'ativo' ORDER BY created_at DESC LIMIT 5000").all(ctx.org.id);
+  const itens = db.prepare("SELECT id, titulo, COALESCE(atualizado_em, created_at) AS em FROM produtos WHERE org_id = ? AND status = 'ativo' AND COALESCE(publicar_site,1) = 1 ORDER BY created_at DESC LIMIT 5000").all(ctx.org.id);
   const dia = (t) => new Date(t || Date.now()).toISOString().slice(0, 10);
   const url = (loc, em) => `<url><loc>${esc(loc)}</loc>${em ? `<lastmod>${dia(em)}</lastmod>` : ""}</url>`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`

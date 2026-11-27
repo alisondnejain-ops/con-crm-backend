@@ -22,7 +22,7 @@ export function bairrosDoCatalogo(orgId) {
   return db.prepare(`SELECT bairro, MIN(cidade) AS cidade, COUNT(*) AS total,
       MIN(CASE WHEN COALESCE(finalidade,'venda') = 'venda' AND valor > 0 AND COALESCE(moeda,'BRL') = 'BRL' THEN valor END) AS venda_desde,
       MIN(CASE WHEN finalidade = 'aluguel' AND valor > 0 AND COALESCE(moeda,'BRL') = 'BRL' THEN valor END) AS aluguel_desde
-    FROM produtos WHERE org_id = ? AND status = 'ativo' AND bairro IS NOT NULL AND TRIM(bairro) <> ''
+    FROM produtos WHERE org_id = ? AND status = 'ativo' AND COALESCE(publicar_site,1) = 1 AND bairro IS NOT NULL AND TRIM(bairro) <> ''
     GROUP BY bairro ORDER BY total DESC, bairro LIMIT 40`).all(orgId);
 }
 
@@ -33,5 +33,5 @@ export function resumoDoCatalogo(orgId) {
       COUNT(DISTINCT CASE WHEN bairro IS NOT NULL AND TRIM(bairro) <> '' THEN bairro END) AS bairros,
       MIN(CASE WHEN COALESCE(finalidade,'venda') = 'venda' AND valor > 0 AND COALESCE(moeda,'BRL') = 'BRL' THEN valor END) AS venda_desde,
       MIN(CASE WHEN finalidade = 'aluguel' AND valor > 0 AND COALESCE(moeda,'BRL') = 'BRL' THEN valor END) AS aluguel_desde
-    FROM produtos WHERE org_id = ? AND status = 'ativo'`).get(orgId);
+    FROM produtos WHERE org_id = ? AND status = 'ativo' AND COALESCE(publicar_site,1) = 1`).get(orgId);
 }

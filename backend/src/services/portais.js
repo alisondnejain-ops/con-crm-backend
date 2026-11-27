@@ -167,7 +167,7 @@ export function feedVRSync(orgId, base) {
     const tipo = p.tipo === "terreno" ? "Residential / Land Lot" : "Residential / Home";
     return `    <Listing>
       <ListingID>${esc(p.id)}</ListingID>
-      <Title>${cdata(p.titulo.slice(0, 100))}</Title>
+      <Title>${cdata((p.titulo_portal || p.titulo).slice(0, 100))}</Title>
       <TransactionType>${aluguel ? "For Rent" : "For Sale"}</TransactionType>
       <PublicationType>STANDARD</PublicationType>
       <Media>
@@ -228,7 +228,7 @@ export function feedChavesNaMao(orgId, base) {
     const quando = dataCNM(p.atualizado_em || p.created_at);
     const fotosOk = fotos.map(u => absoluta(u, base)).filter(u => /\.(jpe?g|webp|gif)(\?|$)/i.test(u)).slice(0, 30);
     const v = {
-      referencia: esc(p.id), codigo_cliente: esc(p.id), titulo: cdata(p.titulo),
+      referencia: esc(p.id), codigo_cliente: esc(p.id), titulo: cdata(p.titulo_portal || p.titulo),
       transacao: aluguel ? "L" : "V", finalidade: "RE", destaque: "0",
       tipo: p.tipo === "terreno" ? "Terreno" : "Casa",
       valor: aluguel ? "" : num(p.valor), valor_locacao: aluguel ? num(p.valor) : "",

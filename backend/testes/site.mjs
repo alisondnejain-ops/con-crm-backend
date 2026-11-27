@@ -163,6 +163,17 @@ try {
   assert.equal(pg.status, 301);
   assert.ok(pg.local.endsWith("/casa-com-piscina-no-jardim-amazonas"));
 
+  caso("Publicar no site: não — some da vitrine e da página; o corretor não muda isso; sim traz de volta");
+  await corretor.send("PATCH", `/produtos/${casa.id}`, { publicar_site: false });
+  assert.ok((await pagina("/imoveis/conecta-imoveis")).html.includes("Casa com piscina no Jardim Amazonas"), "o corretor tirou do site");
+  await gestor.send("PATCH", `/produtos/${casa.id}`, { publicar_site: false });
+  assert.ok(!(await pagina("/imoveis/conecta-imoveis")).html.includes("Casa com piscina no Jardim Amazonas"));
+  assert.equal((await pagina(`/imoveis/conecta-imoveis/${casa.id}/x`)).status, 404);
+  await gestor.send("PATCH", `/produtos/${casa.id}`, { titulo: "Casa com piscina no Jardim Amazonas" });
+  assert.ok(!(await pagina("/imoveis/conecta-imoveis")).html.includes("Casa com piscina no Jardim Amazonas"), "outra edição devolveu ao site");
+  await gestor.send("PATCH", `/produtos/${casa.id}`, { publicar_site: true });
+  assert.ok((await pagina("/imoveis/conecta-imoveis")).html.includes("Casa com piscina no Jardim Amazonas"));
+
   caso("Vendido: a página não quebra — avisa e oferece outros");
   await gestor.send("POST", `/produtos/${aluguel.id}/status`, { status: "alugado" });
   pg = await pagina(`/imoveis/conecta-imoveis/${aluguel.id}/x`);
