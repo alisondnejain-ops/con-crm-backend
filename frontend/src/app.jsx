@@ -2627,7 +2627,7 @@ function ConCRM(){
 
    Todo mundo VÊ. Só gestor e atendente MEXEM — montar escala é trabalho de
    gestão, mas saber quem está de plantão amanhã é da operação inteira. */
-const TURNOS_ROT = { manha: "Manhã", tarde: "Tarde" };
+const TURNOS_ROT = { manha: "Manhã", tarde: "Tarde", noite: "Noite" };
 const DIA_SEMANA = ["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
 
 /* ===== O RELATÓRIO DE PLANTÕES ===== (02/09/2026, pedido do Ali)
@@ -2705,8 +2705,8 @@ function RelatorioPlantao({acoes,isMobile,de,ate}){
         (horário ruim, plantão vazio) e não das pessoas. Somados, a diferença
         some dentro da média e a conversa vira sobre gente. */}
     <div style={bloco}>
-      <div style={{color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:10}}>Manhã x tarde</div>
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:10}}>
+      <div style={{color:C.ink,fontSize:13.5,fontWeight:700,marginBottom:10}}>{d.por_turno.length>2?"Por turno":"Manhã x tarde"}</div>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":`repeat(${d.por_turno.length},1fr)`,gap:10}}>
         {d.por_turno.map(t=><div key={t.turno} style={{background:C.surface,borderRadius:11,padding:12}}>
           <div style={{color:C.ink,fontSize:12.5,fontWeight:700,textTransform:"capitalize",marginBottom:6}}>{t.rotulo}</div>
           <div style={{display:"flex",alignItems:"baseline",gap:7,flexWrap:"wrap"}}>
@@ -2789,6 +2789,12 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
   const [confirmando,setConfirmando]=useState(false);
   const [apagando,setApagando]=useState(false);
   const [recado,setRecado]=useState("");
+  /* Plantão por time (27/11/2026, protótipo CETRO): escolher uma diretoria,
+     gerência ou equipe da Estrutura mostra só quem é dela. É só leitura — o
+     editor de cada turno continua gravando a lista INTEIRA, senão salvar com o
+     filtro ligado apagaria quem está escondido. */
+  const est=usarEstrutura();
+  const [time,setTime]=useState("");
 
   const iso=(dt)=>new Date(dt-new Date(dt).getTimezoneOffset()*60000).toISOString().slice(0,10);
   const primeiro=new Date(mes.ano,mes.mes,1).getTime();
@@ -2807,7 +2813,9 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
      em qualquer relógio. */
   const ymd=(ms)=>{const x=new Date(ms);return `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;};
   const porDia=new Map(d.dias.map(x=>[ymd(x.dia),x]));
-  const doDia=(ms)=>porDia.get(ymd(ms))||{dia:ms,manha:[],tarde:[]};
+  const doDia=(ms)=>porDia.get(ymd(ms))||{dia:ms,manha:[],tarde:[],noite:[]};
+  const doTime=time&&est?new Set(membrosDoNivel(est,time)):null;
+  const noTime=(l)=>doTime?l.filter(x=>doTime.has(x.id)):l;
   const nomeMes=new Date(mes.ano,mes.mes,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
   // "agosto de 2026" -> "Agosto de 2026". O capitalize do CSS deixaria "De".
   const nomeMesCap=nomeMes.charAt(0).toUpperCase()+nomeMes.slice(1);
@@ -2924,7 +2932,8 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
     :null;
 
   const cartaoTurno=(dia,turno,compacto)=>{
-    const lista=doDia(dia)[turno];
+    const listaToda=doDia(dia)[turno]||[];
+    const lista=noTime(listaToda);
     const editandoEste=editando&&editando.dia===dia&&editando.turno===turno;
     // Só dá para conferir o que já aconteceu — plantão de amanhã ainda não é
     // nada, e "veio" marcado antes da hora é um fato inventado no relatório.
@@ -2979,10 +2988,10 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
       </div>}
       {!(podeConferir&&lista.length>0)&&(editandoEste
         ?<div style={{display:"flex",flexDirection:"column",gap:5}}>
-          {pessoas.map(p=>{
-            const marcado=lista.some(x=>x.id===p.id);
+          {pessoas.filter(p=>!doTime||doTime.has(p.id)).map(p=>{
+            const marcado=listaToda.some(x=>x.id===p.id);
             return <button key={p.id} onClick={()=>{
-              const ids=marcado?lista.filter(x=>x.id!==p.id).map(x=>x.id):[...lista.map(x=>x.id),p.id];
+              const ids=marcado?listaToda.filter(x=>x.id!==p.id).map(x=>x.id):[...listaToda.map(x=>x.id),p.id];
               salvarTurno(dia,turno,ids);
             }} disabled={salvando}
               style={{display:"flex",alignItems:"center",gap:7,border:`1px solid ${marcado?C.green:C.line}`,
@@ -3010,7 +3019,10 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
 
   const linhaDoDia=(ms,destaque)=>{
     const ehHoje=ms===hoje.getTime();
-    const souEu=[...doDia(ms).manha,...doDia(ms).tarde].some(x=>x.id===session.id);
+    const souEu=[...doDia(ms).manha,...doDia(ms).tarde,...(doDia(ms).noite||[])].some(x=>x.id===session.id);
+    // A noite só aparece quando tem alguém nela (ou quando o gestor abre para
+    // escalar) — imobiliária sem plantão noturno não ganha um terceiro cartão vazio.
+    const comNoite=(doDia(ms).noite||[]).length>0||(editando&&editando.dia===ms&&editando.turno==="noite");
     return <div key={ms} style={{background:C.card,border:`1px solid ${souEu?C.green+"66":C.line}`,borderRadius:14,
       padding:isMobile?11:13,marginBottom:8,borderLeft:souEu?`3px solid ${C.green}`:undefined}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,flexWrap:"wrap"}}>
@@ -3020,8 +3032,10 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
         {souEu&&<span style={{background:C.greenSoft,color:C.greenDeep,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999}}>VOCÊ</span>}
       </div>
       <div style={{display:"flex",gap:8,flexDirection:isMobile?"column":"row"}}>
-        {cartaoTurno(ms,"manha",!destaque)}{cartaoTurno(ms,"tarde",!destaque)}
+        {cartaoTurno(ms,"manha",!destaque)}{cartaoTurno(ms,"tarde",!destaque)}{comNoite&&cartaoTurno(ms,"noite",!destaque)}
       </div>
+      {podeEditar&&!comNoite&&<button onClick={()=>setEditando({dia:ms,turno:"noite"})}
+        style={{background:"transparent",border:"none",color:C.faint,fontSize:11,cursor:"pointer",padding:"6px 0 0"}}>+ turno da noite</button>}
     </div>;
   };
 
@@ -3045,8 +3059,13 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
           <button key={k} onClick={()=>setAba(k)}
             style={{fontSize:12,fontWeight:aba===k?700:500,padding:"10px 14px",border:"none",borderBottom:`2px solid ${aba===k?C.green:"transparent"}`,cursor:"pointer",
               background:"transparent",color:aba===k?C.greenMid:"#7c8b7d"}}>{t}</button>)}
+        <span style={{flex:1}}/>
+        {aba!=="relatorio"&&est&&est.niveis&&est.niveis.length>0&&<select value={time} onChange={e=>setTime(e.target.value)} aria-label="Time do plantão"
+          style={{fontSize:isMobile?16:12.5,border:`1px solid ${time?C.green:C.line}`,borderRadius:10,padding:"7px 10px",background:C.card,color:C.ink,maxWidth:200}}>
+          <option value="">Todos os times</option>
+          {est.niveis.map(n=><option key={n.id} value={n.id}>{n.nome}</option>)}
+        </select>}
         {podeEditar&&<React.Fragment>
-          <span style={{flex:1}}/>
           <input ref={arquivo} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={lerPlanilha} style={{display:"none"}}/>
           <button onClick={()=>arquivo.current.click()} disabled={importando}
             style={{display:"flex",alignItems:"center",gap:6,background:C.card,color:C.greenDeep,border:`1px solid ${C.green}55`,
@@ -3152,6 +3171,7 @@ function Plantao({acoes,session,pessoas,isMobile,podeEditar}){
               <span style={{fontFamily:MONO,color:C.ink,fontSize:12,fontWeight:700,minWidth:44}}>{ddmm(a.dia)}</span>
               <span style={{color:C.sub,fontSize:11.5}}>
                 manhã: {a.manha.length?a.manha.map(first).join(", "):"—"} · tarde: {a.tarde.length?a.tarde.map(first).join(", "):"—"}
+                {a.noite&&a.noite.length?` · noite: ${a.noite.map(first).join(", ")}`:""}
               </span>
             </div>)}
             {r.dias>r.amostra.length&&<div style={{color:C.faint,fontSize:11,marginTop:4}}>

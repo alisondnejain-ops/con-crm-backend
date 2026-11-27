@@ -16,8 +16,11 @@ import { randomUUID } from "crypto";
 import { semMaster } from "../auth.js";
 import { avisar } from "./push.js";
 
-export const TURNOS = ["manha", "tarde"];
-export const ROTULO_TURNO = { manha: "manhã", tarde: "tarde" };
+/* A noite entrou em 27/11/2026 (protótipo CETRO): operação com plantão
+   noturno ou de fim de semana. Quem não usa não vê nada diferente — a tela só
+   mostra a noite quando há alguém escalado nela, e o relatório também. */
+export const TURNOS = ["manha", "tarde", "noite"];
+export const ROTULO_TURNO = { manha: "manhã", tarde: "tarde", noite: "noite" };
 export const HORA_AVISO = 8;   // 08:00, no fuso da operação
 
 export const meiaNoite = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
@@ -303,7 +306,10 @@ export function relatorio(orgId, { de, ate }, agora = Date.now()) {
     pessoas: [...pessoas.values()].map(aproveitar)
       .sort((a, b) => b.faltas - a.faltas || b.turnos_escalado - a.turnos_escalado
         || String(a.nome).localeCompare(String(b.nome), "pt-BR")),
-    por_turno: TURNOS.map(t => aproveitar(porTurno.get(t) || { turno: t, rotulo: ROTULO_TURNO[t], ...zero() })),
+    // A noite só aparece quando alguém foi escalado nela: um cartão "noite —"
+    // vazio em toda imobiliária que não tem plantão noturno seria ruído.
+    por_turno: TURNOS.filter(t => t !== "noite" || porTurno.has(t))
+      .map(t => aproveitar(porTurno.get(t) || { turno: t, rotulo: ROTULO_TURNO[t], ...zero() })),
     por_dia: [...porDia.values()].map(aproveitar).sort((a, b) => a.dia - b.dia),
     totais: aproveitar(totais),
   };
@@ -316,6 +322,7 @@ export function doDia(orgId, dia = Date.now()) {
     dia: meiaNoite(dia),
     manha: linhas.filter(l => l.turno === "manha"),
     tarde: linhas.filter(l => l.turno === "tarde"),
+    noite: linhas.filter(l => l.turno === "noite"),
   };
 }
 
@@ -439,7 +446,7 @@ export function importarEscala(orgId, linhas, autorId, { ref = Date.now(), simul
       }
       dias++;
       diasGravados.push(d);
-      const doDiaAmostra = { dia: d, manha: [], tarde: [] };
+      const doDiaAmostra = { dia: d, manha: [], tarde: [], noite: [] };
       for (const turno of TURNOS) {
         const nomes = (l[turno] || []).map(n => String(n || "").trim()).filter(Boolean);
         const ids = [];
