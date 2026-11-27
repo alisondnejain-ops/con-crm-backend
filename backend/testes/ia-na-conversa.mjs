@@ -64,6 +64,9 @@ pessoa(org, "Gestora", "adm"); const marina = pessoa(org, "Marina", "corretor");
 db.prepare("UPDATE orgs SET uazapi_host = ?, uazapi_token = 'tk' WHERE id = ?").run("http://127.0.0.1:4818", org);
 db.prepare(`INSERT INTO canais (id,org_id,tipo,host,token,ativo,created_at) VALUES (?,?,'imobiliaria',?, 'tk',1,?)`).run("c_" + randomUUID(), org, "http://127.0.0.1:4818", Date.now());
 db.prepare("INSERT INTO robo_ensino (id,org_id,texto,ordem,ativo,created_at) VALUES (?,?,?,1,1,?)").run("en_1", org, "Trate o cliente pelo primeiro nome.", Date.now());
+// Fichas de produto SEM formulário e sem catraca: as duas IAs que escrevem precisam lê-las (27/11/2026).
+db.prepare("INSERT INTO ia_produtos (id,org_id,nome,texto,ativo,created_at,updated_at) VALUES (?,?,?,?,1,?,?)").run("fp_1", org, "Residencial Horizon", "Fica a 200 metros da praia, com piscina e academia.", Date.now(), Date.now());
+db.prepare("INSERT INTO ia_produtos (id,org_id,nome,texto,ativo,created_at,updated_at) VALUES (?,?,?,?,0,?,?)").run("fp_2", org, "Torre Desligada", "Esta ficha está desligada.", Date.now(), Date.now());
 
 const entrar = async (n) => (await (await fetch(BASE + "/auth/login", { method: "POST", headers: { "content-type": "application/json" },
   body: JSON.stringify({ email: n.toLowerCase() + "@ia.com", password: "123456" }) })).json()).token;
@@ -96,6 +99,8 @@ await caso("1. Sugerir mensagem: rascunho, nada sai, orientações no pedido", a
   assert.ok(t.includes("Trate o cliente pelo primeiro nome"), "as orientações vão no pedido");
   assert.ok(t.includes("Vou olhar com calma"), "a conversa vai no pedido");
   assert.ok(t.includes("retomar a proposta"), "o que a pessoa pediu vai junto");
+  assert.ok(t.includes("200 metros da praia"), "a ficha de produto vai no pedido, sem formulário nem catraca");
+  assert.ok(!t.includes("Torre Desligada"), "ficha desligada não vai");
   assert.ok(db.prepare("SELECT 1 FROM ia_uso WHERE lead_id = ? AND recurso = 'proxima_mensagem'").get(lead), "o gasto fica registrado");
 });
 
@@ -128,6 +133,7 @@ await caso("3. A IA escreve e a mensagem sai, como automação", async () => {
   const t = texto(pedidosIA[pedidosIA.length - 1]);
   assert.ok(t.includes("Pergunte se a pessoa conseguiu ver a proposta"), "a instrução do bloco vai no pedido");
   assert.ok(t.includes("Trate o cliente pelo primeiro nome"), "as orientações também");
+  assert.ok(t.includes("200 metros da praia"), "a ficha de produto também");
   assert.equal(envios.length, 1); assert.equal(envios[0].texto, "Oi Joana! Conseguiu dar uma olhada na proposta?");
   const m = db.prepare("SELECT from_name, body FROM messages WHERE lead_id = ? AND direction = 'out' ORDER BY created_at DESC").get(lead);
   assert.match(m.from_name, /^Automação/); assert.match(m.body, /proposta/);

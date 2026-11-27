@@ -320,7 +320,7 @@ Regras:
 - Uma mensagem só, de 1 a 4 frases. No máximo UMA pergunta, no fim
 - Se o cliente perguntou algo e ficou sem resposta, responda isso primeiro
 - Se a conversa parou, escreva um follow-up que retome o ponto em que ela parou — não uma saudação genérica
-- NÃO invente valor, prazo, endereço, disponibilidade nem nada que a conversa ou as orientações não digam.
+- NÃO invente valor, prazo, endereço, disponibilidade nem nada que a conversa, as orientações ou as fichas de produto não digam.
   Quando precisar de um dado que não está escrito, deixe o espaço entre colchetes: [valor], [dia e hora]
 - Não assine a mensagem (o sistema já põe o nome de quem envia)
 - Siga as orientações da casa quando existirem
@@ -330,7 +330,7 @@ Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de có
 "porque": uma frase curta dizendo por que esta é a próxima mensagem (o que ficou em aberto na conversa).`;
 
 /* Devolve { ok, mensagem, porque, uso } ou { ok:false, erro }. Nunca lança. */
-export async function proximaMensagem({ mensagens, nome, orientacoes = [], quem = "", imobiliaria = "", pedido = "" }) {
+export async function proximaMensagem({ mensagens, nome, orientacoes = [], quem = "", imobiliaria = "", pedido = "", produtos = "" }) {
   if (!iaConfigurada()) return { ok: false, erro: "A IA não está ligada nesta instalação." };
   const uteis = (mensagens || []).filter(m => (m.texto || "").trim());
   if (!uteis.length) return { ok: false, erro: "Ainda não há conversa para a IA ler." };
@@ -342,6 +342,7 @@ export async function proximaMensagem({ mensagens, nome, orientacoes = [], quem 
   if (imobiliaria) partes.push(`Empresa: ${String(imobiliaria).slice(0, 80)}`);
   if (quem) partes.push(`Quem vai enviar: ${String(quem).slice(0, 60)}`);
   if (ensino.length) partes.push("ORIENTAÇÕES DA CASA:\n" + ensino.map(t => "- " + t).join("\n"));
+  if (produtos) partes.push(String(produtos));
   if (String(pedido || "").trim()) partes.push("O QUE A PESSOA QUER COM ESTA MENSAGEM: " + String(pedido).trim().slice(0, 300));
   partes.push(`Cliente: ${nome || "sem nome"}\n\nCONVERSA (da mais antiga para a mais recente):\n${linhas}`);
   const r = await perguntar({ max_tokens: 500, content: [{ type: "text", text: partes.join("\n\n") }] });
@@ -370,7 +371,7 @@ Regras:
 - Siga a INSTRUÇÃO DO BLOCO; ela diz o objetivo desta mensagem
 - Se houver conversa, continue a partir dela: não repita o que já foi dito e não cumprimente de novo
   se a conversa estiver em andamento
-- NÃO invente valor, prazo, endereço, disponibilidade nem nada que a conversa ou as orientações não digam.
+- NÃO invente valor, prazo, endereço, disponibilidade nem nada que a conversa, as orientações ou as fichas de produto não digam.
   Se o objetivo precisar de um dado que você não tem, escreva a mensagem sem ele
 - Não use colchetes nem marcadores para preencher depois
 - Não assine
@@ -379,7 +380,7 @@ Regras:
 Responda APENAS com um objeto JSON, sem texto antes ou depois, sem cercas de código:
 {"mensagem":texto}`;
 
-export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orientacoes = [], imobiliaria = "", contexto = "" }) {
+export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orientacoes = [], imobiliaria = "", contexto = "", produtos = "" }) {
   if (!iaConfigurada()) return { ok: false, erro: "A IA não está ligada nesta instalação." };
   const linhas = (mensagens || []).filter(m => (m.texto || "").trim()).slice(-60)
     .map(m => `${m.de === "cliente" ? "CLIENTE" : "EMPRESA"}: ${String(m.texto).replace(/\s+/g, " ").trim().slice(0, 600)}`)
@@ -389,6 +390,7 @@ export async function mensagemDoFluxo({ instrucao, mensagens = [], nome, orienta
   if (imobiliaria) partes.push(`Empresa: ${String(imobiliaria).slice(0, 80)}`);
   if (ensino.length) partes.push("ORIENTAÇÕES DA CASA:\n" + ensino.map(t => "- " + t).join("\n"));
   if (contexto) partes.push(String(contexto).slice(0, 6000));
+  if (produtos) partes.push(String(produtos));
   partes.push("INSTRUÇÃO DO BLOCO: " + String(instrucao || "").trim().slice(0, 1000));
   partes.push(`Cliente: ${nome || "sem nome"}`);
   partes.push(linhas ? "CONVERSA (da mais antiga para a mais recente):\n" + linhas : "Ainda não há conversa com este cliente.");
