@@ -441,5 +441,17 @@ const faltas = rel.pessoas.map(p => p.faltas);
 console.log(`   faltas na ordem: ${faltas.join(", ")}`);
 assert.deepEqual(faltas, [...faltas].sort((a, b) => b - a), "está em ordem decrescente de falta");
 
+console.log("35. Turno da noite: grava, aparece no dia e no relatório só quando existe");
+/* A noite entrou em 27/11/2026. Quem não usa não pode ganhar um terceiro
+   turno vazio no relatório — os casos acima (só manhã e tarde) mostram dois. */
+assert.equal(rel.por_turno.length, 2, "sem ninguém na noite, o relatório continua com manhã e tarde");
+const dn = new Date(2026, 8, 12).getTime();
+r = P.definirTurno(orgConta, { dia: dn, turno: "noite", userIds: ["u_ana"], autorId: null });
+assert.equal(r.ok, true, JSON.stringify(r));
+assert.equal(P.doDia(orgConta, dn).noite.length, 1, "Ana está na noite do dia 12");
+const relNoite = P.relatorio(orgConta, { de: SET, ate: SET_FIM }, FIM_DO_MES);
+assert.deepEqual(relNoite.por_turno.map(t => t.turno), ["manha", "tarde", "noite"]);
+console.log(`   noite: ${relNoite.por_turno[2].turnos_escalado} escalado(s)`);
+
 console.log("\nTudo certo ✅");
 process.exit(0);

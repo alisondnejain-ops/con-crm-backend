@@ -45,7 +45,7 @@ r.get("/", (req, res) => {
      todo aparelho da equipe. */
   const porDia = new Map();
   for (const l of linhas) {
-    if (!porDia.has(l.dia)) porDia.set(l.dia, { dia: l.dia, manha: [], tarde: [] });
+    if (!porDia.has(l.dia)) porDia.set(l.dia, { dia: l.dia, manha: [], tarde: [], noite: [] });
     porDia.get(l.dia)[l.turno].push({
       id: l.user_id, nome: l.nome,
       // null = ninguém conferiu ainda, que NÃO é o mesmo que não ter vindo.
@@ -188,9 +188,9 @@ r.post("/importar-arquivo", roles("adm", "sdr"), (req, res) => {
 
   const achado = acharCabecalho(matriz);
   if (!achado) return res.status(400).json({
-    error: "Não achei a linha de cabeçalho com 'Data' e as colunas de Manhã/Tarde. Confira se é a aba da escala." });
+    error: "Não achei a linha de cabeçalho com 'Data' e as colunas de Manhã/Tarde/Noite. Confira se é a aba da escala." });
 
-  const { linha: iCab, data: iData, manha, tarde } = achado;
+  const { linha: iCab, data: iData, manha, tarde, noite } = achado;
 
   /* A tabela da escala termina onde a data deixa de ser data.
 
@@ -203,7 +203,7 @@ r.post("/importar-arquivo", roles("adm", "sdr"), (req, res) => {
     const bruto = String(l[iData] || "").trim();
     if (!bruto) continue;                       // linha em branco no meio: pula
     if (!isFinite(lerDia(bruto))) { if (linhas.length) break; else continue; }
-    linhas.push({ data: bruto, manha: manha.map(i => l[i]), tarde: tarde.map(i => l[i]) });
+    linhas.push({ data: bruto, manha: manha.map(i => l[i]), tarde: tarde.map(i => l[i]), noite: noite.map(i => l[i]) });
   }
 
   if (!linhas.length) return res.status(400).json({ error: "Nenhuma linha com data abaixo do cabeçalho." });
@@ -224,7 +224,8 @@ function acharCabecalho(matriz) {
     const data = cab.findIndex(c => c === "data" || c.startsWith("data"));
     const manha = cab.map((c, k) => c.includes("manha") ? k : -1).filter(k => k >= 0);
     const tarde = cab.map((c, k) => c.includes("tarde") ? k : -1).filter(k => k >= 0);
-    if (data >= 0 && (manha.length || tarde.length)) return { linha: i, data, manha, tarde };
+    const noite = cab.map((c, k) => c.includes("noite") ? k : -1).filter(k => k >= 0);
+    if (data >= 0 && (manha.length || tarde.length || noite.length)) return { linha: i, data, manha, tarde, noite };
   }
   return null;
 }
