@@ -13346,6 +13346,7 @@ function resumoDosCanais(c){
    em várias catracas) e a ETAPA que aciona a catraca: o lead desses canais
    que entra nela vai para o próximo corretor disponível desta catraca. */
 function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,acoes,nomesDasCatracas={}}){
+  const est=usarEstrutura();
   const [nome,setNome]=useState(inicial.nome);
   const [entrega,setEntrega]=useState(inicial.entrega);
   const [membros,setMembros]=useState(inicial.membros);
@@ -13561,6 +13562,17 @@ function EditorDeCatraca({inicial,pessoas,isMobile,onSalvar,onCancelar,onApagar,
         :"O lead continua com quem já atende — o mais seguro: lead de um corretor não volta para a roleta."}</div>
 
     <div style={rotulo}>Corretores ({membros.length})</div>
+    {/* EQUIPES (27/11/2026, protótipo CETRO): marcar uma diretoria, gerência ou
+        equipe da Estrutura marca de uma vez os corretores dela (e dos níveis
+        abaixo). Tocar de novo, com todos marcados, desmarca. */}
+    {est&&est.niveis&&est.niveis.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8,alignItems:"center"}}>
+      <span style={{color:C.faint,fontSize:11}}>Equipes:</span>
+      {est.niveis.map(n=>{const ms=membrosDoNivel(est,n.id).filter(id=>pessoas.some(p=>p.id===id)); if(!ms.length) return null;
+        const todos=ms.every(id=>membros.includes(id));
+        return <button key={n.id} type="button" onClick={()=>setMembros(m=>todos?m.filter(x=>!ms.includes(x)):[...new Set([...m,...ms])])}
+          style={{border:`1px solid ${todos?C.green:C.line}`,background:todos?C.greenSoft:C.card,color:todos?C.greenDeep:C.sub,borderRadius:999,padding:isMobile?"6px 12px":"3px 10px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+          {n.nome} ({ms.length}){todos?" ✓":""}</button>;})}
+    </div>}
     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
       {!pessoas.length&&<span style={{color:C.faint,fontSize:12}}>Nenhum corretor na equipe ainda.</span>}
       {pessoas.map(p=>{const on=membros.includes(p.id);return <button key={p.id} onClick={()=>alternar(p.id)} style={{display:"flex",alignItems:"center",gap:6,
