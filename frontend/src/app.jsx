@@ -2294,7 +2294,7 @@ function ConCRM(){
     definirTriagem:(linha,ligada)=>api("/triagem/linhas",{method:"POST",body:{linha,ligada}}),
     voltarAReceber:(linha,phone)=>api("/triagem/pessoais/voltar",{method:"POST",body:{linha,phone}}),
     marcarPessoal:(id)=>api(`/triagem/leads/${id}/pessoal`,{method:"POST",body:{confirmar:"PESSOAL"}}).then(r=>{recarregar();return r;}),
-    criarLead:(dados)=>api("/leads",{method:"POST",body:dados}),
+    criarLead:(dados)=>api("/leads",{method:"POST",body:dados}).then(r=>{recarregar();return r;}),
     funilDeEntrada:()=>api("/pipelines/entrada"),
     definirFunilDeEntrada:(user_id,pipeline_id)=>api("/pipelines/entrada",{method:"POST",body:{user_id,pipeline_id}}),
     canalStatus:(id)=>api(`/canais/${id}/status`),
@@ -10792,9 +10792,9 @@ function usarAudioPendente({lead,acoes,aoAvisar}){
    já existe, e a tela oferece ABRIR A CONVERSA DELE. Sem essa saída, o caminho
    fácil seria cadastrar com o número trocado, e aí o cliente fica com duas
    fichas — que é exatamente o que a recusa existe para impedir. */
-function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead}){
+function NovoLead({acoes,session,isMobile,aoFechar,aoCriar,abrirLead,etapaInicial}){
   const supervisor=podeSupervisionar(session);
-  const [f,setF]=useState({nome:"",telefone:"",email:"",pais:PAIS_CONTA,stage_id:"",assigned_to:"",observacao:""});
+  const [f,setF]=useState({nome:"",telefone:"",email:"",pais:PAIS_CONTA,stage_id:etapaInicial||"",assigned_to:"",observacao:""});
   const [funis,setFunis]=useState([]);
   // Catracas de produto, para "entregar ao próximo da catraca" (CETRO 09.3).
   const catD=usarCatracas(acoes,supervisor);
@@ -11452,6 +11452,7 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
   const [criandoErro,setCriandoErro]=useState("");
   const [criandoOcupado,setCriandoOcupado]=useState(false);
   const podeCriarFunil=podeSupervisionar(session);
+  const [novoNaEtapa,setNovoNaEtapa]=useState(null);
   // A engrenagem do prazo de cada coluna é só do gestor (30/10/2026).
   const gestorFunil=!!(session&&podeGerir(session))&&TIPO_CONTA!=="autonomo";
   const [engrenagem,setEngrenagem]=useState(null);
@@ -11881,6 +11882,11 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
             {items.length===0&&<div style={{color:C.faint,fontSize:10.5,textAlign:"center",padding:"12px 0"}}>—</div>}
             <MostrarMais total={items.length} mostrando={limitesColuna[st]||60} passo={60}
               aoClicar={()=>setLimitesColuna(m=>({...m,[st]:(m[st]||60)+60}))}/>
+            {/* Cadastrar direto na etapa, como no protótipo: o lead que chegou
+                por telefone já entra onde ele está, sem passar pelo Atender. */}
+            {acoes&&acoes.criarLead&&col.id&&!arrasto&&<button onClick={()=>setNovoNaEtapa(col.id)}
+              style={{border:`1px dashed ${C.line}`,background:"transparent",color:C.faint,borderRadius:10,padding:"7px 0",
+                fontSize:11.5,fontWeight:600,cursor:"pointer",fontFamily:FONT,flexShrink:0}}>+ Adicionar lead</button>}
           </div>
         </div>;})}
     </div>
@@ -11895,6 +11901,8 @@ function Funil({leads,openLead,setStatus,isMobile,mostrarDono,acoes,pessoas=[],s
     </div>}
     {aberto&&<PopupLead leadId={aberto} leads={leads} acoes={acoes} isMobile={isMobile} ocultar={ocultar} session={session}
       abrirConversa={openLead} aoFechar={()=>setAberto(null)}/>}
+    {novoNaEtapa&&<NovoLead acoes={acoes} session={session} isMobile={isMobile} etapaInicial={novoNaEtapa}
+      aoFechar={()=>setNovoNaEtapa(null)} abrirLead={id=>{setNovoNaEtapa(null);openLead&&openLead(id);}}/>}
     {engrenagem&&<PrazoDaEtapaModal etapa={engrenagem} acoes={acoes} isMobile={isMobile}
       aoFechar={()=>setEngrenagem(null)} aoSalvo={()=>reverFunis&&reverFunis()}/>}
     </div>
