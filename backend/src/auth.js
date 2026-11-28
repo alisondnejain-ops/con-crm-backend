@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import db from "./db.js";
-import { alcanceDe, alcancaLead } from "./services/acesso.js";
+import { alcanceDe, alcancaLead, conferirFerramenta } from "./services/acesso.js";
 import { resumoDeToken } from "./services/cofre.js";
 import { contaPedeCodigo, acessoValido, registrarUso, acessoSemCodigo } from "./services/acesso-master.js";
 
@@ -299,6 +299,13 @@ export function authRequired(req, res, next) {
   }
 
   req.user = r.user;
+  /* A tabela de ferramentas da aba Permissões (services/acesso.js). Sem
+     tabela salva, não faz nada. O master não é limitado. */
+  if (!r.user.master) {
+    const f = conferirFerramenta(r.user, req.method, caminho);
+    if (!f.permitido) return res.status(403).json({ error: `Sem permissão para ${f.acao} em ${f.nome}. Fale com a gestão.` });
+    if (f.liberado) req.liberadoPorFerramenta = true;
+  }
   next();
 }
 
@@ -404,6 +411,8 @@ export function rolesOuPermissao(chave, ...allowed) {
 export function roles(...allowed) {
   return (req, res, next) => {
     if (allowed.includes(req.user.role)) return next();
+    // A gestão marcou esta ação para a pessoa na tabela de ferramentas.
+    if (req.liberadoPorFerramenta) return next();
     /* A conferência vai ao BANCO e não ao crachá: o token dura 30 dias, e quem
        deixasse de ser dono continuaria com o acesso por um mês. Mesma decisão
        do `porteiro` com o master. */

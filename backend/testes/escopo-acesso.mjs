@@ -97,5 +97,29 @@ await caso("8. Apagar o nível apaga as regras dele, e tudo volta ao de sempre",
   r = await GER("/leads"); assert.equal(nomes(r.body).length, 4);
   r = await A("/leads"); assert.deepEqual(nomes(r.body), ["Lead Ana"]);
 });
+await caso("9. Tabela vazia continua sendo o padrão da função", async () => {
+  r = await G("/estrutura/permissoes", { method: "PUT", body: { alvo_tipo: "pessoa", alvo_id: ana, escopo: null, ferramentas: {} } });
+  assert.equal(r.status, 200);
+  r = await A("/produtos"); assert.equal(r.status, 200);
+  r = await A("/estrutura/meu-alcance"); assert.equal(r.body.ferramentas, null);
+});
+await caso("10. Tabela salva: o desmarcado é recusado, o marcado passa por cima do papel", async () => {
+  const pad = (await G("/estrutura/permissoes")).body.padroes.corretor;
+  const t = JSON.parse(JSON.stringify(pad));
+  t.imoveis = { consultar: false, criar: false, editar: false, excluir: false };
+  t.funil.criar = false;
+  t.configuracoes = { consultar: true, editar: true };
+  r = await G("/estrutura/permissoes", { method: "PUT", body: { alvo_tipo: "pessoa", alvo_id: ana, ferramentas: t } });
+  assert.equal(r.status, 200);
+  r = await A("/produtos"); assert.equal(r.status, 403); assert.match(r.body.error, /Imóveis/);
+  r = await A("/leads", { method: "POST", body: { name: "Novo", phone: "87999990000" } }); assert.equal(r.status, 403);
+  r = await A("/leads"); assert.equal(r.status, 200);
+  r = await A("/config/mensagens", { method: "POST", body: { titulo: "Oi", texto: "Olá {nome}" } }); assert.notEqual(r.status, 403);
+  r = await A("/estrutura/meu-alcance"); assert.equal(r.body.ferramentas.imoveis.consultar, false);
+  // Bia, sem regra, continua igual.
+  const B = cli(await login("b@s.com"));
+  r = await B("/produtos"); assert.equal(r.status, 200);
+  r = await B("/config/mensagens", { method: "POST", body: { titulo: "Oi", texto: "Olá" } }); assert.equal(r.status, 403);
+});
 console.log(falhas ? `\n${falhas} falha(s).` : "\nOK — permissões por escopo.");
 process.exit(falhas ? 1 : 0);
