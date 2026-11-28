@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import db from "./db.js";
+import { alcanceDe, alcancaLead } from "./services/acesso.js";
 import { resumoDeToken } from "./services/cofre.js";
 import { contaPedeCodigo, acessoValido, registrarUso, acessoSemCodigo } from "./services/acesso-master.js";
 
@@ -460,8 +461,10 @@ export const supervisiona = (user) =>
    lead. O corretor sempre esteve preso ao que é dele. */
 export const podeVerLead = (user, lead) => {
   if (!lead) return false;
-  if (supervisiona(user)) return lead.org_id === user.org_id;
-  return lead.assigned_to === user.id;
+  if (supervisiona(user)) return lead.org_id === user.org_id && alcancaLead(user, lead);
+  if (lead.assigned_to === user.id) return true;
+  /* Corretor com escopo de equipe ou da operação (services/acesso.js). */
+  return lead.org_id === user.org_id && alcanceDe(user).tipo !== "proprio" && alcancaLead(user, lead);
 };
 
 // Nomes que aparecem para o usuário. Internamente os papéis continuam

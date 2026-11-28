@@ -12,6 +12,7 @@
 
 import { Router } from "express";
 import { authRequired, roles, supervisiona, veRelatoriosDaEquipe } from "../auth.js";
+import { alcanceDe, limitarResponsavel } from "../services/acesso.js";
 import { metasDoFunil, salvarMetas } from "../services/metas-conversao.js";
 import { painel, funil, campanhas, opcoesDeFiltro, atividades, resolverPeriodo, listaDeDonos, pessoasDoFiltro } from "../services/painel.js";
 import { conferenciaDoFunil, funilDeConversao } from "../services/conversao.js";
@@ -41,13 +42,22 @@ const filtrosDe = (q) => ({
   modo_funil: q.modo_funil === "criacao" ? "criacao" : undefined,
 });
 
+/* O filtro de pessoas limitado ao alcance de quem pergunta (28/11/2026). Sem
+   regra de escopo, o alcance da supervisão é a operação e nada muda. */
+const filtros = (req) => {
+  const f = filtrosDe(req.query);
+  if (supervisiona(req.user)) f.responsavel = limitarResponsavel(req.user, f.responsavel);
+  return f;
+};
+const veEquipe = (u) => veRelatoriosDaEquipe(u) || alcanceDe(u).tipo !== "proprio";
+
 /* "Chegaram a <primeira etapa comercial>" na Visão geral (25/11/2026, pedido
    do Ali: o cartão "Leads atendidos" se confundia com os "atendidos" de baixo,
    e o que a gestão lê depois dos recebidos é quantos chegaram à etapa Lead).
    É o primeiro degrau do funil de conversão — a mesma conta, do mesmo funil
    (o do filtro, ou o comercial da casa), então os dois números são iguais. */
 r.get("/", soGestao, (req, res) => {
-  const f = filtrosDe(req.query);
+  const f = filtros(req);
   const d = painel(req.user.org_id, f);
   try {
     const pid = f.pipeline_id || funilComercial(req.user.org_id)?.id;
@@ -61,7 +71,7 @@ r.get("/", soGestao, (req, res) => {
 r.get("/opcoes", soGestao, (req, res) => res.json(opcoesDeFiltro(req.user.org_id)));
 
 r.get("/equipe", soGestao, (req, res) => {
-  const f = filtrosDe(req.query);
+  const f = filtros(req);
   res.json({ periodo: resolverPeriodo(f), equipe: atividades(req.user.org_id, resolverPeriodo(f), f) });
 });
 
@@ -88,9 +98,10 @@ const pipelineDe = (req) => req.params.pipelineId === "comercial"
   : req.params.pipelineId;
 
 r.get("/funil/:pipelineId", (req, res) => {
-  const f = filtrosDe(req.query);
+  const f = filtros(req);
   // O corretor com "ver os relatórios da equipe" lê o funil de um colega (só leitura).
-  if (!veRelatoriosDaEquipe(req.user)) f.responsavel = req.user.id;
+  if (!veEquipe(req.user)) f.responsavel = req.user.id;
+  else f.responsavel = limitarResponsavel(req.user, f.responsavel, { leituraEquipe: veRelatoriosDaEquipe(req.user) });
   const pid = pipelineDe(req);
   if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
   const d = funil(req.user.org_id, pid, f);
@@ -120,10 +131,11 @@ r.put("/metas-conversao/:pipelineId", roles("adm"), (req, res) => {
    trás de "6 de 8". Mesma trava do funil: o corretor só confere a própria
    coorte, e o filtro que ele mandar é descartado. Paginada. */
 r.get("/funil/:pipelineId/conferencia", (req, res) => {
-  const f = filtrosDe(req.query);
+  const f = filtros(req);
   const sup = supervisiona(req.user);
   // `supervisor` continua sendo só a supervisão: é ele que deixa abrir a conversa.
-  if (!veRelatoriosDaEquipe(req.user)) f.responsavel = req.user.id;
+  if (!veEquipe(req.user)) f.responsavel = req.user.id;
+  else f.responsavel = limitarResponsavel(req.user, f.responsavel, { leituraEquipe: veRelatoriosDaEquipe(req.user) });
   const pid = pipelineDe(req);
   if (!pid) return res.status(404).json({ error: "Nenhum funil ativo." });
   const d = conferenciaDoFunil(req.user.org_id, pid, f, {
@@ -135,15 +147,15 @@ r.get("/funil/:pipelineId/conferencia", (req, res) => {
   res.json(d);
 });
 
-r.get("/campanhas", soGestao, (req, res) => res.json(campanhas(req.user.org_id, filtrosDe(req.query))));
+r.get("/campanhas", soGestao, (req, res) => res.json(campanhas(req.user.org_id, filtros(req))));
 
 /* A TELA DE ENTRADA — mesma exceção do /funil acima, e pelo mesmo motivo:
    isto não é "como está a equipe", é "como estão OS MEUS números" quando
    quem pergunta é o corretor. A trava é a mesma — sobrescreve o filtro que
    chegou, nunca confia nele. */
 r.get("/geral", (req, res) => {
-  const f = filtrosDe(req.query);
-  if (!supervisiona(req.user)) f.responsavel = req.user.id;
+  const f = filtros(req);
+  f.responsavel = supervisiona(req.user) || alcanceDe(req.user).tipo !== "proprio" ? limitarResponsavel(req.user, f.responsavel) : req.user.id;
   const dados = visaoGeral(req.user.org_id, f);
   const pessoas = pessoasDoFiltro(f);
   const alvo = !pessoas ? null : pessoas.length === 1 ? pessoas[0] : pessoas;
@@ -154,8 +166,8 @@ r.get("/geral", (req, res) => {
 /* PRÓXIMOS PASSOS (CETRO 06.3): a mesma trava do /geral — quem não
    supervisiona vê só os próprios leads, o que vier na query é descartado. */
 r.get("/proximos", (req, res) => {
-  const f = filtrosDe(req.query);
-  if (!supervisiona(req.user)) f.responsavel = req.user.id;
+  const f = filtros(req);
+  f.responsavel = supervisiona(req.user) || alcanceDe(req.user).tipo !== "proprio" ? limitarResponsavel(req.user, f.responsavel) : req.user.id;
   res.json(proximosPassos(req.user.org_id, f));
 });
 

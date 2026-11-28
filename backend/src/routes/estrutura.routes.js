@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { authRequired, roles, supervisiona } from "../auth.js";
 import { listar, criar, editar, apagar, ajustarPessoa } from "../services/estrutura.js";
+import { listarRegras, salvarRegra, apagarRegra, FERRAMENTAS, ESCOPOS, QUEM, alcanceDe } from "../services/acesso.js";
 
 const r = Router();
 r.use(authRequired);
@@ -11,4 +12,12 @@ r.post("/niveis", roles("adm"), (req, res) => resp(res, criar(req.user.org_id, r
 r.patch("/niveis/:id", roles("adm"), (req, res) => resp(res, editar(req.user.org_id, req.params.id, req.body || {})));
 r.delete("/niveis/:id", roles("adm"), (req, res) => resp(res, apagar(req.user.org_id, req.params.id)));
 r.patch("/pessoas/:id", roles("adm"), (req, res) => resp(res, ajustarPessoa(req.user.org_id, req.params.id, req.body || {})));
+/* PERMISSÕES (28/11/2026): regras por pessoa ou por grupo da estrutura. Lê quem supervisiona, grava o gestor. */
+r.get("/permissoes", (req, res) => supervisiona(req.user)
+  ? res.json({ regras: listarRegras(req.user.org_id), ferramentas: FERRAMENTAS, escopos: ESCOPOS, quem: QUEM })
+  : res.status(403).json({ error: "As permissões são da supervisão." }));
+r.put("/permissoes", roles("adm"), (req, res) => resp(res, salvarRegra(req.user.org_id, req.body || {}, req.user.id)));
+r.delete("/permissoes/:id", roles("adm"), (req, res) => resp(res, apagarRegra(req.user.org_id, req.params.id)));
+/* O alcance de quem pergunta: a tela usa para mostrar o dono nos cards e o filtro de pessoas. */
+r.get("/meu-alcance", (req, res) => { const a = alcanceDe(req.user); res.json({ tipo: a.tipo, ids: a.ids ? [...a.ids] : null, fila: a.fila }); });
 export default r;

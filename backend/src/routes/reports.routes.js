@@ -3,6 +3,7 @@ import db, { emLotes } from "../db.js";
 import { authRequired, roles, supervisiona, semMaster, veRelatoriosDaEquipe } from "../auth.js";
 import { STAGES } from "../services/stages.js";
 import { INDICADORES, extrasDaEquipe, configDePontos, salvarPontos, pontosDe } from "../services/indicadores-equipe.js";
+import { alcanceDe } from "../services/acesso.js";
 import { ranking, equipeDeAtendimento, recomendar, recomendacoes, temposDeResposta, primeirasRespostas, desdeDe, mediana, pct, taxaConversao, COMPONENTES_DO_SCORE, temposDoCorretor, marcosDaPessoa, perdidosPorConsequencia } from "../services/score.js";
 import { ponto, aplicarCorte } from "../services/expediente.js";
 import { escala as escalaPlantao, resumoPresenca, meiaNoite as meiaNoitePlantao } from "../services/plantao.js";
@@ -57,8 +58,8 @@ r.get("/", (req, res) => {
      repasse, o trabalho que ela fez sumia da conta. Ela tem um bloco próprio,
      logo abaixo, medido pelo que ela de fato faz. */
   const eventos = eventosDeAtribuicao(req.user.org_id);
-  const equipe = veRelatoriosDaEquipe(req.user)
-    ? equipeDeAtendimento(req.user.org_id, de, ate, eventos)
+  const equipe = veEquipe(req.user)
+    ? noAlcance(req.user, equipeDeAtendimento(req.user.org_id, de, ate, eventos))
     : db.prepare("SELECT id,name,role FROM users WHERE id=? AND role='corretor'").all(req.user.id);
 
   const leads = db.prepare("SELECT * FROM leads WHERE org_id=? AND created_at BETWEEN ? AND ?")
@@ -263,8 +264,8 @@ r.get("/", (req, res) => {
 
      A primeira mensagem enviada de cada conversa diz quem fez esse contato e a
      que horas — que é exatamente o indicador dela. */
-  const sdrs = veRelatoriosDaEquipe(req.user)
-    ? db.prepare(`SELECT u.id,u.name FROM users u WHERE u.org_id=? AND u.role='sdr' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id)
+  const sdrs = veEquipe(req.user)
+    ? noAlcance(req.user, db.prepare(`SELECT u.id,u.name FROM users u WHERE u.org_id=? AND u.role='sdr' AND u.status='ativo'${semMaster("u")} ORDER BY u.name`).all(req.user.org_id))
     : db.prepare("SELECT id,name FROM users WHERE id=? AND role='sdr'").all(req.user.id);
 
   /* Por LEAD, filtrado por imobiliária — a busca varria TODAS as contas
@@ -351,6 +352,15 @@ r.get("/sdr", (req, res) => {
   res.json(base);
 });
 
+/* ALCANCE (28/11/2026, services/acesso.js): quem tem regra de escopo vê nos
+   relatórios só as pessoas do alcance dele. Sem regra, nada muda. */
+const veEquipe = (u) => veRelatoriosDaEquipe(u) || alcanceDe(u).tipo !== "proprio";
+function noAlcance(u, lista) {
+  const a = alcanceDe(u);
+  if (!a.ids || (!a.explicito && veRelatoriosDaEquipe(u))) return lista;
+  return lista.filter(p => a.ids.has(p.id));
+}
+
 function intervaloDaQuery(q) {
   if (q.periodo && q.periodo !== "custom") {
     const p = resolverPeriodo({ periodo: q.periodo });
@@ -364,7 +374,7 @@ function intervaloDaQuery(q) {
 // Score de performance da equipe. Só gestão: é material de decisão sobre
 // pessoas, não painel de auto-avaliação do corretor.
 r.get("/score", (req, res) => {
-  if (!veRelatoriosDaEquipe(req.user)) return res.status(403).json({ error: "Sem permissão" });
+  if (!veEquipe(req.user)) return res.status(403).json({ error: "Sem permissão" });
 
   /* Aceita o MESMO intervalo da tela de Relatórios (?de=&ate=). É o que faz o
      score bater com a tabela logo acima dele: antes o score olhava "últimos 90
@@ -381,7 +391,8 @@ r.get("/score", (req, res) => {
 
   const dias = Math.min(365, Math.max(7, Number(req.query.dias) || 90));
   const periodo = temIntervalo ? { de: de ?? (ate - dias * 86400000), ate } : dias;
-  const equipe = ranking(req.user.org_id, periodo);
+  // A posição no ranking continua sendo a da equipe inteira; a lista mostra só quem está no alcance.
+  const equipe = noAlcance(req.user, ranking(req.user.org_id, periodo));
   /* Os indicadores que faltavam para os 19 (CETRO 17.2) e a pontuação livre. */
   const per = typeof periodo === "object" ? periodo : { de: Date.now() - dias * 86400000, ate: Date.now() };
   const extras = extrasDaEquipe(req.user.org_id, equipe.map(m => m.id), per.de, Math.min(per.ate, Date.now()));

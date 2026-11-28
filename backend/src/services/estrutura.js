@@ -6,11 +6,12 @@
    NÃO dá permissão nenhuma: é agrupamento e filtro. */
 import { randomUUID } from "node:crypto";
 import db from "../db.js";
+import { limparCache } from "./acesso.js";
 
 export const TIPOS = ["diretoria", "gerencia", "subgerencia", "equipe", "outro"];
 
 export function listar(orgId) {
-  const niveis = db.prepare("SELECT id, nome, tipo, pai_id, ordem FROM estrutura_niveis WHERE org_id=? ORDER BY ordem, created_at").all(orgId);
+  const niveis = db.prepare("SELECT id, nome, tipo, pai_id, ordem, responsavel_id FROM estrutura_niveis WHERE org_id=? ORDER BY ordem, created_at").all(orgId);
   const pessoas = db.prepare(`SELECT id, name, role, nivel_id, participa_indicadores FROM users WHERE org_id=? AND status='ativo' AND COALESCE(master,0)=0 ORDER BY name`).all(orgId);
   return { niveis: niveis.map(n => ({ ...n, membros: pessoas.filter(p => p.nivel_id === n.id).map(p => p.id) })), pessoas, tipos: TIPOS };
 }
@@ -36,20 +37,33 @@ function conferir(orgId, b, id = null) {
     if (!db.prepare("SELECT 1 FROM estrutura_niveis WHERE id=? AND org_id=?").get(pai, orgId)) return { erro: "Nível de cima não encontrado." };
     if (id && (pai === id || descendentes(orgId, id).has(pai))) return { erro: "Um nível não pode ficar dentro dele mesmo nem de um nível abaixo dele." };
   }
-  return { nome, tipo, pai };
+  let responsavel = b.responsavel_id ? String(b.responsavel_id) : null;
+  if (responsavel && !db.prepare("SELECT 1 FROM users WHERE id=? AND org_id=? AND status='ativo' AND COALESCE(master,0)=0").get(responsavel, orgId))
+    return { erro: "Responsável não encontrado." };
+  return { nome, tipo, pai, responsavel };
+}
+/* Integrantes escolhidos no popup do nível: entram nele; quem estava e saiu da lista fica sem nível. */
+function gravarIntegrantes(orgId, id, lista) {
+  if (!Array.isArray(lista)) return;
+  const ids = [...new Set(lista.map(String))];
+  db.prepare("UPDATE users SET nivel_id=NULL WHERE org_id=? AND nivel_id=?").run(orgId, id);
+  for (const u of ids) db.prepare("UPDATE users SET nivel_id=? WHERE id=? AND org_id=? AND COALESCE(master,0)=0").run(id, u, orgId);
 }
 
 export function criar(orgId, b) {
   const c = conferir(orgId, b); if (c.erro) return c;
   if (db.prepare("SELECT COUNT(*) n FROM estrutura_niveis WHERE org_id=?").get(orgId).n >= 200) return { erro: "Limite de 200 níveis." };
   const id = "niv_" + randomUUID();
-  db.prepare("INSERT INTO estrutura_niveis (id,org_id,nome,tipo,pai_id,ordem,created_at) VALUES (?,?,?,?,?,?,?)").run(id, orgId, c.nome, c.tipo, c.pai, Date.now(), Date.now());
+  db.prepare("INSERT INTO estrutura_niveis (id,org_id,nome,tipo,pai_id,ordem,created_at,responsavel_id) VALUES (?,?,?,?,?,?,?,?)").run(id, orgId, c.nome, c.tipo, c.pai, Date.now(), Date.now(), c.responsavel);
+  gravarIntegrantes(orgId, id, b.integrantes); limparCache();
   return { ok: true, id, ...listar(orgId) };
 }
 export function editar(orgId, id, b) {
   if (!db.prepare("SELECT 1 FROM estrutura_niveis WHERE id=? AND org_id=?").get(id, orgId)) return { erro: "Nível não encontrado.", status: 404 };
   const c = conferir(orgId, b, id); if (c.erro) return c;
-  db.prepare("UPDATE estrutura_niveis SET nome=?, tipo=?, pai_id=? WHERE id=?").run(c.nome, c.tipo, c.pai, id);
+  if (!("responsavel_id" in b)) c.responsavel = db.prepare("SELECT responsavel_id FROM estrutura_niveis WHERE id=?").get(id).responsavel_id;
+  db.prepare("UPDATE estrutura_niveis SET nome=?, tipo=?, pai_id=?, responsavel_id=? WHERE id=?").run(c.nome, c.tipo, c.pai, c.responsavel, id);
+  gravarIntegrantes(orgId, id, b.integrantes); limparCache();
   return { ok: true, ...listar(orgId) };
 }
 export function apagar(orgId, id) {
@@ -58,7 +72,9 @@ export function apagar(orgId, id) {
   db.transaction(() => {
     db.prepare("UPDATE users SET nivel_id=NULL WHERE org_id=? AND nivel_id=?").run(orgId, id);
     db.prepare("DELETE FROM estrutura_niveis WHERE id=?").run(id);
+    db.prepare("DELETE FROM acesso_regras WHERE org_id=? AND alvo_tipo='nivel' AND alvo_id=?").run(orgId, id);
   })();
+  limparCache();
   return { ok: true, ...listar(orgId) };
 }
 export function ajustarPessoa(orgId, userId, b) {
@@ -68,6 +84,7 @@ export function ajustarPessoa(orgId, userId, b) {
     const n = b.nivel_id ? String(b.nivel_id) : null;
     if (n && !db.prepare("SELECT 1 FROM estrutura_niveis WHERE id=? AND org_id=?").get(n, orgId)) return { erro: "Nível não encontrado." };
     db.prepare("UPDATE users SET nivel_id=? WHERE id=?").run(n, userId);
+    limparCache();
   }
   if ("participa_indicadores" in b) {
     const v = b.participa_indicadores === null || b.participa_indicadores === "" ? null : (b.participa_indicadores ? 1 : 0);
