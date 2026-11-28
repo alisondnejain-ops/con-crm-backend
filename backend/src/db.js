@@ -3065,6 +3065,18 @@ CREATE INDEX IF NOT EXISTS idx_niveis_org ON estrutura_niveis(org_id);`);
   if (!u.includes("nivel_id")) db.exec("ALTER TABLE users ADD COLUMN nivel_id TEXT");
   if (!u.includes("participa_indicadores")) db.exec("ALTER TABLE users ADD COLUMN participa_indicadores INTEGER");
 }
+/* PERMISSÕES POR PESSOA OU POR GRUPO (28/11/2026, pedido do Fernando; services/acesso.js).
+   `estrutura_niveis.responsavel_id` é o diretor/gerente do nível. `acesso_regras`
+   guarda uma regra por pessoa (alvo_tipo='pessoa') ou por nível da estrutura
+   com filtro de função (alvo_tipo='nivel'). Sem regra, vale o de sempre. */
+{
+  const n = db.prepare("PRAGMA table_info(estrutura_niveis)").all().map(c => c.name);
+  if (!n.includes("responsavel_id")) db.exec("ALTER TABLE estrutura_niveis ADD COLUMN responsavel_id TEXT");
+}
+db.exec(`CREATE TABLE IF NOT EXISTS acesso_regras (
+  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, alvo_tipo TEXT NOT NULL, alvo_id TEXT NOT NULL, quem TEXT NOT NULL DEFAULT 'todos',
+  escopo TEXT, equipes_json TEXT, ferramentas_json TEXT, atualizado_por TEXT, atualizado_em INTEGER);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_acesso_alvo ON acesso_regras(org_id, alvo_tipo, alvo_id, quem);`);
 
 /* Imóvel, protótipo CETRO (27/11/2026): "Publicar no site" (nulo = sim, como
    sempre foi), título próprio para os portais, e legenda/planta em cada foto. */

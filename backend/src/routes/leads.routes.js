@@ -4,6 +4,7 @@ import db, { versaoDosLeads, emLotes } from "../db.js";
 import { ehEmpreendimento, SO_NUMERO_DA_CASA } from "../services/lotes.js";
 import { filaPorEtapaLigada, filaAgora } from "../services/fila-etapa.js";
 import { authRequired, roles, supervisiona, semMaster, podeVerLead } from "../auth.js";
+import { alcanceDe } from "../services/acesso.js";
 import { mascararTelefone } from "../seguranca.js";
 import { exportar as exportarLGPD, anonimizar as anonimizarLGPD } from "../services/lgpd.js";
 import { paisDaOrg } from "../services/pais-da-org.js";
@@ -115,8 +116,18 @@ r.get("/", (req, res) => {
   const { id, org_id } = req.user;
   const where = [], args = [];
 
-  if (supervisiona(req.user)) {
+  /* ALCANCE (28/11/2026, services/acesso.js): quem tem regra de escopo vê só
+     os leads das pessoas do alcance dele (e a fila, se for atendente). O
+     corretor com escopo de equipe/operação também cai neste ramo. */
+  const alcance = alcanceDe(req.user);
+  const amplo = supervisiona(req.user) || alcance.tipo !== "proprio";
+  if (amplo) {
     where.push("l.org_id = ?"); args.push(org_id);
+    if (alcance.ids) {
+      const ids = [...alcance.ids];
+      where.push(`(l.assigned_to IN (${ids.map(() => "?").join(",")})${alcance.fila ? " OR l.assigned_to IS NULL" : ""})`);
+      args.push(...ids);
+    }
     // Caixa de atendimento da atendente: só o que está com ela e o que ainda não
     // tem dono. Sem isto ela enxerga a imobiliária inteira (é supervisora), e o
     // lead que ela acabou de repassar continuava na tela dela, atrapalhando o
@@ -216,7 +227,7 @@ r.get("/", (req, res) => {
      lead da casa que mudou e não voltou acima. Para o corretor, só os que um
      dia foram dele — senão a resposta listaria os ids dos leads dos colegas. */
   const voltaram = new Set(rows.map(l => l.id));
-  const mudaram = supervisiona(req.user)
+  const mudaram = amplo
     ? db.prepare("SELECT id FROM leads WHERE org_id = ? AND COALESCE(versao, 0) > ?").all(org_id, desde)
     : db.prepare(`SELECT l.id FROM leads l WHERE l.org_id = ? AND COALESCE(l.versao, 0) > ? AND l.assigned_to IS NOT ?
         AND EXISTS (SELECT 1 FROM lead_transfers t WHERE t.lead_id = l.id AND (t.from_user_id = ? OR t.to_user_id = ?))`)

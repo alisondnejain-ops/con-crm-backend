@@ -8623,6 +8623,12 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
   const canAttend=role==="corretor"||role==="sdr";
   // Atendente tem o mesmo alcance do gestor — por isso o cadastro dele é aprovado.
   const supervisor=podeGerir(session)||role==="sdr";
+  /* Alcance (28/11/2026, aba Permissões): o corretor com escopo de equipe ou
+     da operação vê no Funil os leads desse alcance, com o dono no card. A
+     caixa do Atender continua sendo a dele. */
+  const [alcance,setAlcance]=useState(null);
+  useEffect(()=>{ if(supervisor) return; api("/estrutura/meu-alcance").then(setAlcance).catch(()=>{}); },[session.id,org&&org.id]);
+  const funilAmplo=supervisor||(alcance&&alcance.tipo!=="proprio");
   /* A aba aberta também é escolha da pessoa. Sem guardar, voltar do segundo
      plano no celular jogava todo mundo de volta na tela inicial do papel dele,
      no meio do atendimento. */
@@ -8986,7 +8992,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
             que as mensagens simplesmente pararam. */}
         {role==="corretor"&&!supervisor&&view==="atendimento"&&<MolduraAtender isMobile={isMobile} corretor><Atendimento {...{myLeads,sel,abrir:acoes.abrir,draft,setDraft,send,enviando,setStatus,chatRef,conecta,session,acoes,canHandoff:false,availCorretores,isMobile,citando,setCitando,versaoMsgs,minhaLinha,ordemCaixa,setOrdemCaixa}}/></MolduraAtender>}
         {/* Quem supervisiona vê o funil da equipe inteira; o corretor, só o dele. */}
-        {view==="funil"&&<Funil leads={supervisor?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={supervisor} acoes={acoes} pessoas={pessoas} session={session}/>}
+        {view==="funil"&&<Funil leads={funilAmplo?leads:myLeads} openLead={openLead} setStatus={setStatus} isMobile={isMobile} mostrarDono={funilAmplo} acoes={acoes} pessoas={pessoas} session={session}/>}
         {canAttend&&view==="disp"&&<Disponibilidade avail={euDisponivel} toggle={(extra)=>toggleAvail(session.id,euDisponivel,extra)} name={session.name} acoes={acoes} isMobile={isMobile} ehPonto={role==="sdr"}/>}
         {canAttend&&view==="produtividade"&&<Relatorios acoes={acoes} session={session} isMobile={isMobile} abrirConversa={openLead} org={org}
           pickable={temPerm(session,"ver_relatorios_equipe")}/>}
@@ -21943,7 +21949,7 @@ function EstruturaDaEquipe({isMobile,ehGestor,parte,pedirNovo}){
      (Permissões). Sem `parte`, os dois juntos, como antes. `pedirNovo` muda
      quando o botão "+ Criar nível / equipe" do alto é tocado. */
   const [d,setD]=useState(null), [erro,setErro]=useState(""), [novo,setNovo]=useState(null), [editando,setEditando]=useState(null);
-  useEffect(()=>{if(pedirNovo) setNovo({nome:"",tipo:"",pai_id:""});},[pedirNovo]);
+  useEffect(()=>{if(pedirNovo) setNovo({nome:"",tipo:"",pai_id:"",responsavel_id:"",integrantes:[]});},[pedirNovo]);
   const carregar=()=>api("/estrutura").then(r=>{setD(r);esquecerEstrutura(r);}).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
   const fazer=async(fn)=>{setErro(""); try{ const r=await fn(); setD(r); esquecerEstrutura(r); setNovo(null); setEditando(null);}catch(e){setErro(e.message);} };
@@ -21951,19 +21957,26 @@ function EstruturaDaEquipe({isMobile,ehGestor,parte,pedirNovo}){
   const tipoNome={diretoria:"Diretoria",gerencia:"Gerência",subgerencia:"Subgerência",equipe:"Equipe",outro:"Outro"};
   const ent={fontSize:isMobile?16:13,border:`1px solid ${C.line}`,background:C.surface,borderRadius:10,padding:"7px 9px",color:C.ink,outline:"none"};
   const papel={adm:"gestor(a)",sdr:"atendente",corretor:"corretor(a)"};
-  const form=(v,set,salvar,cancelar)=><div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",margin:"6px 0"}}>
+  const form=(v,set,salvar,cancelar)=><div style={{margin:"6px 0",padding:12,border:`1px solid ${C.line}`,borderRadius:12,background:"#fafcf8"}}><div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
     <input autoFocus aria-label="Nome do nível" value={v.nome} onChange={e=>set({...v,nome:e.target.value})} placeholder="Ex.: Gerência Petrolina" style={{...ent,flex:"1 1 180px"}}/>
     <select aria-label="Tipo do nível" value={v.tipo||""} onChange={e=>set({...v,tipo:e.target.value})} style={ent}><option value="">Tipo (opcional)</option>{d.tipos.map(t=><option key={t} value={t}>{tipoNome[t]}</option>)}</select>
     <select aria-label="Fica dentro de" value={v.pai_id||""} onChange={e=>set({...v,pai_id:e.target.value})} style={ent}><option value="">No topo</option>{d.niveis.filter(n=>n.id!==v.id).map(n=><option key={n.id} value={n.id}>dentro de {n.nome}</option>)}</select>
-    <button onClick={salvar} style={{background:C.green,color:"#fff",border:"none",borderRadius:10,padding:"8px 12px",fontWeight:700,cursor:"pointer"}}>Salvar</button>
-    <button onClick={cancelar} style={{background:"none",border:"none",color:C.faint,cursor:"pointer"}}>cancelar</button></div>;
+    <select aria-label="Responsável pelo nível" value={v.responsavel_id||""} onChange={e=>set({...v,responsavel_id:e.target.value})} style={ent}><option value="">Responsável (opcional)</option>{d.pessoas.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+    <div style={{color:"#85937b",fontSize:11.5,fontWeight:600,margin:"10px 0 4px"}}>Integrantes</div>
+    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{d.pessoas.map(p=>{const on=(v.integrantes||[]).includes(p.id);
+      return <label key={p.id} style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12.5,border:`1px solid ${on?C.green:C.line}`,background:on?C.greenSoft:"#fff",borderRadius:9,padding:"5px 9px",cursor:"pointer",color:C.ink}}>
+        <input type="checkbox" checked={on} onChange={()=>set({...v,integrantes:on?(v.integrantes||[]).filter(x=>x!==p.id):[...(v.integrantes||[]),p.id]})}/>{p.name}</label>;})}</div>
+    <div style={{display:"flex",gap:8,marginTop:10}}>
+    <button onClick={salvar} style={{...BOTAO_PRIMARIO}}>Salvar estrutura</button>
+    <button onClick={cancelar} style={{...BOTAO_SECUNDARIO}}>Cancelar</button></div></div>;
   const arvore=(pai,nivelProf)=>d.niveis.filter(n=>(n.pai_id||null)===pai).map(n=><div key={n.id} style={{marginLeft:nivelProf?16:0,borderLeft:nivelProf?`2px solid ${C.line}`:"none",paddingLeft:nivelProf?10:0,marginTop:8}}>
     {editando&&editando.id===n.id?form(editando,setEditando,()=>fazer(()=>api(`/estrutura/niveis/${n.id}`,{method:"PATCH",body:editando})),()=>setEditando(null))
       :<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><b style={{color:C.ink,fontSize:13.5}}>{n.nome}</b>{n.tipo&&<span style={{color:C.faint,fontSize:11.5}}>{tipoNome[n.tipo]}</span>}
         <span style={{color:C.faint,fontSize:11.5,whiteSpace:"nowrap"}}>· {n.membros.length} pessoa(s)</span>
+        {n.responsavel_id&&<span style={{color:C.sub,fontSize:11.5,whiteSpace:"nowrap"}}>· responsável: {(d.pessoas.find(p=>p.id===n.responsavel_id)||{}).name||"—"}</span>}
         {ehGestor&&<span style={{marginLeft:"auto",display:"flex",gap:10,whiteSpace:"nowrap"}}>
-          <button onClick={()=>setNovo({nome:"",tipo:"",pai_id:n.id})} style={{border:"none",background:"none",color:C.greenDeep,fontSize:12,cursor:"pointer"}}>+ nível abaixo</button>
-          <button onClick={()=>setEditando({id:n.id,nome:n.nome,tipo:n.tipo||"",pai_id:n.pai_id||""})} style={{border:"none",background:"none",color:C.sub,fontSize:12,cursor:"pointer"}}>editar</button>
+          <button onClick={()=>setNovo({nome:"",tipo:"",pai_id:n.id,responsavel_id:"",integrantes:[]})} style={{border:"none",background:"none",color:C.greenDeep,fontSize:12,cursor:"pointer"}}>+ nível abaixo</button>
+          <button onClick={()=>setEditando({id:n.id,nome:n.nome,tipo:n.tipo||"",pai_id:n.pai_id||"",responsavel_id:n.responsavel_id||"",integrantes:[...n.membros]})} style={{border:"none",background:"none",color:C.sub,fontSize:12,cursor:"pointer"}}>editar</button>
           <button onClick={()=>{if(window.confirm(`Apagar o nível "${n.nome}"? Quem está nele fica sem nível.`)) fazer(()=>api(`/estrutura/niveis/${n.id}`,{method:"DELETE"}));}} style={{border:"none",background:"none",color:C.hot,fontSize:12,cursor:"pointer"}}>apagar</button></span>}</div>}
     {arvore(n.id,nivelProf+1)}
   </div>);
@@ -21971,12 +21984,12 @@ function EstruturaDaEquipe({isMobile,ehGestor,parte,pedirNovo}){
   return <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:18,marginBottom:16}}>
     {verNiveis&&<React.Fragment>
     <div style={{color:C.ink,fontSize:14,fontWeight:700,marginBottom:4,fontFamily:DISPLAY}}>{d.niveis.length?"Estrutura da equipe":"Crie a estrutura da sua operação"}</div>
-    <div style={{color:"#85937b",fontSize:11.5,lineHeight:1.5,marginBottom:8}}>O nível agrupa e filtra as pessoas; não dá permissão.</div>
+    <div style={{color:"#85937b",fontSize:11.5,lineHeight:1.5,marginBottom:8}}>O nível agrupa as pessoas. Quem vê o quê se decide na aba Permissões.</div>
     {erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:6}}>{erro}</div>}
     {!d.niveis.length&&!novo&&<div style={{color:C.sub,fontSize:12.5}}>Nenhum nível criado.</div>}
     {arvore(null,0)}
     {novo&&form(novo,setNovo,()=>fazer(()=>api("/estrutura/niveis",{method:"POST",body:novo})),()=>setNovo(null))}
-    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:""})} style={{...BOTAO_SECUNDARIO,marginTop:12}}>{d.niveis.length?"+ Adicionar nível":"Criar primeiro nível"}</button>}
+    {ehGestor&&!novo&&<button onClick={()=>setNovo({nome:"",tipo:"",pai_id:"",responsavel_id:"",integrantes:[]})} style={{...BOTAO_SECUNDARIO,marginTop:12}}>{d.niveis.length?"+ Adicionar nível":"Criar primeiro nível"}</button>}
     </React.Fragment>}
     {verPessoas&&<div style={verNiveis?{marginTop:14,borderTop:`1px solid ${C.line}`,paddingTop:10}:{}}>
       {!verNiveis&&erro&&<div style={{color:C.hot,fontSize:12.5,marginBottom:6}}>{erro}</div>}
@@ -21989,6 +22002,101 @@ function EstruturaDaEquipe({isMobile,ehGestor,parte,pedirNovo}){
           <option value="">Indicadores: automático</option><option value="1">Sempre nos indicadores</option><option value="0">Fora dos indicadores</option></select>
       </div>)}
       <div style={{color:C.faint,fontSize:11,marginTop:6,lineHeight:1.45}}>Automático: corretor entra; gestor entra quando atendeu no período. "Sempre" serve para quem dirige e também produz. Entrar nos indicadores não dá acesso aos dados de ninguém.</div>
+    </div>}
+  </div>;
+}
+
+/* PERMISSÕES (28/11/2026, pedido do Fernando; services/acesso.js). Quatro
+   passos: para quem (uma pessoa, escolhida pela função, ou um grupo da
+   estrutura), quais leads vê, os indicadores (só pessoa) e o que pode fazer
+   em cada ferramenta. Sem regra, vale o padrão da função. */
+const ESCOPOS_TEXTO={
+  "":["Padrão da função","Gestor e atendente veem os leads da operação; corretor vê a carteira própria."],
+  proprio:["Carteira própria","Só os leads que estão no nome da pessoa."],
+  equipe:["Leads da equipe","Os leads das pessoas das equipes autorizadas, mais os dela."],
+  operacao:["Leads da operação","Todos os leads da imobiliária."],
+};
+const QUEM_TEXTO={todos:"Todos do grupo",responsavel:"Só o responsável (diretor ou gerente)",gestor:"Só os gestores",corretor:"Só os corretores",atendente:"Só as atendentes"};
+function PermissoesDaEquipe({isMobile,ehGestor}){
+  const [est,setEst]=useState(null), [cfg,setCfg]=useState(null), [erro,setErro]=useState(""), [ok,setOk]=useState("");
+  const [modo,setModo]=useState("pessoa"), [funcao,setFuncao]=useState("corretor");
+  const [alvo,setAlvo]=useState(""), [quem,setQuem]=useState("todos");
+  const [escopo,setEscopo]=useState(""), [equipes,setEquipes]=useState([]), [ferr,setFerr]=useState({});
+  const carregar=()=>Promise.all([api("/estrutura"),api("/estrutura/permissoes")]).then(([e,c])=>{setEst(e);setCfg(c);}).catch(e=>setErro(e.message));
+  useEffect(()=>{carregar();},[]);
+  const regraAtual=cfg&&alvo?cfg.regras.find(r=>r.alvo_tipo===modo&&r.alvo_id===alvo&&(modo==="pessoa"||r.quem===quem)):null;
+  useEffect(()=>{ setEscopo(regraAtual?regraAtual.escopo||"":""); setEquipes(regraAtual?regraAtual.equipes||[]:[]); setFerr(regraAtual&&regraAtual.ferramentas||{}); setOk(""); },[alvo,quem,modo,regraAtual&&regraAtual.id]);
+  if(erro&&!est) return <div style={{color:C.hot,fontSize:12.5}}>{erro}</div>;
+  if(!est||!cfg) return null;
+  const nomeDe=(id)=>(est.pessoas.find(p=>p.id===id)||{}).name||"—";
+  const nivelDe=(id)=>(est.niveis.find(n=>n.id===id)||{}).nome||"—";
+  const resp=(tipos)=>est.niveis.filter(n=>n.responsavel_id&&tipos.includes(n.tipo)).map(n=>n.responsavel_id);
+  const FUNCOES=[["diretor","Diretor",resp(["diretoria"])],["gerente","Gerente",resp(["gerencia","subgerencia"])],
+    ["gestor","Gestor",est.pessoas.filter(p=>p.role==="adm").map(p=>p.id)],["corretor","Corretor",est.pessoas.filter(p=>p.role==="corretor").map(p=>p.id)],
+    ["atendente","Atendente",est.pessoas.filter(p=>p.role==="sdr").map(p=>p.id)]].filter(f=>f[0]!=="diretor"&&f[0]!=="gerente"||f[2].length);
+  const daFuncao=[...new Set((FUNCOES.find(f=>f[0]===funcao)||FUNCOES[0]||[,,[]])[2])];
+  const prof=(n,k=0)=>n.pai_id&&k<10?prof(est.niveis.find(x=>x.id===n.pai_id)||{},k+1)+1:0;
+  const pastilha=(on)=>({border:`1px solid ${on?C.green:"#dce4db"}`,background:on?C.greenSoft:"#fff",color:on?C.greenDeep:C.ink,borderRadius:10,padding:"7px 12px",fontSize:13,fontWeight:on?700:500,cursor:"pointer",fontFamily:FONT});
+  const ent={fontSize:isMobile?16:13,border:"1px solid #dce4db",background:"#fff",borderRadius:10,padding:"0 10px",height:36,color:C.ink,outline:"none",minWidth:isMobile?"100%":240};
+  const titulo=(n,t)=><div style={{display:"flex",alignItems:"center",gap:8,margin:"18px 0 8px"}}><span style={{width:22,height:22,borderRadius:11,background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,display:"grid",placeItems:"center",flexShrink:0}}>{n}</span><b style={{color:C.ink,fontSize:13.5,fontFamily:DISPLAY}}>{t}</b></div>;
+  const salvar=async()=>{ setErro(""); setOk("");
+    try{ const r=await api("/estrutura/permissoes",{method:"PUT",body:{alvo_tipo:modo,alvo_id:alvo,quem,escopo:escopo||null,equipes,ferramentas:ferr}}); setCfg(c=>({...c,regras:r.regras})); setOk("Permissões salvas."); }
+    catch(e){ setErro(e.message); } };
+  const voltarPadrao=async(id)=>{ setErro(""); try{ const r=await api(`/estrutura/permissoes/${id}`,{method:"DELETE"}); setCfg(c=>({...c,regras:r.regras})); setOk("Voltou ao padrão da função."); }catch(e){setErro(e.message);} };
+  const descricao=(r)=>(r.alvo_tipo==="pessoa"?nomeDe(r.alvo_id):`${nivelDe(r.alvo_id)} · ${QUEM_TEXTO[r.quem]||r.quem}`);
+  return <div style={{background:C.card,border:"1px solid #e0e7db",borderRadius:16,boxShadow:SOMBRA,padding:isMobile?14:20,marginBottom:16}}>
+    <div style={{color:C.ink,fontSize:15,fontWeight:700,fontFamily:DISPLAY}}>Funções e permissões</div>
+    {titulo(1,"Para quem")}
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      <button onClick={()=>{setModo("pessoa");setAlvo("");}} style={pastilha(modo==="pessoa")}>Uma pessoa</button>
+      <button onClick={()=>{setModo("nivel");setAlvo("");}} disabled={!est.niveis.length} title={est.niveis.length?"":"Crie a estrutura na aba Estrutura"} style={{...pastilha(modo==="nivel"),opacity:est.niveis.length?1:.5}}>Um grupo da estrutura</button>
+    </div>
+    {modo==="pessoa"?<div style={{marginTop:10}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>{FUNCOES.map(([k,t,ids])=><button key={k} onClick={()=>{setFuncao(k);setAlvo("");}} style={pastilha(funcao===k)}>{t} <span style={{color:C.faint,fontWeight:500}}>{[...new Set(ids)].length}</span></button>)}</div>
+      <select aria-label="Pessoa" value={alvo} onChange={e=>setAlvo(e.target.value)} style={ent}>
+        <option value="">{daFuncao.length?"Escolha a pessoa":"Ninguém com esta função"}</option>{daFuncao.map(id=><option key={id} value={id}>{nomeDe(id)}</option>)}</select>
+    </div>:<div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap"}}>
+      <select aria-label="Grupo" value={alvo} onChange={e=>setAlvo(e.target.value)} style={ent}>
+        <option value="">Escolha a diretoria, gerência ou time</option>{est.niveis.map(n=><option key={n.id} value={n.id}>{"  ".repeat(prof(n))}{n.nome}</option>)}</select>
+      <select aria-label="Quem do grupo" value={quem} onChange={e=>setQuem(e.target.value)} style={ent}>{Object.entries(QUEM_TEXTO).map(([k,t])=><option key={k} value={k}>{t}</option>)}</select>
+    </div>}
+    {alvo&&<React.Fragment>
+      {titulo(2,"Quais leads vê")}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:8}}>
+        {Object.entries(ESCOPOS_TEXTO).map(([k,[t,sub]])=><button key={k} onClick={()=>setEscopo(k)} style={{...pastilha(escopo===k),textAlign:"left",padding:"10px 12px",display:"block"}}>
+          <div style={{fontWeight:700}}>{t}</div><div style={{color:C.sub,fontSize:11.5,fontWeight:400,marginTop:2,lineHeight:1.4}}>{sub}</div></button>)}
+      </div>
+      {escopo==="equipe"&&<div style={{marginTop:10}}>
+        <div style={{color:"#85937b",fontSize:11.5,fontWeight:600,marginBottom:6}}>Equipes autorizadas {equipes.length?"":"· sem escolha: a equipe da própria pessoa e as de baixo"}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{est.niveis.map(n=>{const on=equipes.includes(n.id);
+          return <label key={n.id} style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12.5,...pastilha(on),padding:"5px 9px"}}>
+            <input type="checkbox" checked={on} onChange={()=>setEquipes(on?equipes.filter(x=>x!==n.id):[...equipes,n.id])}/>{n.nome}</label>;})}</div>
+      </div>}
+      {modo==="pessoa"&&<React.Fragment>{titulo(3,"Indicadores")}
+        <div style={{color:C.sub,fontSize:12.5}}>A participação e o nível de cada pessoa ficam na lista logo abaixo.</div></React.Fragment>}
+      {titulo(modo==="pessoa"?4:3,"O que pode fazer em cada ferramenta")}
+      <div style={{background:"#FFF7E6",border:"1px solid #F3D99A",color:"#7A5A12",borderRadius:10,padding:"8px 10px",fontSize:12,marginBottom:8}}>Esta tabela passa a valer na próxima atualização. Por enquanto vale o padrão da função.</div>
+      <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%",minWidth:520,fontSize:12.5}}>
+        <thead><tr style={{color:"#85937b",textAlign:"left"}}><th style={{padding:"6px 8px",fontWeight:600}}>Ferramenta</th>{["Consultar","Criar","Editar","Excluir","Exportar"].map(a=><th key={a} style={{padding:"6px 8px",fontWeight:600,textAlign:"center"}}>{a}</th>)}</tr></thead>
+        <tbody>{cfg.ferramentas.map(f=><tr key={f.id} style={{borderTop:"1px solid #edf1e6"}}>
+          <td style={{padding:"7px 8px",color:C.ink}}>{f.nome}</td>
+          {["consultar","criar","editar","excluir","exportar"].map(a=><td key={a} style={{textAlign:"center",color:C.faint}}>{f.acoes.includes(a)
+            ?<input type="checkbox" disabled aria-label={`${f.nome}: ${a}`} checked={!!(ferr[f.id]&&ferr[f.id][a])} onChange={()=>{}}/>:"—"}</td>)}
+        </tr>)}</tbody></table></div>
+      {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:10}}>{erro}</div>}
+      {ok&&<div style={{color:C.green,fontSize:12.5,marginTop:10}}>{ok}</div>}
+      {ehGestor&&<div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
+        <button onClick={salvar} style={BOTAO_PRIMARIO}>Salvar permissões</button>
+        {regraAtual&&<button onClick={()=>voltarPadrao(regraAtual.id)} style={BOTAO_SECUNDARIO}>Voltar ao padrão</button>}
+      </div>}
+    </React.Fragment>}
+    {cfg.regras.length>0&&<div style={{marginTop:20,borderTop:"1px solid #edf1e6",paddingTop:12}}>
+      <div style={{color:"#85937b",fontSize:11.5,fontWeight:600,marginBottom:6}}>PERMISSÕES SALVAS</div>
+      {cfg.regras.map(r=><div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderTop:"1px solid #edf1e6",flexWrap:"wrap"}}>
+        <span style={{flex:"1 1 200px",fontSize:13,color:C.ink}}>{descricao(r)}</span>
+        <span style={{fontSize:12,color:C.sub}}>{(ESCOPOS_TEXTO[r.escopo||""]||[])[0]}{r.escopo==="equipe"&&r.equipes.length?` · ${r.equipes.map(nivelDe).join(", ")}`:""}</span>
+        <button onClick={()=>{setModo(r.alvo_tipo);if(r.alvo_tipo==="nivel")setQuem(r.quem);else{const u=est.pessoas.find(p=>p.id===r.alvo_id);setFuncao(u?{adm:"gestor",sdr:"atendente"}[u.role]||"corretor":"corretor");}setAlvo(r.alvo_id);}} style={{border:"none",background:"none",color:C.greenDeep,fontSize:12,cursor:"pointer"}}>editar</button>
+      </div>)}
     </div>}
   </div>;
 }
@@ -22144,6 +22252,7 @@ function Equipe({acoes,session,org,isMobile,versao}){
       <AbasLinha abas={abas} ativa={aba} aoMudar={setAba}/>
 
       {aba==="estrutura"&&comEstrutura&&<EstruturaDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)} parte="niveis" pedirNovo={pedirNivel}/>}
+      {aba==="permissoes"&&comEstrutura&&<PermissoesDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)}/>}
       {aba==="permissoes"&&comEstrutura&&<EstruturaDaEquipe isMobile={isMobile} ehGestor={podeGerir(session)} parte="pessoas"/>}
 
       {/* Disponibilidade da equipe: é aqui que o gestor cobra quem não se
