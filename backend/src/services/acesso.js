@@ -107,7 +107,7 @@ export function alcanceDe(user) {
     const regra = (dono || u.master) ? null : regraDe(orgId, u);
     const sup = u.role === "adm" || u.role === "sdr" || dono || !!u.master;
     const tipo = regra && regra.escopo ? regra.escopo : (sup ? "operacao" : "proprio");
-    if (tipo === "operacao") valor = { tipo, ids: null, fila: true, explicito: !!(regra && regra.escopo) };
+    if (tipo === "operacao") valor = { tipo, ids: null, fila: true, explicito: !!(regra && regra.escopo), ferramentas: (regra && regra.ferramentas) || null };
     else {
       const ids = new Set([u.id]);
       if (tipo === "equipe") {
@@ -121,7 +121,7 @@ export function alcanceDe(user) {
           for (const n of niveis) if (todosNiveis.has(n.id) && n.responsavel_id) ids.add(n.responsavel_id);
         }
       }
-      valor = { tipo, ids, fila: u.role === "sdr", explicito: !!(regra && regra.escopo) };
+      valor = { tipo, ids, fila: u.role === "sdr", explicito: !!(regra && regra.escopo), ferramentas: (regra && regra.ferramentas) || null };
     }
   }
   CACHE.set(user.id, { em: Date.now(), valor });
@@ -157,14 +157,15 @@ export function listarRegras(orgId) {
 }
 
 function limparFerramentas(f) {
-  if (!f || typeof f !== "object") return null;
+  // Nulo ou vazio = "padrão da função" (a tela só manda a tabela quando o gestor liga "Personalizar").
+  if (!f || typeof f !== "object" || !Object.keys(f).length) return null;
   const out = {};
   for (const t of FERRAMENTAS) {
-    const v = f[t.id]; if (!v || typeof v !== "object") continue;
-    const a = {}; for (const ac of t.acoes) if (ac in v) a[ac] = !!v[ac];
-    if (Object.keys(a).length) out[t.id] = a;
+    const v = f[t.id];
+    const a = {}; for (const ac of t.acoes) a[ac] = !!(v && v[ac]);
+    out[t.id] = a;
   }
-  return Object.keys(out).length ? out : null;
+  return out;
 }
 
 export function salvarRegra(orgId, b, quemSalvou) {
@@ -194,4 +195,70 @@ export function apagarRegra(orgId, id) {
   const r = db.prepare("DELETE FROM acesso_regras WHERE id=? AND org_id=?").run(id, orgId);
   limparCache();
   return r.changes ? { ok: true, regras: listarRegras(orgId) } : { erro: "Regra não encontrada.", status: 404 };
+}
+
+/* ===== A TABELA DE FERRAMENTAS VALENDO (entrega B, 28/11/2026) =====
+
+   Sem tabela salva na regra, vale o papel, como sempre. Com tabela salva,
+   ela é a verdade para aquela pessoa: o que está desmarcado é recusado (403),
+   e o que está marcado e o papel não daria passa pelas travas `roles(...)`
+   (o gestor deu de propósito). O que não está na tabela (WhatsApp, repasse,
+   push, hub) continua só com o papel.
+
+   PADRAO é o que cada função faz hoje — é ele que a tela mostra marcado quando
+   ainda não há tabela, para salvar sem tirar nada sem querer. */
+const tudo = () => Object.fromEntries(FERRAMENTAS.map(f => [f.id, Object.fromEntries(f.acoes.map(a => [a, true]))]));
+export function padraoFerramentas(role) {
+  if (role === "adm") return tudo();
+  const m = (o) => Object.fromEntries(FERRAMENTAS.map(f => [f.id, Object.fromEntries(f.acoes.map(a => [a, !!(o[f.id] || []).includes(a)]))]));
+  if (role === "sdr") return m({ painel: ["consultar"], relatorios: ["consultar"], funil: ["consultar", "criar", "editar"],
+    catracas: ["consultar"], imoveis: ["consultar", "criar", "editar"], plantao: ["consultar", "editar"], equipe: ["consultar"],
+    configuracoes: ["consultar", "editar"] });
+  return m({ painel: ["consultar"], relatorios: ["consultar"], funil: ["consultar", "criar", "editar"],
+    imoveis: ["consultar", "criar", "editar"], plantao: ["consultar"] });
+}
+
+/* De qual ferramenta e ação é este pedido; null = a tabela não decide. */
+export function ferramentaDaRota(metodo, caminho) {
+  const M = String(metodo || "GET").toUpperCase(), c = String(caminho || "").split("?")[0].replace(/\/+$/, "") || "/";
+  const porMetodo = (exato) => M === "GET" ? "consultar" : M === "DELETE" ? "excluir" : (M === "POST" && exato) ? "criar" : "editar";
+  const pre = (p) => c === p || c.startsWith(p + "/");
+  if (pre("/leads/lote") || pre("/leads/import")) return { id: "base", acao: M === "GET" ? "consultar" : "editar" };
+  if (c === "/leads/export") return { id: "base", acao: "exportar" };
+  if (c === "/leads") return { id: "funil", acao: M === "POST" ? "criar" : "consultar" };
+  if (/^\/leads\/[^/]+$/.test(c) && M === "DELETE") return { id: "funil", acao: "excluir" };
+  if (/^\/leads\/[^/]+\/(lgpd\/anonimizar|pessoal)$/.test(c) && M === "POST") return { id: "funil", acao: "excluir" };
+  if (pre("/leads") || pre("/tarefas")) return { id: "funil", acao: M === "GET" ? "consultar" : "editar" };
+  if (pre("/painel")) return M === "GET" ? { id: "painel", acao: "consultar" } : null;
+  if (pre("/reports")) return M === "GET" ? { id: "relatorios", acao: "consultar" } : null;
+  if (pre("/distribution/catracas")) return { id: "catracas", acao: porMetodo(c === "/distribution/catracas") };
+  if (pre("/produtos")) return { id: "imoveis", acao: porMetodo(c === "/produtos") };
+  if (pre("/site")) return { id: "cetrolab", acao: M === "GET" ? "consultar" : "editar" };
+  if (pre("/plantoes")) return { id: "plantao", acao: porMetodo(true) };
+  if (pre("/marketing") || pre("/redes")) return { id: "marketing", acao: porMetodo(true) };
+  if (pre("/auth/users")) return { id: "equipe", acao: porMetodo(c === "/auth/users") };
+  if (pre("/estrutura") && c !== "/estrutura/meu-alcance") return { id: "equipe", acao: M === "GET" ? "consultar" : "editar" };
+  // Configurações: só a escrita é conferida — a leitura alimenta telas do dia a dia (mensagens prontas, selo do WhatsApp, etapas).
+  if ((pre("/config") || pre("/pipelines") || pre("/tags") || pre("/portais") || pre("/anuncios-meta")) && M !== "GET")
+    return { id: "configuracoes", acao: "editar" };
+  return null;
+}
+
+/* A tabela de quem pergunta, ou null (vale o papel). Usa o cache do alcance. */
+export function ferramentasDe(user) {
+  if (!user || !user.id) return null;
+  alcanceDe(user);
+  const c = CACHE.get(user.id);
+  return c && c.valor ? c.valor.ferramentas || null : null;
+}
+
+/* { permitido, liberado, nome } — liberado = passa por cima do papel. */
+export function conferirFerramenta(user, metodo, caminho) {
+  const f = ferramentaDaRota(metodo, caminho);
+  if (!f) return { permitido: true, liberado: false };
+  const tab = ferramentasDe(user);
+  if (!tab) return { permitido: true, liberado: false };
+  const ok = !!(tab[f.id] && tab[f.id][f.acao]);
+  const nome = (FERRAMENTAS.find(x => x.id === f.id) || {}).nome || f.id;
+  return { permitido: ok, liberado: ok, nome, acao: f.acao };
 }

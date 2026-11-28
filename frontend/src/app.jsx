@@ -8627,7 +8627,7 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
      da operação vê no Funil os leads desse alcance, com o dono no card. A
      caixa do Atender continua sendo a dele. */
   const [alcance,setAlcance]=useState(null);
-  useEffect(()=>{ if(supervisor) return; api("/estrutura/meu-alcance").then(setAlcance).catch(()=>{}); },[session.id,org&&org.id]);
+  useEffect(()=>{ setAlcance(null); if(session.master) return; api("/estrutura/meu-alcance").then(setAlcance).catch(()=>{}); },[session.id,org&&org.id]);
   const funilAmplo=supervisor||(alcance&&alcance.tipo!=="proprio");
   /* A aba aberta também é escolha da pessoa. Sem guardar, voltar do segundo
      plano no celular jogava todo mundo de volta na tela inicial do papel dele,
@@ -8872,6 +8872,10 @@ function Workspace({session,setSession,mudarMenuOrdem,equipe,conecta,leads,fila,
     .map(item=>item[0]==="marketing"&&!(org&&org.marketing_liberado)?[item[0],item[1],item[2],item[3],SO_FORMULARIOS]:item)
     /* As catracas de produto moram em ABAS dentro da tela da Catraca
        (13/11/2026, layout do protótipo CETRO): o item do menu é um só. */
+    /* A TABELA DE FERRAMENTAS (aba Permissões, 28/11/2026): o que a gestão
+       desmarcou em "Consultar" sai do menu. O servidor recusa do mesmo jeito. */
+    .filter(item=>{ const t=alcance&&alcance.ferramentas; const f=FERRAMENTA_DO_MENU[item[0]];
+      return !t||!f||!t[f]||t[f].consultar!==false; })
     ;
   /* A ORDEM QUE A PESSOA ESCOLHEU (05/10/2026): o Claude reorganiza o menu de
      quem pede — só a posição, os nomes continuam vindo daqui. Por último,
@@ -11470,6 +11474,12 @@ function FichaVenda({lead,onSalvar,lado,aoAbrir,acoes,inicioAberto=false}){
       <button onClick={()=>setAberto(false)} style={{border:`1px solid ${C.line}`,background:C.card,color:C.sub,borderRadius:10,padding:"9px 12px",fontSize:12.5,cursor:"pointer"}}>Cancelar</button>
     </div>
     <div style={{color:C.faint,fontSize:10.5,marginTop:7,lineHeight:1.4}}>{interna?<React.Fragment>Ao salvar, o lead vai para a etapa de ganho do funil e entra no seu relatório.</React.Fragment>:<React.Fragment>Ao salvar, o lead vai para a etapa <b>Venda</b> e entra no seu relatório.</React.Fragment>}</div>
+    {/* DESFAZER (28/11/2026, Ali: "venda registrada errada"): o servidor sempre
+        aceitou valor vazio como "desfazer", mas a tela não tinha o botão. A
+        auditoria guarda o que foi desfeito; a etapa não muda sozinha. */}
+    {v&&<button onClick={async()=>{ if(!window.confirm("Desfazer o registro desta venda? Ela sai do VGV e dos relatórios. A etapa do lead não muda — mova à mão se precisar.")) return;
+        setErro(""); setSalvando(true); try{ await onSalvar({valor:null}); setAberto(false); }catch(e){ setErro(e.message||"Não consegui desfazer."); } finally{ setSalvando(false); } }}
+      style={{marginTop:10,border:"none",background:"none",color:C.hot,fontSize:11.5,fontWeight:600,cursor:"pointer",padding:0}}>Desfazer este registro de venda</button>}
   </div>;
 }
 
@@ -12150,7 +12160,7 @@ function PopupLead({leadId,leads,acoes,abrirConversa,aoFechar,isMobile,ocultar,s
           style={{display:"block",background:"transparent",border:"none",padding:0,cursor:"pointer",textAlign:"left",fontFamily:DISPLAY,fontSize:21,fontWeight:800,color:C.ink,margin:"7px 0"}}>
           {l.negociacao?fmtMoeda(l.negociacao):"—"}</button>}
     </React.Fragment>}
-    {l.venda&&<p style={{fontSize:11,color:C.greenDeep,fontWeight:700,margin:"15px 0 0"}}>Venda registrada</p>}
+    {l.venda&&<button onClick={()=>setAba("imoveis")} title="Ver e editar a venda" style={{display:"block",fontSize:11,color:C.greenDeep,fontWeight:700,margin:"15px 0 0",background:"none",border:"none",padding:0,cursor:"pointer",textDecoration:"underline",fontFamily:FONT}}>Venda registrada · editar</button>}
 
     {!l.venda&&<div style={{display:"flex",gap:9,flexWrap:"wrap",marginTop:8}}>
       <button onClick={()=>{setAba("imoveis");setSimulando(false);setPerdendo(false);}} style={tinyPrim}>Vendi</button>
@@ -22041,6 +22051,8 @@ function EstruturaDaEquipe({isMobile,ehGestor,parte,pedirNovo}){
    passos: para quem (uma pessoa, escolhida pela função, ou um grupo da
    estrutura), quais leads vê, os indicadores (só pessoa) e o que pode fazer
    em cada ferramenta. Sem regra, vale o padrão da função. */
+const FERRAMENTA_DO_MENU={dashboard:"painel",funil:"funil",atendimento:"funil",catraca:"catracas",imoveis:"imoveis",cetrolab:"cetrolab",
+  plantao:"plantao",gestao:"relatorios",marketing:"marketing",base:"base",equipe:"equipe",config:"configuracoes"};
 const ESCOPOS_TEXTO={
   "":["Padrão da função","Gestor e atendente veem os leads da operação; corretor vê a carteira própria."],
   proprio:["Carteira própria","Só os leads que estão no nome da pessoa."],
@@ -22052,11 +22064,11 @@ function PermissoesDaEquipe({isMobile,ehGestor}){
   const [est,setEst]=useState(null), [cfg,setCfg]=useState(null), [erro,setErro]=useState(""), [ok,setOk]=useState("");
   const [modo,setModo]=useState("pessoa"), [funcao,setFuncao]=useState("corretor");
   const [alvo,setAlvo]=useState(""), [quem,setQuem]=useState("todos");
-  const [escopo,setEscopo]=useState(""), [equipes,setEquipes]=useState([]), [ferr,setFerr]=useState({});
+  const [escopo,setEscopo]=useState(""), [equipes,setEquipes]=useState([]), [ferr,setFerr]=useState({}), [personalizar,setPersonalizar]=useState(false);
   const carregar=()=>Promise.all([api("/estrutura"),api("/estrutura/permissoes")]).then(([e,c])=>{setEst(e);setCfg(c);}).catch(e=>setErro(e.message));
   useEffect(()=>{carregar();},[]);
   const regraAtual=cfg&&alvo?cfg.regras.find(r=>r.alvo_tipo===modo&&r.alvo_id===alvo&&(modo==="pessoa"||r.quem===quem)):null;
-  useEffect(()=>{ setEscopo(regraAtual?regraAtual.escopo||"":""); setEquipes(regraAtual?regraAtual.equipes||[]:[]); setFerr(regraAtual&&regraAtual.ferramentas||{}); setOk(""); },[alvo,quem,modo,regraAtual&&regraAtual.id]);
+  useEffect(()=>{ setEscopo(regraAtual?regraAtual.escopo||"":""); setEquipes(regraAtual?regraAtual.equipes||[]:[]); setFerr(regraAtual&&regraAtual.ferramentas||{}); setPersonalizar(!!(regraAtual&&regraAtual.ferramentas)); setOk(""); },[alvo,quem,modo,regraAtual&&regraAtual.id]);
   if(erro&&!est) return <div style={{color:C.hot,fontSize:12.5}}>{erro}</div>;
   if(!est||!cfg) return null;
   const nomeDe=(id)=>(est.pessoas.find(p=>p.id===id)||{}).name||"—";
@@ -22071,7 +22083,7 @@ function PermissoesDaEquipe({isMobile,ehGestor}){
   const ent={fontSize:isMobile?16:13,border:"1px solid #dce4db",background:"#fff",borderRadius:10,padding:"0 10px",height:36,color:C.ink,outline:"none",minWidth:isMobile?"100%":240};
   const titulo=(n,t)=><div style={{display:"flex",alignItems:"center",gap:8,margin:"18px 0 8px"}}><span style={{width:22,height:22,borderRadius:11,background:C.greenDeep,color:"#fff",fontSize:11.5,fontWeight:700,display:"grid",placeItems:"center",flexShrink:0}}>{n}</span><b style={{color:C.ink,fontSize:13.5,fontFamily:DISPLAY}}>{t}</b></div>;
   const salvar=async()=>{ setErro(""); setOk("");
-    try{ const r=await api("/estrutura/permissoes",{method:"PUT",body:{alvo_tipo:modo,alvo_id:alvo,quem,escopo:escopo||null,equipes,ferramentas:ferr}}); setCfg(c=>({...c,regras:r.regras})); setOk("Permissões salvas."); }
+    try{ const r=await api("/estrutura/permissoes",{method:"PUT",body:{alvo_tipo:modo,alvo_id:alvo,quem,escopo:escopo||null,equipes,ferramentas:personalizar?ferr:null}}); setCfg(c=>({...c,regras:r.regras})); setOk("Permissões salvas."); }
     catch(e){ setErro(e.message); } };
   const voltarPadrao=async(id)=>{ setErro(""); try{ const r=await api(`/estrutura/permissoes/${id}`,{method:"DELETE"}); setCfg(c=>({...c,regras:r.regras})); setOk("Voltou ao padrão da função."); }catch(e){setErro(e.message);} };
   const descricao=(r)=>(r.alvo_tipo==="pessoa"?nomeDe(r.alvo_id):`${nivelDe(r.alvo_id)} · ${QUEM_TEXTO[r.quem]||r.quem}`);
@@ -22106,14 +22118,24 @@ function PermissoesDaEquipe({isMobile,ehGestor}){
       {modo==="pessoa"&&<React.Fragment>{titulo(3,"Indicadores")}
         <div style={{color:C.sub,fontSize:12.5}}>A participação e o nível de cada pessoa ficam na lista logo abaixo.</div></React.Fragment>}
       {titulo(modo==="pessoa"?4:3,"O que pode fazer em cada ferramenta")}
-      <div style={{background:"#FFF7E6",border:"1px solid #F3D99A",color:"#7A5A12",borderRadius:10,padding:"8px 10px",fontSize:12,marginBottom:8}}>Esta tabela passa a valer na próxima atualização. Por enquanto vale o padrão da função.</div>
-      <div style={{overflowX:"auto"}}><table style={{borderCollapse:"collapse",width:"100%",minWidth:520,fontSize:12.5}}>
+      {(()=>{
+        const papelAlvo=modo==="pessoa"?((est.pessoas.find(p=>p.id===alvo)||{}).role||"corretor"):({gestor:"adm",corretor:"corretor",atendente:"sdr"}[quem]||"adm");
+        const padrao=(cfg.padroes||{})[papelAlvo]||{};
+        const tela=(f)=>!!(padrao[f.id]&&padrao[f.id].consultar)||papelAlvo==="adm";
+        return <React.Fragment>
+        <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:C.ink,cursor:"pointer",marginBottom:8}}>
+          <input type="checkbox" checked={personalizar} disabled={!ehGestor} onChange={e=>{ const on=e.target.checked; setPersonalizar(on); if(on&&!Object.keys(ferr).length) setFerr(JSON.parse(JSON.stringify(padrao))); }}/>
+          Personalizar o que pode fazer <span style={{color:C.faint,fontSize:11.5}}>· desligado = o padrão da função</span></label>
+        <div style={{overflowX:"auto",opacity:personalizar?1:.55}}><table style={{borderCollapse:"collapse",width:"100%",minWidth:520,fontSize:12.5}}>
         <thead><tr style={{color:"#85937b",textAlign:"left"}}><th style={{padding:"6px 8px",fontWeight:600}}>Ferramenta</th>{["Consultar","Criar","Editar","Excluir","Exportar"].map(a=><th key={a} style={{padding:"6px 8px",fontWeight:600,textAlign:"center"}}>{a}</th>)}</tr></thead>
-        <tbody>{cfg.ferramentas.map(f=><tr key={f.id} style={{borderTop:"1px solid #edf1e6"}}>
-          <td style={{padding:"7px 8px",color:C.ink}}>{f.nome}</td>
+        <tbody>{cfg.ferramentas.map(f=>{ const vis=personalizar?ferr:padrao; const semTela=!tela(f);
+          return <tr key={f.id} style={{borderTop:"1px solid #edf1e6"}} title={semTela?"Esta tela não existe no menu desta função; aqui só dá para tirar.":""}>
+          <td style={{padding:"7px 8px",color:semTela?C.faint:C.ink}}>{f.nome}</td>
           {["consultar","criar","editar","excluir","exportar"].map(a=><td key={a} style={{textAlign:"center",color:C.faint}}>{f.acoes.includes(a)
-            ?<input type="checkbox" disabled aria-label={`${f.nome}: ${a}`} checked={!!(ferr[f.id]&&ferr[f.id][a])} onChange={()=>{}}/>:"—"}</td>)}
-        </tr>)}</tbody></table></div>
+            ?<input type="checkbox" disabled={!personalizar||!ehGestor||(semTela&&!(vis[f.id]&&vis[f.id][a]))} aria-label={`${f.nome}: ${a}`} checked={!!(vis[f.id]&&vis[f.id][a])}
+              onChange={e=>{ const v=e.target.checked; setFerr(o=>{ const n={...o,[f.id]:{...(o[f.id]||{}),[a]:v}}; if(a==="consultar"&&!v) for(const x of f.acoes) n[f.id][x]=false; if(a!=="consultar"&&v) n[f.id].consultar=true; return n; }); }}/>:"—"}</td>)}
+        </tr>;})}</tbody></table></div>
+        </React.Fragment>;})()}
       {erro&&<div style={{color:C.hot,fontSize:12.5,marginTop:10}}>{erro}</div>}
       {ok&&<div style={{color:C.green,fontSize:12.5,marginTop:10}}>{ok}</div>}
       {ehGestor&&<div style={{display:"flex",gap:8,marginTop:14,flexWrap:"wrap"}}>
